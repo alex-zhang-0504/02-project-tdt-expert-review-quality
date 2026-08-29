@@ -1,0 +1,19 @@
+[project]
+name = "tdt-expert-review-scoring"
+version = "0.1.0"
+description = "TDT review expert scoring system"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.139.2",
+    "openpyxl==3.1.5",
+    "python-multipart==0.0.32",
+    "uvicorn==0.51.0",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["tdt_scoring*"]

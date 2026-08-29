@@ -1,0 +1,17 @@
+{
+  "expert_name": "虚拟专家甲",
+  "sessions": [
+    {"stage": "TDR1", "process_score": 30},
+    {"stage": "TDR2", "process_score": 15},
+    {"stage": "TDR3", "process_score": 30}
+  ],
+  "expected_process_average": 25.0,
+  "contribution_answers": {
+    "fulfillment_collaboration": "medium",
+    "professional_judgement_guidance": "high",
+    "outstanding_contribution": "low"
+  },
+  "expected_contribution_score": 26,
+  "expected_total_score": 51.0,
+  "expected_grade": "D"
+}

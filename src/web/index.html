@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TDT评审专家打分</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/styles.css?build=__BUILD_ID__" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="sticky-head">
+        <div class="head-inner">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">TDT EXPERT REVIEW</p>
+              <h1>评审专家打分</h1>
+            </div>
+            <span class="project-summary" id="project-summary">尚未读取评审表</span>
+            <div class="spacer"></div>
+            <div class="status-pill" id="service-status" role="status" aria-live="polite">检查服务中</div>
+          </div>
+          <div class="toolrow">
+            <nav class="module-tabs" aria-label="打分流程">
+              <button class="module-tab is-active" data-step="1" aria-label="读取评审表"><span class="module-label-full">读取评审表</span><span class="module-label-short">读取</span></button>
+              <button class="module-tab" data-step="2" aria-label="客观分数考核"><span class="module-label-full">客观分数考核</span><span class="module-label-short">客观</span></button>
+              <button class="module-tab" data-step="3" aria-label="主观分数考核"><span class="module-label-full">主观分数考核</span><span class="module-label-short">主观</span></button>
+              <button class="module-tab" data-step="4" aria-label="评分结果"><span class="module-label-full">评分结果</span><span class="module-label-short">结果</span></button>
+            </nav>
+            <div class="expert-nav" aria-label="评审专家">
+              <button class="scroll-button" id="expert-scroll-left" type="button" aria-label="向左滚动">‹</button>
+              <div class="expert-slider" id="expert-list"><span class="expert-placeholder">读取评审表后显示评审专家</span></div>
+              <button class="scroll-button" id="expert-scroll-right" type="button" aria-label="向右滚动">›</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+          <section class="panel" id="import-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-index">步骤 1</p>
+                <h2>读取TDRX评审表</h2>
+                <p>两种来源进入同一套解析、校验与计分流程。</p>
+              </div>
+            </div>
+
+            <div class="source-tabs" role="tablist">
+              <button class="source-tab is-active" data-source="local">本地Excel</button>
+              <button class="source-tab" data-source="feishu">飞书归档文件夹</button>
+            </div>
+
+            <div class="identity-grid assessment-window">
+              <label class="field"><span>上次数据冻结日期</span><input id="window-start-exclusive" type="date" /></label>
+              <label class="field"><span>本次数据冻结日期</span><input id="window-end-inclusive" type="date" /></label>
+              <div class="usage-note"><strong>统计口径</strong><p>统计上次冻结日之后至本次冻结日，只纳入已完成TDR3的项目。试算可同时留空。</p></div>
+            </div>
+
+            <div class="source-pane" id="local-pane">
+              <label class="upload-box" id="upload-box" for="workbook-file">
+                <input id="workbook-file" type="file" multiple accept=".xlsx" />
+                <span class="upload-icon">↑</span>
+                <strong>选择或拖入一份或多份 .xlsx 评审报告</strong>
+                <small id="file-name">支持一次上传多个项目，不修改、不覆盖原始评审表</small>
+              </label>
+              <button class="primary-button" id="import-local" data-service-action="true" disabled>读取并检查评审表</button>
+            </div>
+
+            <div class="source-pane is-hidden" id="feishu-pane">
+              <label class="field">
+                <span>飞书归档文件夹URL</span>
+                <input id="feishu-url" type="url" placeholder="https://example.feishu.cn/drive/folder/..." />
+              </label>
+              <div class="usage-note">
+                <strong>文件夹批量读取</strong>
+                <p>粘贴一个归档文件夹URL。系统只读取第一层电子表格和表格快捷方式；任一候选报告失败都会阻止完整年度结果。单个表格或Wiki URL仍兼容。</p>
+              </div>
+              <div class="auth-row">
+                <span id="feishu-auth-status">正在检查飞书授权</span>
+                <button class="secondary-button" id="authorize-feishu" data-service-action="true" type="button" disabled>授权飞书读取</button>
+                <button class="secondary-button is-hidden" id="complete-feishu-auth" data-service-action="true" type="button" disabled>我已完成授权</button>
+              </div>
+              <button class="primary-button" id="import-feishu" data-service-action="true" disabled>读取并检查评审表</button>
+            </div>
+
+            <div class="notice is-hidden" id="notice" role="status"></div>
+            <section class="check-card is-hidden" id="check-card" aria-live="polite">
+              <div class="check-heading">
+                <div><p class="section-index">文档质量检查</p><h3 id="check-title">正在检查评审报告</h3></div>
+                <span class="check-state" id="check-state">检查中</span>
+              </div>
+              <div class="report-list" id="report-list"></div>
+              <div class="batch-summary usage-note is-hidden" id="batch-summary"></div>
+              <ol class="check-progress" id="check-progress">
+                <li data-check="source"><span></span>读取数据来源</li>
+                <li data-check="extension"><span></span>检查文件扩展名</li>
+                <li data-check="file_limits"><span></span>检查文件非空与大小</li>
+                <li data-check="xlsx_structure"><span></span>验证XLSX文件结构</li>
+                <li data-check="workbook_parse"><span></span>解析Excel工作簿</li>
+                <li data-check="sheet_inventory"><span></span>读取工作表清单</li>
+                <li data-check="sheet_filter"><span></span>排除示例与空白表</li>
+                <li data-check="section_structure"><span></span>检查三个业务区块</li>
+                <li data-check="signoff_headers"><span></span>检查会签表头</li>
+                <li data-check="problem_headers"><span></span>检查问题表头</li>
+                <li data-check="effective_sessions"><span></span>识别正式评审场次</li>
+                <li data-check="project_name"><span></span>读取标题中的项目名称</li>
+                <li data-check="project_code"><span></span>读取标题中的项目编码</li>
+                <li data-check="stage"><span></span>检查阶段枚举与重复</li>
+                <li data-check="meeting_date"><span></span>检查会议日期</li>
+                <li data-check="absent_reviewers"><span></span>读取缺席评审人名单</li>
+                <li data-check="meeting_conclusion"><span></span>检查会议评审结论</li>
+                <li data-check="signoff_people"><span></span>检查角色与专家名单</li>
+                <li data-check="attendance"><span></span>按缺席名单判定出勤</li>
+                <li data-check="signoff"><span></span>检查有效会签结果</li>
+                <li data-check="opinion"><span></span>提取评审意见证据</li>
+                <li data-check="problem_number"><span></span>检查问题编号唯一性</li>
+                <li data-check="problem_content"><span></span>检查问题字段与三要素</li>
+                <li data-check="score"><span></span>检查评分汇总与边界</li>
+              </ol>
+              <div class="issue-list" id="issue-summary"></div>
+              <label class="warning-confirm is-hidden" id="warning-confirm">
+                <input id="warning-acknowledged" type="checkbox" />
+                <span>我已阅读并确认以上提醒，继续进入评分。</span>
+              </label>
+              <button class="primary-button" id="continue-analysis" type="button" disabled>进入客观分数考核</button>
+            </section>
+          </section>
+
+          <section class="panel is-hidden" id="analysis-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-index">步骤 2</p>
+                <h2>维度一：客观分数考核</h2>
+                <p id="analysis-summary"></p>
+              </div>
+              <button class="ghost-button" id="restart">重新读取</button>
+            </div>
+
+            <div class="expert-detail" id="expert-detail"></div>
+          </section>
+
+          <section class="panel is-hidden" id="questionnaire-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-index">步骤 3</p>
+                <h2>维度二：主观分数考核</h2>
+                <p>考核内容为专业价值贡献。回顾专家在本次窗口内全部已完成项目，每题只选择一个最符合的选项，系统不预选。</p>
+              </div>
+              <div class="selected-expert" id="selected-expert"></div>
+            </div>
+            <div class="standalone-identity is-hidden" id="standalone-identity">
+              <div>
+                 <strong>独立进行主观分数问卷</strong>
+                <p>没有导入评审表也可以先评分。此时只生成专业价值贡献分，不计算项目总分。</p>
+              </div>
+              <div class="identity-grid">
+                <label class="field"><span>项目编码</span><input id="standalone-project-code" type="text" /></label>
+                <label class="field"><span>项目名称（选填）</span><input id="standalone-project-name" type="text" /></label>
+                <label class="field"><span>专家姓名</span><input id="standalone-expert-name" type="text" /></label>
+              </div>
+              <button class="secondary-button" id="start-standalone-questionnaire" type="button">开始独立问卷</button>
+            </div>
+            <div class="evidence-strip is-hidden" id="evidence-strip"></div>
+            <form id="questionnaire"></form>
+            <button class="primary-button is-hidden" id="calculate-total" data-service-action="true" disabled>提交</button>
+          </section>
+
+          <section class="panel is-hidden" id="result-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-index">步骤 4</p>
+                <h2>评分结果</h2>
+                <p>汇总展示全部评审专家；客观分数和主观分数均完成后计算年度总分，超过100分按100分计。</p>
+              </div>
+            </div>
+            <div class="score-result" id="score-result"></div>
+          </section>
+      </main>
+    </div>
+    <div class="copyright-mark" aria-hidden="true">Designed by Siyuan for TRD</div>
+    <script src="/static/app.js?build=__BUILD_ID__" defer></script>
+  </body>
+</html>

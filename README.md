@@ -1,0 +1,108 @@
+# TDT评审专家质量考评（试用版 v0.1）
+
+用于批量读取TDRX评审报告、自动计算年度客观分数、收集主观分数问卷，并由后台生成年度总分与等级。
+
+当前产品版本为**试用版 v0.1**。Python安装包内部版本使用 `0.1.0`；系统已实现按年度《考评办法V0.4》的客观分数，主观问卷继续沿用V0.3，待下周专项讨论后再细化。
+
+## 当前能力
+
+- 本地输入支持一次选择或拖入多份 `.xlsx` 评审报告；飞书正式批量入口支持一个归档文件夹URL，系统枚举第一层电子表格和表格快捷方式，单个电子表格或Wiki URL继续兼容。两种来源进入同一解析和计分流程。
+- 最新版有效Sheet至少需要3名不同评审人具有已记录会签结果；允许值为Go、Go with Risk、Redirect或`-`。`-`证明项目经理已记录该评审人未给结果，可计入Sheet有效性判断，但结果会签仍计0分。
+- 维度一「客观分数考核」共61分：评审过程表现55分（出勤 `15／0`、会签 `15／0`、评审意见 `25／15／0`）＋年度服务贡献6分（评审参与度3分＋问题贡献度3分）。
+- 年度服务贡献两个子项分别按去重项目数取三个不同数量档计 `3／2／1` 分；项目数小于3计0，并列项目数同分。
+- 维度二「主观分数考核」评价专业价值贡献，由技术项目经理完成三道单选题：履职与协作 `10／6／0`、专业判断与指导 `20／14／0`、突出贡献 `10／0`；系统不预选答案。
+- 顶栏提供四个模块和专家横向导航；评审表检查通过后可自由切换模块和专家，未完成问卷也能返回，同一专家的问卷草稿会在页面切换时保留。
+- 客观分数和主观分数可以独立完成。没有评审表时可手工填写项目编码和专家姓名，只计算主观分数，不生成虚假总分。
+- 主观问卷可以暂存作答状态；只有点击「提交」且后台计算成功后，专家分数才登记到评分结果。
+- 页面每5秒核验本地服务的项目身份、源码构建和进程实例；服务停止、版本不一致或后台重启时会立即标红，并禁用读取、授权和提交等后台操作，避免把旧页面误当成可用系统。
+- 专业判断与指导选择0分时必须勾选原因标签并填写100字以内的「0分原因和导致影响」；突出贡献默认0分，选择10分时必须填写100字以内的加分原因。
+- 本地Excel支持点击选择和拖拽导入，不再提供容易混淆的本地绝对路径输入；损坏文件只在自己的报告卡片中报错，不吞掉同批其他报告的检查结果。
+- 读取模块为每份报告显示独立状态卡，并用24张检查卡核对文件、工作簿结构、正式Sheet、标题信息、会签、意见证据、问题记录和评分边界；切换报告时检查内容同步变化，不再设置单项至少0.5秒的强制停留。
+- 评分结果以全员表格展示客观分数、主观分数、年度总分、等级和完成状态，未完成专家标记为「待完成」。
+- 可填写上次与本次数据冻结日期；系统按前开后闭统计，只纳入已完成TDR3的项目。试算时可同时留空。
+- 年度过程分先计算同一专家在每个项目内的有效TDR场次均分，再按项目等权平均；同一技术项目经理对同一专家只填写一次主观问卷。
+- 等级为 `S＝100`、`A≥90且＜100`、`B≥75且＜90`、`C≥60且＜75`、`D＜60`。
+
+> 不计算同一场评审中多位专家的横向平均分。事实卡主视图只展示直接影响考核的过程分、有效参评项目、问题贡献项目、客观分数和阻断性异常。
+
+## 运行
+
+需要Python 3.12或更高版本。首次运行：
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m uvicorn tdt_scoring.api:app --host 127.0.0.1 --port 8865
+```
+
+浏览器打开 `http://127.0.0.1:8865/` 。
+
+飞书批量读取只需粘贴一个归档文件夹URL。第一版只读取文件夹第一层，不递归子文件夹；第一层所有电子表格和指向电子表格的快捷方式都视为候选报告，因此归档目录只应放正式TDRX报告。系统会显示发现、候选、成功、失败和排除数量，任一候选报告读取或解析失败都会阻止完整年度结果，禁止静默跳过。单个电子表格或指向电子表格的Wiki URL继续兼容。首次使用点击页面中的「授权飞书读取」，按提示授予表格读取、文档导出、云盘只读和元数据只读权限。当前Windows用户需要已安装 `lark-cli` 且拥有目标文件夹及候选报告访问权，凭据不会写入项目。
+
+Windows下也可以在完整项目文件夹中双击 `start.cmd`。如果拿到的是压缩包，必须先选择「全部解压」，不能在压缩包预览窗口中直接运行。脚本会自动选择 `py`、`python` 或 `python3` 中可用的Python 3.12及以上版本，在项目内按需创建 `.venv`、安装依赖并打开系统。本项目固定使用项目身份 `tdt-expert-review-quality` 和专属端口段 `8865—8899`；只有运行中服务的项目身份与当前源码构建标识均一致时才会复用，不会与01项目的 `8710—8719` 冲突。打开地址会携带当前构建标识，强制浏览器执行新导航。
+
+使用期间必须保持启动窗口运行。服务日志追加到 `output/local-service.log`；如果后台退出，启动窗口会保留错误码和日志路径，不再直接消失。页面显示「服务已断开」「服务版本不匹配」或「服务已重新启动」时，重新双击 `start.cmd`，只使用新打开的页面，并重新导入评审表。当前分析和问卷登记保存在本地进程内，后台重启后不会沿用旧页面中的分析编号。
+
+运行验证：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m compileall -q src tests
+node --check src/web/app.js
+```
+
+## 开发目录与文件功能
+
+| 路径 | 功能 |
+|---|---|
+| `AGENTS.md` | 本项目协作约定与业务红线。 |
+| `CONTEXT.md` | 项目术语的一句话定义。 |
+| `ROADMAP.md` | 当前阶段、已完成、待办、阻塞和最近验证。 |
+| `pyproject.toml` | Python版本、运行依赖和打包配置。 |
+| `start.cmd` | Windows双击启动入口，首次运行时自动准备项目内虚拟环境；运行日志写入 `output/local-service.log`，服务退出后保留窗口和错误码。 |
+| `src/tdt_scoring/api.py` | FastAPI入口，提供页面、导入、问卷和最终计分接口；健康接口同时返回项目、构建和当前服务进程实例标识。 |
+| `src/tdt_scoring/build_info.py` | 根据后端与前端运行文件生成源码构建标识，用于防止启动脚本误复用旧服务。 |
+| `src/tdt_scoring/launcher.py` | 检查本项目专属的8865至8899端口，优先复用当前构建，否则选择空闲端口启动。 |
+| `src/tdt_scoring/models.py` | 评审场次、会签、问题、专家项目分等内部数据结构。 |
+| `src/tdt_scoring/excel_reader.py` | 读取Excel工作簿，定位三个业务区块并解析有效评审场次。 |
+| `src/tdt_scoring/validation.py` | 校验枚举、会签、代理标记、问题编号和跨Sheet阶段冲突。 |
+| `src/tdt_scoring/scoring.py` | 计算客观分数、年度服务贡献、主观分数、总分和等级。 |
+| `src/tdt_scoring/questionnaire.py` | 定义主观分数三道题、各题档位分值及专业判断典型情形参考。 |
+| `src/tdt_scoring/service.py` | 编排数据源、解析、计分并在本地进程中保存当前分析。 |
+| `src/tdt_scoring/sources/local_excel.py` | 校验并读取用户上传的本地Excel字节流。 |
+| `src/tdt_scoring/sources/feishu_document.py` | 校验飞书URL、枚举归档文件夹第一层、解析表格快捷方式，并通过当前用户的 `lark-cli` 逐份导出临时 `.xlsx` 后复用同一解析器。 |
+| `src/generate_virtual_tdrx.py` | 在不改动模板其他组成部分的前提下，为TDR1／TDR2／TDR3写入虚拟训练数据。 |
+| `src/web/index.html` | 商务蓝、Numbers风格单页操作界面的结构。 |
+| `src/web/styles.css` | 两行顶栏、模块／专家导航、检查动效、结果表格及响应式样式。 |
+| `src/web/app.js` | 四模块切换、专家联动、导入检查、问卷草稿、全员结果渲染和本地服务持续健康校验。 |
+| `tests/workbook_factory.py` | 在内存中生成最小TDRX测试工作簿。 |
+| `tests/test_excel_reader.py` | 验证工作簿解析、示例Sheet跳过、日期兼容、代理归属和意见判定。 |
+| `tests/test_validation.py` | 验证异常数据校验规则。 |
+| `tests/test_scoring.py` | 验证过程分、服务贡献去重与排名、冻结窗口、主观分数、总分和档位边界。 |
+| `tests/test_service.py` | 验证导入、分析保存和后台最终计分链路。 |
+| `tests/test_api.py` | 验证没有客观事实时仍可独立计算主观分数。 |
+| `tests/test_launcher.py` | 验证旧实例隔离、当前构建复用与空闲端口选择。 |
+| `tests/test_start_script.py` | 验证Python兼容选择、压缩包误运行防护、CRLF行尾、日志和服务退出窗口保留。 |
+| `tests/test_virtual_training_workbook.py` | 验证虚拟训练报告可解析、跨场次得分符合预期且只改动三个目标工作表。 |
+| `tests/fixtures/virtual-expert-three-sessions.json` | 同一虚拟专家三次评审的固定测试期望。 |
+| `data/2026-08-11-virtual-tdrx-review-training-v0.1.xlsx` | 基于正式模板生成的虚拟TDR1／TDR2／TDR3评审报告，用于打分系统训练与回归。 |
+| `docs/tdr-expert-review-quality-assessment-by-project-v0.2.md` | 按项目结束后评分的历史规则、档位和业务口径。 |
+| `docs/tdrx-review-and-score-data-spec-by-project-v0.2.md` | 按项目版字段、枚举、公式和AI校验规范。 |
+| `docs/tdr-expert-review-quality-assessment-by-year-v0.4.md` | 年度集中考评方案；客观分数已更新，主观问卷暂沿用V0.3。 |
+| `docs/tdrx-review-and-score-data-spec-by-year-v0.4.md` | 简版事实卡、客观证据字段、问卷、汇总公式和校验规范。 |
+| `docs/tdrx-form-change-record-v1.0.md` | 评审表结构改造与历史验证记录。 |
+| `docs/TDT技术项目_TDRX评审报告（模板v0.1）_2026-08-11.xlsx` | 可导入的示例与TDR1／TDR2／TDR3空表模板。 |
+| `archive/` | 已停止维护的历史版本，不作为当前规则或字段依据。 |
+
+## 规则文档入口
+
+| 想知道 | 文件 |
+|---|---|
+| 现有系统的按项目评分规则 | [按项目考评办法V0.2](docs/tdr-expert-review-quality-assessment-by-project-v0.2.md) |
+| 现有系统的字段与公式 | [按项目数据规范V0.2](docs/tdrx-review-and-score-data-spec-by-project-v0.2.md) |
+| 待确认的年度集中评分方案 | [按年度考评办法V0.4](docs/tdr-expert-review-quality-assessment-by-year-v0.4.md) |
+| 年度事实卡、问卷与汇总规则 | [按年度数据规范V0.4](docs/tdrx-review-and-score-data-spec-by-year-v0.4.md) |
+| 当前开发进度 | [ROADMAP](ROADMAP.md) |
+| 术语定义 | [CONTEXT](CONTEXT.md) |
+
+同一计分周期内规则冲突时以对应《考评办法》为准。现有系统的客观分数以年度V0.4为实现基线，主观问卷暂沿用年度V0.3。
