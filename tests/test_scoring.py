@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import unittest
-from datetime import date
 from pathlib import Path
 
 from tdt_scoring.excel_reader import read_workbook
@@ -323,28 +322,6 @@ class ScoringTests(unittest.TestCase):
 
         self.assertEqual(1, annual["虚拟专家甲"].participation_project_count)
         self.assertEqual(0, annual["虚拟专家乙"].participation_project_count)
-
-    def test_assessment_window_is_start_exclusive_and_end_inclusive(self) -> None:
-        sessions = []
-        for code, meeting_date in (
-            ("P001", date(2025, 1, 1)),
-            ("P002", date(2025, 1, 2)),
-            ("P003", date(2025, 12, 31)),
-            ("P004", date(2026, 1, 1)),
-        ):
-            workbook = build_v04_workbook(
-                [{"stage": "TDR3", "meeting_date": meeting_date}],
-                project=f"项目{code}（{code}）",
-            )
-            sessions.extend(read_workbook(workbook)[0])
-
-        annual = build_annual_scores(
-            sessions,
-            window_start_exclusive=date(2025, 1, 1),
-            window_end_inclusive=date(2025, 12, 31),
-        )[0]
-
-        self.assertEqual(["P002", "P003"], [item.project_code for item in annual.project_process_scores])
 
 
 if __name__ == "__main__":

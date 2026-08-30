@@ -170,8 +170,6 @@ class WorkbookAnalysis:
     issues: list[ValidationIssue]
     reports: list[ReportAnalysis] = field(default_factory=list)
     batch_summary: BatchImportSummary | None = None
-    window_start_exclusive: date | None = None
-    window_end_inclusive: date | None = None
 
 
 @dataclass(slots=True)

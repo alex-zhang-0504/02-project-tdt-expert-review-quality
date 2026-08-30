@@ -84,13 +84,6 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("selectReport(index)", APP_JS)
         self.assertIn("analysis.reports", APP_JS)
 
-    def test_assessment_window_uses_two_freeze_dates(self) -> None:
-        self.assertIn('id="window-start-exclusive" type="date"', INDEX_HTML)
-        self.assertIn('id="window-end-inclusive" type="date"', INDEX_HTML)
-        self.assertIn("function assessmentWindow()", APP_JS)
-        self.assertIn("window_start_exclusive", APP_JS)
-        self.assertIn("window_end_inclusive", APP_JS)
-
     def test_dimension_one_shows_extracted_opinion_evidence_and_source(self) -> None:
         self.assertIn("session.opinion_evidence.technical_object", APP_JS)
         self.assertIn("session.opinion_evidence.professional_action", APP_JS)
@@ -108,13 +101,13 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('expert.problem_project_count', APP_JS)
         self.assertIn('客观分数＝评审过程表现', APP_JS)
 
-    def test_module_navigation_uses_at_most_one_third_of_toolrow(self) -> None:
+    def test_expert_rail_is_a_fixed_left_column(self) -> None:
         self.assertIn(
-            "grid-template-columns: minmax(0, 1fr) minmax(0, 2fr)",
+            "grid-template-columns: var(--rail-width) minmax(0, 1fr)",
             STYLES_CSS,
         )
+        self.assertIn('class="expert-rail-slot"', INDEX_HTML)
         self.assertIn('class="module-label-short">客观</span>', INDEX_HTML)
-        self.assertIn(".expert-chip { flex: 0 0 76px", STYLES_CSS)
 
     def test_all_modules_share_the_full_width_header_container(self) -> None:
         self.assertIn("--content-max-width: 1480px", STYLES_CSS)

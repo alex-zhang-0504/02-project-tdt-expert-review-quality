@@ -35,8 +35,6 @@ const elements = {
   fileName: document.querySelector("#file-name"),
   uploadBox: document.querySelector("#upload-box"),
   feishuUrl: document.querySelector("#feishu-url"),
-  windowStartExclusive: document.querySelector("#window-start-exclusive"),
-  windowEndInclusive: document.querySelector("#window-end-inclusive"),
   feishuAuthStatus: document.querySelector("#feishu-auth-status"),
   authorizeFeishu: document.querySelector("#authorize-feishu"),
   completeFeishuAuth: document.querySelector("#complete-feishu-auth"),
@@ -57,8 +55,6 @@ const elements = {
   continueAnalysis: document.querySelector("#continue-analysis"),
   issueSummary: document.querySelector("#issue-summary"),
   expertList: document.querySelector("#expert-list"),
-  expertScrollLeft: document.querySelector("#expert-scroll-left"),
-  expertScrollRight: document.querySelector("#expert-scroll-right"),
   expertDetail: document.querySelector("#expert-detail"),
   selectedExpertLabel: document.querySelector("#selected-expert"),
   evidenceStrip: document.querySelector("#evidence-strip"),
@@ -251,9 +247,7 @@ async function importLocal() {
     startCheckAnimation(selectedFiles.map((file) => file.name));
     const formData = new FormData();
     selectedFiles.forEach((file) => formData.append("files", file, file.name));
-    const window = assessmentWindow();
-    const query = new URLSearchParams(window).toString();
-    const analysis = await requestJson(`/api/import/local-batch${query ? `?${query}` : ""}`, {
+    const analysis = await requestJson("/api/import/local-batch", {
       method: "POST",
       body: formData,
     });
@@ -274,11 +268,10 @@ async function importFeishu() {
   try {
     const url = elements.feishuUrl.value.trim();
     if (!url) throw new Error("请输入飞书归档文件夹URL");
-    const window = assessmentWindow();
     const analysis = await requestJson("/api/import/feishu", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, ...window }),
+      body: JSON.stringify({ url }),
     });
     await receiveAnalysis(analysis);
   } catch (error) {
@@ -287,18 +280,6 @@ async function importFeishu() {
   } finally {
     setBusy(button, false);
   }
-}
-
-function assessmentWindow() {
-  const start = elements.windowStartExclusive.value;
-  const end = elements.windowEndInclusive.value;
-  if (Boolean(start) !== Boolean(end)) {
-    throw new Error("上次和本次数据冻结日期必须同时填写");
-  }
-  if (start && end <= start) {
-    throw new Error("本次数据冻结日期必须晚于上次数据冻结日期");
-  }
-  return start ? { window_start_exclusive: start, window_end_inclusive: end } : {};
 }
 
 async function receiveAnalysis(analysis) {
@@ -513,10 +494,7 @@ function renderAnalysis() {
     document.querySelector("#go-import").addEventListener("click", () => navigateStep(1));
     return;
   }
-  const windowLabel = analysis.window_start_exclusive
-    ? `${analysis.window_start_exclusive}之后至${analysis.window_end_inclusive}`
-    : "本次上传范围试算";
-  elements.analysisSummary.textContent = `${analysis.source_name} · ${windowLabel} · 仅纳入已完成TDR3的项目 · ${analysis.experts.length}位专家`;
+  elements.analysisSummary.textContent = `${analysis.source_name} · 仅纳入已完成TDR3的项目 · ${analysis.experts.length}位专家`;
   renderExpertDetail();
 }
 
@@ -1064,8 +1042,6 @@ elements.warningAcknowledged.addEventListener("change", () => {
   activateStep(1);
 });
 elements.continueAnalysis.addEventListener("click", () => navigateStep(2));
-elements.expertScrollLeft.addEventListener("click", () => elements.expertList.scrollBy({ left: -352, behavior: "smooth" }));
-elements.expertScrollRight.addEventListener("click", () => elements.expertList.scrollBy({ left: 352, behavior: "smooth" }));
 document.querySelector("#restart").addEventListener("click", reset);
 elements.calculate.addEventListener("click", submitQuestionnaire);
 

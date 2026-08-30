@@ -27,16 +27,19 @@
               <button class="module-tab" data-step="3" aria-label="主观分数考核"><span class="module-label-full">主观分数考核</span><span class="module-label-short">主观</span></button>
               <button class="module-tab" data-step="4" aria-label="评分结果"><span class="module-label-full">评分结果</span><span class="module-label-short">结果</span></button>
             </nav>
-            <div class="expert-nav" aria-label="评审专家">
-              <button class="scroll-button" id="expert-scroll-left" type="button" aria-label="向左滚动">‹</button>
-              <div class="expert-slider" id="expert-list"><span class="expert-placeholder">读取评审表后显示评审专家</span></div>
-              <button class="scroll-button" id="expert-scroll-right" type="button" aria-label="向右滚动">›</button>
-            </div>
           </div>
         </div>
       </header>
 
       <main class="main-content">
+        <div class="expert-rail-slot">
+          <aside class="expert-rail" aria-label="评审人列表">
+            <p class="expert-rail-title">评审人列表</p>
+            <div class="expert-slider" id="expert-list"><span class="expert-placeholder">读取评审表后显示评审专家</span></div>
+          </aside>
+        </div>
+
+        <div class="panel-stack">
           <section class="panel" id="import-panel">
             <div class="panel-heading">
               <div>
@@ -49,12 +52,6 @@
             <div class="source-tabs" role="tablist">
               <button class="source-tab is-active" data-source="local">本地Excel</button>
               <button class="source-tab" data-source="feishu">飞书归档文件夹</button>
-            </div>
-
-            <div class="identity-grid assessment-window">
-              <label class="field"><span>上次数据冻结日期</span><input id="window-start-exclusive" type="date" /></label>
-              <label class="field"><span>本次数据冻结日期</span><input id="window-end-inclusive" type="date" /></label>
-              <div class="usage-note"><strong>统计口径</strong><p>统计上次冻结日之后至本次冻结日，只纳入已完成TDR3的项目。试算可同时留空。</p></div>
             </div>
 
             <div class="source-pane" id="local-pane">
@@ -176,6 +173,7 @@
             </div>
             <div class="score-result" id="score-result"></div>
           </section>
+        </div>
       </main>
     </div>
     <div class="copyright-mark" aria-hidden="true">Designed by Siyuan for TRD</div>

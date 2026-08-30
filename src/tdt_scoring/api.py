@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
 from pathlib import Path
-from typing import Annotated
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -41,8 +39,6 @@ app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
 class FeishuImportRequest(BaseModel):
     url: str = Field(min_length=1)
-    window_start_exclusive: date | None = None
-    window_end_inclusive: date | None = None
 
 
 class FinalizeRequest(BaseModel):
@@ -128,8 +124,6 @@ def feishu_auth_complete() -> dict[str, object]:
 async def import_local(
     request: Request,
     filename: str = Query(min_length=1),
-    window_start_exclusive: Annotated[date | None, Query()] = None,
-    window_end_inclusive: Annotated[date | None, Query()] = None,
 ) -> object:
     try:
         content_length = int(request.headers.get("content-length", "0") or 0)
@@ -139,12 +133,7 @@ async def import_local(
         raise HTTPException(status_code=413, detail="Excel文件超过30MB限制")
     try:
         content = await request.body()
-        analysis = service.import_local_bytes(
-            content,
-            filename,
-            window_start_exclusive,
-            window_end_inclusive,
-        )
+        analysis = service.import_local_bytes(content, filename)
         return _encoded(analysis)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -155,8 +144,6 @@ async def import_local(
 @app.post("/api/import/local-batch")
 async def import_local_batch(
     files: list[UploadFile] = File(...),
-    window_start_exclusive: Annotated[date | None, Query()] = None,
-    window_end_inclusive: Annotated[date | None, Query()] = None,
 ) -> object:
     if not files:
         raise HTTPException(status_code=400, detail="请至少选择一份Excel评审报告")
@@ -169,11 +156,7 @@ async def import_local_batch(
         uploads.append((content, filename))
     try:
         return _encoded(
-            service.import_local_files(
-                uploads,
-                window_start_exclusive,
-                window_end_inclusive,
-            )
+            service.import_local_files(uploads)
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -184,11 +167,7 @@ async def import_local_batch(
 @app.post("/api/import/feishu")
 def import_feishu(payload: FeishuImportRequest) -> object:
     try:
-        analysis = service.import_feishu_url(
-            payload.url,
-            payload.window_start_exclusive,
-            payload.window_end_inclusive,
-        )
+        analysis = service.import_feishu_url(payload.url)
         return _encoded(analysis)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

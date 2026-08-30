@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from .models import (
@@ -198,8 +197,6 @@ def build_project_scores(sessions: list[ReviewSession]) -> list[ExpertProjectSco
 
 def build_annual_scores(
     sessions: list[ReviewSession],
-    window_start_exclusive: date | None = None,
-    window_end_inclusive: date | None = None,
 ) -> list[ExpertProjectScore]:
     sessions_by_project: dict[str, list[ReviewSession]] = {}
     for session in sessions:
@@ -207,13 +204,7 @@ def build_annual_scores(
     completed_project_codes = {
         project_code
         for project_code, project_sessions in sessions_by_project.items()
-        if any(
-            session.stage == "TDR3"
-            and _date_in_window(
-                session.meeting_date, window_start_exclusive, window_end_inclusive
-            )
-            for session in project_sessions
-        )
+        if any(session.stage == "TDR3" for session in project_sessions)
     }
     eligible_sessions = [
         session for session in sessions if session.project_code in completed_project_codes
@@ -287,19 +278,6 @@ def build_annual_scores(
         )
     return sorted(results, key=lambda item: item.expert_name)
 
-
-def _date_in_window(
-    value: date | None,
-    start_exclusive: date | None,
-    end_inclusive: date | None,
-) -> bool:
-    if start_exclusive is None and end_inclusive is None:
-        return True
-    if start_exclusive is None or end_inclusive is None:
-        return False
-    if value is None:
-        return False
-    return start_exclusive < value <= end_inclusive
 
 
 def _expert_attended(session: ReviewSession, expert_name: str) -> bool:

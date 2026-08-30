@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -26,23 +25,17 @@ class ScoringService:
         self,
         content: bytes,
         filename: str,
-        window_start_exclusive: date | None = None,
-        window_end_inclusive: date | None = None,
     ) -> WorkbookAnalysis:
         workbook, source_name = LocalExcelSource.from_bytes(content, filename)
         return self._analyze_many(
             [(workbook, source_name, [])],
             source_type="local_excel",
             source_name=source_name,
-            window_start_exclusive=window_start_exclusive,
-            window_end_inclusive=window_end_inclusive,
         )
 
     def import_local_files(
         self,
         files: list[tuple[bytes, str]],
-        window_start_exclusive: date | None = None,
-        window_end_inclusive: date | None = None,
     ) -> WorkbookAnalysis:
         if not files:
             raise ValueError("请至少选择一份Excel评审报告")
@@ -71,15 +64,11 @@ class ScoringService:
             workbooks,
             source_type="local_excel",
             source_name=f"{len(workbooks)}份评审报告",
-            window_start_exclusive=window_start_exclusive,
-            window_end_inclusive=window_end_inclusive,
         )
 
     def import_feishu_url(
         self,
         url: str,
-        window_start_exclusive: date | None = None,
-        window_end_inclusive: date | None = None,
     ) -> WorkbookAnalysis:
         if FeishuDocumentSource.is_folder_url(url):
             folder = FeishuDocumentSource.export_folder_xlsx(url)
@@ -100,8 +89,6 @@ class ScoringService:
                 workbooks,
                 source_type="feishu_folder",
                 source_name=f"{folder.source_name}（{folder.candidate_count}份候选报告）",
-                window_start_exclusive=window_start_exclusive,
-                window_end_inclusive=window_end_inclusive,
                 batch_summary=BatchImportSummary(
                     discovered_count=folder.discovered_count,
                     candidate_count=folder.candidate_count,
@@ -117,8 +104,6 @@ class ScoringService:
             [(workbook, source_name, [])],
             source_type="feishu_document",
             source_name=source_name,
-            window_start_exclusive=window_start_exclusive,
-            window_end_inclusive=window_end_inclusive,
         )
 
     def get_analysis(self, analysis_id: str) -> WorkbookAnalysis:
@@ -171,18 +156,8 @@ class ScoringService:
         *,
         source_type: str,
         source_name: str,
-        window_start_exclusive: date | None = None,
-        window_end_inclusive: date | None = None,
         batch_summary: BatchImportSummary | None = None,
     ) -> WorkbookAnalysis:
-        if (window_start_exclusive is None) != (window_end_inclusive is None):
-            raise ValueError("上次和本次数据冻结日期必须同时填写")
-        if (
-            window_start_exclusive is not None
-            and window_end_inclusive is not None
-            and window_end_inclusive <= window_start_exclusive
-        ):
-            raise ValueError("本次数据冻结日期必须晚于上次数据冻结日期")
         sessions = []
         issues: list[ValidationIssue] = []
         reports: list[ReportAnalysis] = []
@@ -238,11 +213,7 @@ class ScoringService:
                     issues=report_issues,
                 )
             )
-        experts = build_annual_scores(
-            sessions,
-            window_start_exclusive,
-            window_end_inclusive,
-        )
+        experts = build_annual_scores(sessions)
         issues.extend(validate_score_bounds(experts))
         if batch_summary is not None:
             failed_report_count = sum(
@@ -283,8 +254,6 @@ class ScoringService:
             issues=issues,
             reports=reports,
             batch_summary=batch_summary,
-            window_start_exclusive=window_start_exclusive,
-            window_end_inclusive=window_end_inclusive,
         )
         self._analyses[analysis.analysis_id] = analysis
         return analysis
