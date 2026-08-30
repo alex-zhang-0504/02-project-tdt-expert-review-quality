@@ -17,6 +17,11 @@ fail() {
   exit 1
 }
 
+# 优先用 Chrome 打开（便于与 Claude 的浏览器验证看到同一窗口）；未安装则回退系统默认浏览器
+open_in_browser() {
+  open -a "Google Chrome" "$1" 2>/dev/null || open "$1"
+}
+
 # --- 1. 项目完整性 ---
 [ -f "pyproject.toml" ] || fail "当前目录不是完整的项目（缺 pyproject.toml）。"
 [ -f "src/tdt_scoring/api.py" ] || fail "当前目录不是完整的项目（缺 src/tdt_scoring/api.py）。"
@@ -61,7 +66,7 @@ APP_URL="http://127.0.0.1:${PORT}/?build=${BUILD_ID}"
 
 if [ "$ACTION" = "reuse" ]; then
   echo "[RUNNING] 最新构建已在端口 ${PORT} 运行，直接打开。"
-  open "$APP_URL"
+  open_in_browser "$APP_URL"
   exit 0
 fi
 
@@ -87,7 +92,7 @@ except ValueError:
     sys.exit(1)
 sys.exit(0 if data.get('project_id') == '${PROJECT_ID}' and data.get('build_id') == '${BUILD_ID}' else 1)
 " >/dev/null 2>&1; then
-      open "$APP_URL"
+      open_in_browser "$APP_URL"
       exit 0
     fi
     sleep 0.25
