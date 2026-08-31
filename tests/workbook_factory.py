@@ -58,24 +58,27 @@ def build_workbook(session_rows: list[dict[str, str]]) -> bytes:
 def build_v04_workbook(
     session_rows: list[dict[str, object]],
     *,
-    project: str = "虚拟项目（VIRTUAL-001）",
+    project: str = "虚拟大TDT-虚拟子任务-B260001",
 ) -> bytes:
     workbook = Workbook()
     workbook.remove(workbook.active)
     for session in session_rows:
         stage = str(session["stage"])
         sheet = workbook.create_sheet(f"{stage}评审报告")
-        sheet.append([f"{project}-{stage}"])
+        sheet.append([session.get("title", "第一区块内容不参与关键字段识别")])
         sheet.append(["↓ 填写说明"])
-        sheet.append(["评审人姓名和角色", "-", "", "评审结论", session.get("meeting_conclusion", "Go")])
+        sheet.append(["技术项目名和编码", project, "", "评审结论", session.get("meeting_conclusion", "Go")])
         sheet.append([
-            "缺席人姓名和角色",
+            "缺席评审人姓名",
             session.get("absent_reviewers", "无"),
             "",
             "评审意见",
             session.get("meeting_opinion", ""),
         ])
         sheet.append(["TDR会议日期", session.get("meeting_date", date(2026, 8, 1)), "", "评审阶段", stage])
+        sheet.merge_cells("B3:C3")
+        sheet.merge_cells("B4:C4")
+        sheet.merge_cells("B5:C5")
         sheet.append(["评审结论和会签列表"])
         sheet.append(["评审角色", "评审人姓名", "会签结果", "评审意见"])
         sheet.append(["↓ 填写说明", "填写全名", "未给意见选择[-]", "写清具体技术对象和专业判断"])

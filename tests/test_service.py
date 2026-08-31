@@ -23,7 +23,7 @@ class ServiceTests(unittest.TestCase):
             workbooks=[
                 FeishuWorkbookExport(
                     "P001.xlsx",
-                    build_v04_workbook([{"stage": "TDR3"}], project="项目甲（P001）"),
+                    build_v04_workbook([{"stage": "TDR3"}], project="项目甲-P001"),
                 ),
                 FeishuWorkbookExport("P002.xlsx", None, "没有下载权限"),
             ],
@@ -73,8 +73,8 @@ class ServiceTests(unittest.TestCase):
         service = ScoringService()
         analysis = service.import_local_files(
             [
-                (build_v04_workbook([{"stage": "TDR1", "opinion": "需关注线损风险"}], project="项目甲（P001）"), "P001.xlsx"),
-                (build_v04_workbook([{"stage": "TDR2", "opinion": "接口时序存在风险，建议补充高温场景验证。"}], project="项目乙（P002）"), "P002.xlsx"),
+                (build_v04_workbook([{"stage": "TDR1", "opinion": "需关注线损风险"}], project="项目甲-P001"), "P001.xlsx"),
+                (build_v04_workbook([{"stage": "TDR2", "opinion": "接口时序存在风险，建议补充高温场景验证。"}], project="项目乙-P002"), "P002.xlsx"),
             ]
         )
 
@@ -101,7 +101,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_batch_import_rejects_the_same_project_stage_twice(self) -> None:
         workbook = build_v04_workbook(
-            [{"stage": "TDR1"}], project="项目甲（P001）"
+            [{"stage": "TDR1"}], project="项目甲-P001"
         )
 
         analysis = ScoringService().import_local_files(
@@ -137,8 +137,8 @@ class ServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(24, completed.contribution_score)
-        self.assertEqual(54.0, completed.total_score)
-        self.assertEqual("D", completed.grade)
+        self.assertEqual(64.0, completed.total_score)
+        self.assertEqual("B", completed.grade)
         self.assertEqual("已完成", completed.status)
         self.assertIsNone(completed.outstanding_contribution_reason)
 

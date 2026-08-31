@@ -341,9 +341,18 @@ const issueCheckMap = {
     xlsx_structure_invalid: "xlsx_structure",
     workbook_parse_failed: "workbook_parse",
     section_structure_missing: "section_structure",
+    section_structure_duplicate: "section_structure",
+    section_order_invalid: "section_structure",
+    basic_field_missing: "section_structure",
+    basic_field_duplicate: "section_structure",
+    basic_field_value_missing: "section_structure",
+    project_identity_invalid: "project_code",
+    hidden_sheet_parsed: "effective_sessions",
     effective_signoff_minimum: "effective_sessions",
     signoff_header_missing: "signoff_headers",
+    signoff_header_duplicate: "signoff_headers",
     problem_header_missing: "problem_headers",
+    problem_header_duplicate: "problem_headers",
     no_effective_sessions: "effective_sessions",
     project_name: "project_name",
     project_code: "project_code",
@@ -362,6 +371,9 @@ const issueCheckMap = {
     attendance_missing: "attendance",
     attendance_invalid: "attendance",
     absent_reviewer_unmatched: "attendance",
+    absent_proxy_normalized: "attendance",
+    absent_with_proxy: "attendance",
+    absent_with_valid_signoff: "attendance",
     signoff_missing: "signoff",
     signoff_not_provided: "signoff",
     signoff_invalid: "signoff",
@@ -376,9 +388,15 @@ const issueCheckMap = {
     problem_description_missing: "problem_content",
     problem_status_missing: "problem_content",
     problem_status_invalid: "problem_content",
+    problem_status_alias: "problem_content",
+    problem_description_split: "problem_content",
+    problem_description_maybe_multiple: "problem_content",
     problem_row_missing: "problem_content",
     opinion_elements_missing: "problem_content",
     reviewer_unmatched: "problem_content",
+    filename_stage_missing: "stage",
+    filename_stage_mismatch: "stage",
+    sheet_name_stage_mismatch: "stage",
     session_score_out_of_range: "score",
     session_count_mismatch: "score",
     project_score_out_of_range: "score",
@@ -578,20 +596,20 @@ function renderExpertDetail() {
   elements.expertDetail.innerHTML = `
     <div class="detail-heading">
       <div><p>当前专家</p><h3>${escapeHtml(expert.expert_name)}</h3></div>
-      <div class="average-score"><span>${expert.objective_score}</span><small>客观分数／61</small></div>
+      <div class="average-score"><span>${expert.objective_score}</span><small>客观分数／60</small></div>
     </div>
     <div class="fact-score-grid">
-      <article><span>${expert.process_average}／55</span><small>评审过程表现</small></article>
-      <article><span>${expert.participation_score}／3</span><small>评审参与度 · ${expert.participation_project_count}个项目</small></article>
-      <article><span>${expert.problem_score}／3</span><small>问题贡献度 · ${expert.problem_project_count}个项目</small></article>
+      <article><span>${expert.process_average}／50</span><small>评审过程表现</small></article>
+      <article><span>${expert.participation_score}／6</span><small>评审参与度 · ${expert.participation_project_count}个项目</small></article>
+      <article><span>${expert.problem_score}／4</span><small>问题贡献度 · ${expert.problem_project_count}个项目</small></article>
     </div>
-    <div class="formula-note">客观分数＝评审过程表现 ${expert.process_average}＋年度服务贡献 ${expert.annual_service_score}＝<strong>${expert.objective_score}</strong>。有效参评项目：${escapeHtml(expert.participation_project_codes.join("、") || "无")}；问题贡献项目：${escapeHtml(expert.problem_project_codes.join("、") || "无")}。</div>
+    <div class="formula-note">客观分数＝评审过程表现 ${expert.process_average}＋年度服务贡献 ${expert.annual_service_score}＝<strong>${expert.objective_score}</strong>。有效参评项目：${escapeHtml(expert.participation_project_codes.join("、") || "无")}；问题贡献项目：${escapeHtml(expert.problem_project_codes.join("、") || "无")}。年度代理事实：被代理 ${expert.proxy_session_count}／${expert.expected_session_count} 场，代理率 ${expert.proxy_rate}％（仅展示，不参与计分）。</div>
     <details class="fact-details">
       <summary>查看逐场计分依据</summary>
       <div class="session-grid">
         ${expert.sessions.map((session) => `
           <article class="session-card">
-            <div class="session-title"><strong>${escapeHtml(session.project_code)} · ${escapeHtml(session.stage)}</strong><span>${session.total}／55</span></div>
+            <div class="session-title"><strong>${escapeHtml(session.project_code)} · ${escapeHtml(session.stage)}</strong><span>${session.total}／50</span></div>
             <dl>
               <div><dt>出勤表现</dt><dd>${session.attendance.score}</dd></div>
               <div><dt>结果会签</dt><dd>${session.signoff.score}</dd></div>
@@ -603,7 +621,9 @@ function renderExpertDetail() {
               <span>专业动作：${escapeHtml(session.opinion_evidence.professional_action || "未识别")}</span>
               <span>具体细节：${escapeHtml(session.opinion_evidence.specific_detail || "未识别")}</span>
             </div>
-            <p class="opinion-source">${session.opinion_evidence.source_cell ? `${escapeHtml(session.sheet_name)}!${escapeHtml(session.opinion_evidence.source_cell)} · ` : ""}${escapeHtml(session.opinion_evidence.source_text || "未填写评审意见")}</p>
+            <p class="opinion-source">${(session.opinion_evidence.source_cells || []).length
+              ? `${escapeHtml(session.sheet_name)}!${escapeHtml(session.opinion_evidence.source_cells.join("、"))} · ${escapeHtml((session.opinion_evidence.source_texts || []).join(" ｜ "))}`
+              : `${session.opinion_evidence.source_cell ? `${escapeHtml(session.sheet_name)}!${escapeHtml(session.opinion_evidence.source_cell)} · ` : ""}${escapeHtml(session.opinion_evidence.source_text || "未填写评审意见")}`}</p>
           </article>`).join("")}
       </div>
     </details>
@@ -646,7 +666,7 @@ function openQuestionnaire() {
   const problems = expertProblems();
   elements.evidenceStrip.innerHTML = state.analysis ? `
     <strong>考核事实</strong>
-    <p>评审过程 ${expert.process_average}／55；有效参评 ${expert.participation_project_count}个项目；提出有效问题 ${expert.problem_project_count}个项目。</p>
+    <p>评审过程 ${expert.process_average}／50；有效参评 ${expert.participation_project_count}个项目；提出有效问题 ${expert.problem_project_count}个项目。</p>
     ${problems.length
       ? `<div>${problems.map((problem) => `<span>${escapeHtml(problem.project_code)} · ${escapeHtml(problem.stage)} · ${escapeHtml(problem.number)} · ${escapeHtml(problem.description)}</span>`).join("")}</div>`
       : `<p>评审表中没有该专家名下的问题记录。</p>`}` : "";
@@ -800,11 +820,18 @@ async function submitQuestionnaire(event) {
           outstanding_contribution_reason: state.outstandingContributionReason,
         }),
       });
-      const index = state.analysis.experts.findIndex((expert) =>
+      if (Array.isArray(result.experts)) {
+        state.analysis.experts = result.experts;
+      } else {
+        const index = state.analysis.experts.findIndex((expert) =>
+          expert.project_code === result.project_code && expert.expert_name === result.expert_name,
+        );
+        state.analysis.experts[index] = result;
+      }
+      state.selectedExpert = state.analysis.experts.find((expert) =>
         expert.project_code === result.project_code && expert.expert_name === result.expert_name,
       );
-      state.analysis.experts[index] = result;
-      state.selectedExpert = result;
+      result = state.selectedExpert;
     } else {
       const contribution = await requestJson("/api/score/contribution", {
         method: "POST",
@@ -854,9 +881,11 @@ function renderResults() {
     return;
   }
   const experts = state.analysis.experts;
+  const rankingPending = experts.some((expert) => expert.status === "已完成" && expert.grade === "待排名");
   elements.result.innerHTML = `
+    ${rankingPending ? '<p class="result-note">年度等级将在本批次全体专家的客观分数和主观分数均完成后统一生成。</p>' : ""}
     <table class="results-table">
-      <thead><tr><th>评审专家</th><th class="numeric">客观分数／61</th><th class="numeric">主观分数／40</th><th class="numeric">年度总分／100</th><th>等级</th><th>状态</th></tr></thead>
+      <thead><tr><th>评审专家</th><th class="numeric">客观分数／60</th><th class="numeric">主观分数／40</th><th class="numeric">年度总分／100</th><th>等级</th><th>状态</th></tr></thead>
       <tbody>${experts.map((expert) => {
         const complete = expert.status === "已完成";
         return `<tr>

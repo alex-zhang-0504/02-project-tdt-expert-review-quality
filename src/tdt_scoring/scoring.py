@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from math import ceil
 from decimal import Decimal, ROUND_HALF_UP
 
 from .models import (
@@ -114,6 +115,31 @@ def extract_opinion_evidence(text: str, source_cell: str) -> OpinionEvidence:
     )
 
 
+def _opinion_score_level(evidence: OpinionEvidence) -> int:
+    if evidence.has_technical_object and evidence.has_professional_action:
+        return 2 if evidence.has_specific_detail else 1
+    return 0
+
+
+def _best_opinion_evidence(signoff: SignoffRecord) -> OpinionEvidence:
+    if not signoff.opinion_sources:
+        return extract_opinion_evidence(signoff.basis, signoff.opinion_cell)
+    candidates = [
+        extract_opinion_evidence(source.text, "、".join(source.cell_references))
+        for source in signoff.opinion_sources
+    ]
+    best = max(candidates, key=_opinion_score_level)
+    best.source_texts = [source.text for source in signoff.opinion_sources]
+    best.source_cells = list(
+        dict.fromkeys(
+            cell
+            for source in signoff.opinion_sources
+            for cell in source.cell_references
+        )
+    )
+    return best
+
+
 def score_signoff(session: ReviewSession, signoff: SignoffRecord) -> ExpertSessionScore:
     attendance_level, attendance_score = ATTENDANCE_SCORES.get(
         signoff.attendance, ("high", 15) if signoff.attendance else ("low", 0)
@@ -125,16 +151,16 @@ def score_signoff(session: ReviewSession, signoff: SignoffRecord) -> ExpertSessi
     )
 
     if signoff.conclusion in {"Go", "Go with Risk", "Redirect"}:
-        signoff_item = ScoreItem("high", 15, "已提交有效会签结论")
+        signoff_item = ScoreItem("high", 25, "已提交有效会签结论")
     else:
         signoff_item = ScoreItem("low", 0, "计分时仍未提交有效会签结论")
 
-    evidence = extract_opinion_evidence(signoff.basis, signoff.opinion_cell)
+    evidence = _best_opinion_evidence(signoff)
     if evidence.has_technical_object and evidence.has_professional_action:
         if evidence.has_specific_detail:
-            opinion = ScoreItem("high", 25, "意见包含技术对象、专业动作和具体细节")
+            opinion = ScoreItem("high", 10, "意见包含技术对象、专业动作和具体细节")
         else:
-            opinion = ScoreItem("medium", 15, "意见包含技术对象和专业动作，具体细节不足")
+            opinion = ScoreItem("medium", 6, "意见包含技术对象和专业动作，具体细节不足")
     else:
         opinion = ScoreItem("low", 0, "未识别到完整的技术对象和专业动作")
 
@@ -227,11 +253,11 @@ def build_annual_scores(
         )
         for expert_name in expert_names
     }
-    participation_scores = _dense_top_three_scores(
-        {name: len(codes) for name, codes in participation_codes.items()}
+    participation_scores = _dense_top_two_scores(
+        {name: len(codes) for name, codes in participation_codes.items()}, (6, 3)
     )
-    problem_scores = _dense_top_three_scores(
-        {name: len(codes) for name, codes in problem_codes.items()}
+    problem_scores = _dense_top_two_scores(
+        {name: len(codes) for name, codes in problem_codes.items()}, (4, 2)
     )
 
     results: list[ExpertProjectScore] = []
@@ -251,6 +277,11 @@ def build_annual_scores(
         participation_score = participation_scores[expert_name]
         problem_score = problem_scores[expert_name]
         annual_service_score = participation_score + problem_score
+        expected_session_count = len(all_sessions)
+        proxy_session_count = sum(bool(session.proxy_name) for session in all_sessions)
+        proxy_rate = round_one_decimal(
+            proxy_session_count * 100 / expected_session_count
+        ) if expected_session_count else 0
         results.append(
             ExpertProjectScore(
                 expert_name=expert_name,
@@ -274,6 +305,9 @@ def build_annual_scores(
                 problem_score=problem_score,
                 annual_service_score=annual_service_score,
                 objective_score=round_one_decimal(annual_average + annual_service_score),
+                expected_session_count=expected_session_count,
+                proxy_session_count=proxy_session_count,
+                proxy_rate=proxy_rate,
             )
         )
     return sorted(results, key=lambda item: item.expert_name)
@@ -324,9 +358,13 @@ def _problem_project_codes(
     ]
 
 
-def _dense_top_three_scores(counts: dict[str, int]) -> dict[str, int]:
-    ranked_counts = sorted({count for count in counts.values() if count > 2}, reverse=True)[:3]
-    score_by_count = {count: 3 - index for index, count in enumerate(ranked_counts)}
+def _dense_top_two_scores(
+    counts: dict[str, int], score_levels: tuple[int, int]
+) -> dict[str, int]:
+    ranked_counts = sorted({count for count in counts.values() if count > 2}, reverse=True)[:2]
+    score_by_count = {
+        count: score_levels[index] for index, count in enumerate(ranked_counts)
+    }
     return {name: score_by_count.get(count, 0) for name, count in counts.items()}
 
 
@@ -379,16 +417,40 @@ def normalize_outstanding_contribution_reason(
     return normalized_reason
 
 
-def grade_for(total_score: float) -> str:
-    if total_score >= 100:
-        return "S"
-    if total_score >= 90:
-        return "A"
-    if total_score >= 75:
-        return "B"
-    if total_score >= 60:
-        return "C"
-    return "D"
+def apply_annual_grade_ranking(experts: list[ExpertProjectScore]) -> None:
+    completed = [
+        expert
+        for expert in experts
+        if expert.status == "已完成"
+        and expert.contribution_score is not None
+        and expert.total_score is not None
+    ]
+    for expert in experts:
+        expert.grade = None
+    for expert in completed:
+        expert.grade = "待排名"
+    if not experts or len(completed) != len(experts):
+        return
+
+    ranked = sorted(completed, key=lambda expert: expert.total_score or 0, reverse=True)
+    band_size = ceil(len(ranked) * 0.15)
+    top_cutoff = ranked[band_size - 1].total_score
+    bottom_cutoff = ranked[-band_size].total_score
+    if top_cutoff == bottom_cutoff:
+        for expert in ranked:
+            expert.grade = "S" if expert.total_score == 100 else "B"
+        return
+
+    for expert in ranked:
+        if expert.total_score == 100:
+            expert.grade = "S"
+            continue
+        if expert.total_score is not None and expert.total_score >= top_cutoff:
+            expert.grade = "A"
+        elif expert.total_score is not None and expert.total_score <= bottom_cutoff:
+            expert.grade = "C"
+        else:
+            expert.grade = "B"
 
 
 def finalize_project_score(
@@ -405,10 +467,7 @@ def finalize_project_score(
     normalized_outstanding_reason = normalize_outstanding_contribution_reason(
         answers, outstanding_contribution_reason
     )
-    total_score = min(
-        100.0,
-        round_one_decimal(project_score.objective_score + contribution_score),
-    )
+    total_score = round_one_decimal(project_score.objective_score + contribution_score)
     return ExpertProjectScore(
         expert_name=project_score.expert_name,
         project_code=project_score.project_code,
@@ -430,6 +489,6 @@ def finalize_project_score(
         professional_reason_note=normalized_note,
         outstanding_contribution_reason=normalized_outstanding_reason,
         total_score=total_score,
-        grade=grade_for(total_score),
+        grade="待排名",
         status="已完成",
     )

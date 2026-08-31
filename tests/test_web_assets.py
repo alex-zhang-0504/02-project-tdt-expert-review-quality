@@ -76,6 +76,9 @@ class WebAssetTests(unittest.TestCase):
         self.assertEqual(INDEX_HTML.count('data-check="'), 24)
         self.assertIn("grid-template-columns: repeat(6, 1fr)", STYLES_CSS)
         self.assertIn('reviewer_unmatched: "problem_content"', APP_JS)
+        self.assertIn('problem_description_split: "problem_content"', APP_JS)
+        self.assertIn('absent_proxy_normalized: "attendance"', APP_JS)
+        self.assertIn('filename_stage_mismatch: "stage"', APP_JS)
         self.assertNotIn("CHECK_ITEM_MINIMUM_MS", APP_JS)
 
     def test_quality_check_can_switch_between_reports(self) -> None:
@@ -99,7 +102,15 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('待完成', APP_JS)
         self.assertIn('expert.participation_project_count', APP_JS)
         self.assertIn('expert.problem_project_count', APP_JS)
+        self.assertIn('expert.proxy_session_count', APP_JS)
+        self.assertIn('expert.expected_session_count', APP_JS)
+        self.assertIn('expert.proxy_rate', APP_JS)
         self.assertIn('客观分数＝评审过程表现', APP_JS)
+        self.assertIn('客观分数／60', APP_JS)
+        self.assertIn('process_average}／50', APP_JS)
+        self.assertIn('participation_score}／6', APP_JS)
+        self.assertIn('problem_score}／4', APP_JS)
+        self.assertIn("全体专家的客观分数和主观分数均完成后统一生成", APP_JS)
 
     def test_expert_rail_is_a_fixed_left_column(self) -> None:
         self.assertIn(
@@ -132,9 +143,10 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('elements.calculate.textContent = "提交"', APP_JS)
         request_index = APP_JS.index('result = await requestJson("/api/score/finalize"')
         health_check_index = APP_JS.index("if (!await checkServiceHealth())")
-        register_index = APP_JS.index("state.analysis.experts[index] = result")
+        register_index = APP_JS.index("state.analysis.experts = result.experts")
         self.assertLess(health_check_index, request_index)
         self.assertLess(request_index, register_index)
+        self.assertIn("if (Array.isArray(result.experts))", APP_JS)
         self.assertNotIn('elements.calculate.textContent = state.analysis', APP_JS)
 
     def test_three_question_audit_fields_are_required_in_special_cases(self) -> None:
@@ -183,6 +195,11 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("position: fixed; right: 16px; bottom: 6px; z-index: 30", STYLES_CSS)
         self.assertIn("color: var(--muted); font-size: var(--font-size-micro); line-height: 1.2; opacity: .62", STYLES_CSS)
         self.assertIn("pointer-events: none; user-select: none", STYLES_CSS)
+
+    def test_v04_quality_check_copy_uses_semantic_fields(self) -> None:
+        self.assertIn("检查标准区块与基础字段", INDEX_HTML)
+        self.assertIn("读取“技术项目名和编码”中的项目名称", INDEX_HTML)
+        self.assertNotIn("读取标题中的项目名称", INDEX_HTML)
 
 
 if __name__ == "__main__":

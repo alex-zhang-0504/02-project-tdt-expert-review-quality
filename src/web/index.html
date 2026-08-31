@@ -97,12 +97,12 @@
                 <li data-check="workbook_parse"><span></span>解析Excel工作簿</li>
                 <li data-check="sheet_inventory"><span></span>读取工作表清单</li>
                 <li data-check="sheet_filter"><span></span>排除示例与空白表</li>
-                <li data-check="section_structure"><span></span>检查三个业务区块</li>
+                <li data-check="section_structure"><span></span>检查标准区块与基础字段</li>
                 <li data-check="signoff_headers"><span></span>检查会签表头</li>
                 <li data-check="problem_headers"><span></span>检查问题表头</li>
                 <li data-check="effective_sessions"><span></span>识别正式评审场次</li>
-                <li data-check="project_name"><span></span>读取标题中的项目名称</li>
-                <li data-check="project_code"><span></span>读取标题中的项目编码</li>
+                <li data-check="project_name"><span></span>读取“技术项目名和编码”中的项目名称</li>
+                <li data-check="project_code"><span></span>读取“技术项目名和编码”中的项目编码</li>
                 <li data-check="stage"><span></span>检查阶段枚举与重复</li>
                 <li data-check="meeting_date"><span></span>检查会议日期</li>
                 <li data-check="absent_reviewers"><span></span>读取缺席评审人名单</li>
@@ -142,7 +142,7 @@
               <div>
                 <p class="section-index">步骤 3</p>
                 <h2>维度二：主观分数考核</h2>
-                <p>考核内容为专业价值贡献。回顾专家在本次窗口内全部已完成项目，每题只选择一个最符合的选项，系统不预选。</p>
+                <p>考核内容为专业价值贡献。回顾专家在本批次中全部已完成项目，每题只选择一个最符合的选项，系统不预选。</p>
               </div>
               <div class="selected-expert" id="selected-expert"></div>
             </div>
@@ -168,7 +168,7 @@
               <div>
                 <p class="section-index">步骤 4</p>
                 <h2>评分结果</h2>
-                <p>汇总展示全部评审专家；客观分数和主观分数均完成后计算年度总分，超过100分按100分计。</p>
+                <p>汇总展示全部评审专家；全体专家的客观分数和主观分数均完成后，统一生成年度等级。</p>
               </div>
             </div>
             <div class="score-result" id="score-result"></div>

@@ -11,7 +11,12 @@ from .models import (
     ValidationIssue,
     WorkbookAnalysis,
 )
-from .scoring import build_annual_scores, build_project_scores, finalize_project_score
+from .scoring import (
+    apply_annual_grade_ranking,
+    build_annual_scores,
+    build_project_scores,
+    finalize_project_score,
+)
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import LocalExcelSource
 from .validation import validate_score_bounds
@@ -148,7 +153,12 @@ class ScoringService:
             else expert
             for expert in analysis.experts
         ]
-        return completed
+        apply_annual_grade_ranking(analysis.experts)
+        return next(
+            expert
+            for expert in analysis.experts
+            if expert.project_code == project_code and expert.expert_name == expert_name
+        )
 
     def _analyze_many(
         self,

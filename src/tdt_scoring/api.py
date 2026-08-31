@@ -189,7 +189,13 @@ def finalize(payload: FinalizeRequest) -> object:
             payload.professional_reason_note,
             payload.outstanding_contribution_reason,
         )
-        return _encoded(result)
+        encoded_result = _encoded(result)
+        if not isinstance(encoded_result, dict):
+            raise TypeError("评分结果编码失败")
+        encoded_result["experts"] = jsonable_encoder(
+            [asdict(expert) for expert in service.get_analysis(payload.analysis_id).experts]
+        )
+        return encoded_result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     except ValueError as exc:

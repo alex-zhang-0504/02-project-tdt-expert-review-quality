@@ -152,16 +152,16 @@ class ValidationTests(unittest.TestCase):
             role="评审主席",
             attendance=score_item,
             signoff=score_item,
-            opinion=ScoreItem("high", 31, "越界测试"),
+            opinion=ScoreItem("high", 11, "越界测试"),
             opinion_evidence=OpinionEvidence("", "", None, None, None),
-            total=61,
+            total=51,
         )
         project_score = ExpertProjectScore(
             expert_name="虚拟专家甲",
             project_code="VIRTUAL-001",
             project_name="虚拟项目",
             sessions=[session_score],
-            process_average=61,
+            process_average=51,
             effective_session_count=1,
         )
 

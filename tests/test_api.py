@@ -7,7 +7,17 @@ from io import BytesIO
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
-from tdt_scoring.api import ContributionRequest, app, contribution, health, import_local_batch, index
+from tdt_scoring.api import (
+    ContributionRequest,
+    FinalizeRequest,
+    app,
+    contribution,
+    finalize,
+    health,
+    import_local_batch,
+    index,
+    service,
+)
 from tdt_scoring import PRODUCT_VERSION, RELEASE_CHANNEL, __version__
 from tdt_scoring.build_info import BUILD_ID, PROJECT_ID
 from tests.workbook_factory import build_v04_workbook
@@ -94,6 +104,31 @@ class ApiTests(unittest.TestCase):
             )
         self.assertEqual(400, context.exception.status_code)
         self.assertIn("必须填写", context.exception.detail)
+
+    def test_finalize_returns_the_refreshed_annual_expert_cohort(self) -> None:
+        analysis = service.import_local_bytes(
+            build_v04_workbook([{"stage": "TDR3"}]),
+            "ranking-api.xlsx",
+        )
+        result = None
+        for expert in analysis.experts:
+            result = finalize(
+                FinalizeRequest(
+                    analysis_id=analysis.analysis_id,
+                    project_code=expert.project_code,
+                    expert_name=expert.expert_name,
+                    answers={
+                        "fulfillment_collaboration": "high",
+                        "professional_judgement_guidance": "medium",
+                        "outstanding_contribution": "low",
+                    },
+                )
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(3, len(result["experts"]))
+        self.assertTrue(all(expert["status"] == "已完成" for expert in result["experts"]))
+        self.assertNotIn("待排名", [expert["grade"] for expert in result["experts"]])
 
 
 if __name__ == "__main__":

@@ -22,6 +22,13 @@ class ValidationIssue:
 
 
 @dataclass(slots=True)
+class OpinionSource:
+    text: str
+    cell_references: list[str] = field(default_factory=list)
+    raw_texts: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class ProblemRecord:
     number: str
     reviewers: list[str]
@@ -31,6 +38,12 @@ class ProblemRecord:
     progress: str
     status: str
     row_number: int
+    cell_references: dict[str, str] = field(default_factory=dict)
+    reviewers_raw: list[str] = field(default_factory=list)
+    unmatched_reviewers: list[str] = field(default_factory=list)
+    status_raw: str = ""
+    source_number: str = ""
+    item_index: int | None = None
 
 
 @dataclass(slots=True)
@@ -46,6 +59,8 @@ class SignoffRecord:
     basis: str
     row_number: int
     opinion_cell: str = ""
+    cell_references: dict[str, str] = field(default_factory=dict)
+    opinion_sources: list[OpinionSource] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -59,10 +74,13 @@ class ReviewSession:
     meeting_conclusion: str
     meeting_opinion: str
     source_name: str = ""
+    absent_reviewers_raw: str = ""
     absent_reviewers: list[str] = field(default_factory=list)
     signoffs: list[SignoffRecord] = field(default_factory=list)
     problems: list[ProblemRecord] = field(default_factory=list)
     issues: list[ValidationIssue] = field(default_factory=list)
+    field_references: dict[str, str] = field(default_factory=dict)
+    parser_profile: str = "legacy"
 
     @property
     def review_id(self) -> str:
@@ -84,6 +102,8 @@ class OpinionEvidence:
     technical_object: str | None
     professional_action: str | None
     specific_detail: str | None
+    source_texts: list[str] = field(default_factory=list)
+    source_cells: list[str] = field(default_factory=list)
 
     @property
     def has_technical_object(self) -> bool:
@@ -132,6 +152,9 @@ class ExpertProjectScore:
     problem_score: int = 0
     annual_service_score: int = 0
     objective_score: float = 0
+    expected_session_count: int = 0
+    proxy_session_count: int = 0
+    proxy_rate: float = 0
     contribution_score: int | None = None
     professional_reason_tags: list[str] = field(default_factory=list)
     professional_reason_note: str | None = None

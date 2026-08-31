@@ -18,5 +18,9 @@
 *.xls  binary
 *.png  binary
 *.jpg  binary
+*.jpeg binary
+*.gif  binary
 *.pdf  binary
+*.docx binary
+*.pptx binary
 *.zip  binary
