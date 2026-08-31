@@ -5,7 +5,7 @@ from datetime import date
 from typing import Literal
 
 
-Severity = Literal["error", "warning"]
+Severity = Literal["error", "warning", "info"]
 Level = Literal["high", "medium", "low"]
 
 

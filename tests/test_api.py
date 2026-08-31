@@ -6,6 +6,7 @@ from io import BytesIO
 
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
+from unittest.mock import patch
 
 from tdt_scoring.api import (
     ContributionRequest,
@@ -14,9 +15,11 @@ from tdt_scoring.api import (
     contribution,
     finalize,
     health,
+    FeishuImportRequest,
     import_local_batch,
     index,
     service,
+    start_feishu_import,
 )
 from tdt_scoring import PRODUCT_VERSION, RELEASE_CHANNEL, __version__
 from tdt_scoring.build_info import BUILD_ID, PROJECT_ID
@@ -46,6 +49,42 @@ class ApiTests(unittest.TestCase):
         paths = {route.path for route in app.routes}
 
         self.assertIn("/api/import/local-batch", paths)
+        self.assertIn("/api/import/local-batch/start", paths)
+        self.assertIn("/api/import/feishu/start", paths)
+        self.assertIn("/api/import/jobs/{job_id}", paths)
+
+    @patch("tdt_scoring.api.FeishuDocumentSource.authorization_status")
+    def test_feishu_import_job_is_blocked_until_user_authorization_is_ready(
+        self, authorization_status
+    ) -> None:
+        authorization_status.return_value = {"ready": False}
+
+        with self.assertRaises(HTTPException) as context:
+            start_feishu_import(
+                FeishuImportRequest(
+                    url="https://example.feishu.cn/drive/folder/fld123"
+                )
+            )
+
+        self.assertEqual(401, context.exception.status_code)
+        self.assertIn("授权未完成", context.exception.detail)
+
+    @patch("tdt_scoring.api.import_executor.submit")
+    @patch("tdt_scoring.api.FeishuDocumentSource.authorization_status")
+    def test_authorized_feishu_folder_starts_one_background_batch_job(
+        self, authorization_status, submit
+    ) -> None:
+        authorization_status.return_value = {"ready": True}
+
+        result = start_feishu_import(
+            FeishuImportRequest(
+                url="https://example.feishu.cn/drive/folder/fld123"
+            )
+        )
+
+        self.assertTrue(result["job_id"])
+        self.assertEqual("queued", result["status"])
+        submit.assert_called_once()
 
     def test_multiple_file_import_accepts_two_workbooks(self) -> None:
         first = build_v04_workbook([{"stage": "TDR1"}], project="项目甲（P001）")

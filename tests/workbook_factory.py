@@ -33,7 +33,7 @@ def build_workbook(session_rows: list[dict[str, str]]) -> bytes:
         if session.get("problem"):
             rows.append(
                 [
-                    session.get("problem_number", f"{session['stage']}-1"),
+                    session.get("problem_number", "1"),
                     session.get("problem_reviewer", "虚拟专家甲"),
                     session.get("problem_description", "虚拟问题"),
                     session.get("action", ""),

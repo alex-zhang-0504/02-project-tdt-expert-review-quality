@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
+from typing import Callable
 from uuid import uuid4
 
 from .excel_reader import read_workbook
@@ -11,6 +13,7 @@ from .models import (
     ValidationIssue,
     WorkbookAnalysis,
 )
+from .progress import ProgressEvent
 from .scoring import (
     apply_annual_grade_ranking,
     build_annual_scores,
@@ -30,17 +33,22 @@ class ScoringService:
         self,
         content: bytes,
         filename: str,
+        progress: Callable[[ProgressEvent], None] | None = None,
     ) -> WorkbookAnalysis:
-        workbook, source_name = LocalExcelSource.from_bytes(content, filename)
+        workbook, source_name = self._prepare_local_input(
+            content, filename, progress=progress
+        )
         return self._analyze_many(
             [(workbook, source_name, [])],
             source_type="local_excel",
             source_name=source_name,
+            progress=progress,
         )
 
     def import_local_files(
         self,
         files: list[tuple[bytes, str]],
+        progress: Callable[[ProgressEvent], None] | None = None,
     ) -> WorkbookAnalysis:
         if not files:
             raise ValueError("请至少选择一份Excel评审报告")
@@ -48,7 +56,9 @@ class ScoringService:
         for content, filename in files:
             report_name = Path(filename).name or "未命名报告"
             try:
-                workbook, report_name = LocalExcelSource.from_bytes(content, filename)
+                workbook, report_name = self._prepare_local_input(
+                    content, filename, progress=progress
+                )
                 workbooks.append((workbook, report_name, []))
             except ValueError as exc:
                 message = str(exc)
@@ -69,14 +79,83 @@ class ScoringService:
             workbooks,
             source_type="local_excel",
             source_name=f"{len(workbooks)}份评审报告",
+            progress=progress,
         )
+
+    @staticmethod
+    def _prepare_local_input(
+        content: bytes,
+        filename: str,
+        *,
+        progress: Callable[[ProgressEvent], None] | None,
+    ) -> tuple[bytes, str]:
+        report_name = Path(filename).name or "未命名报告"
+        metadata_started = perf_counter()
+        if progress:
+            progress(ProgressEvent(report_name, "report_acquisition", "started"))
+        try:
+            report_name = LocalExcelSource.validate_metadata(content, filename)
+        except ValueError as exc:
+            if progress:
+                progress(
+                    ProgressEvent(
+                        report_name,
+                        "report_acquisition",
+                        "error",
+                        (perf_counter() - metadata_started) * 1000,
+                        str(exc),
+                    )
+                )
+            raise
+        if progress:
+            progress(
+                ProgressEvent(
+                    report_name,
+                    "report_acquisition",
+                    "completed",
+                    (perf_counter() - metadata_started) * 1000,
+                )
+            )
+        structure_started = perf_counter()
+        if progress:
+            progress(ProgressEvent(report_name, "xlsx_acquisition", "started"))
+        try:
+            LocalExcelSource.validate_xlsx_structure(content)
+        except ValueError as exc:
+            if progress:
+                progress(
+                    ProgressEvent(
+                        report_name,
+                        "xlsx_acquisition",
+                        "error",
+                        (perf_counter() - structure_started) * 1000,
+                        str(exc),
+                    )
+                )
+            raise
+        if progress:
+            progress(
+                ProgressEvent(
+                    report_name,
+                    "xlsx_acquisition",
+                    "completed",
+                    (perf_counter() - structure_started) * 1000,
+                )
+            )
+        return content, report_name
 
     def import_feishu_url(
         self,
         url: str,
+        progress: Callable[[ProgressEvent], None] | None = None,
+        on_candidates: Callable[[list[str]], None] | None = None,
     ) -> WorkbookAnalysis:
         if FeishuDocumentSource.is_folder_url(url):
-            folder = FeishuDocumentSource.export_folder_xlsx(url)
+            folder = FeishuDocumentSource.export_folder_xlsx(
+                url,
+                on_candidates=on_candidates,
+                on_progress=progress,
+            )
             workbooks: list[tuple[bytes | None, str, list[ValidationIssue]]] = []
             for exported in folder.workbooks:
                 source_issues = []
@@ -103,12 +182,43 @@ class ScoringService:
                     complete=False,
                     excluded_names=folder.excluded_names,
                 ),
+                progress=progress,
             )
-        workbook, source_name = FeishuDocumentSource.export_xlsx(url)
+        report_name = "tdrx-review.xlsx"
+        if on_candidates:
+            on_candidates([report_name])
+        export_started = perf_counter()
+        if progress:
+            progress(ProgressEvent(report_name, "report_acquisition", "completed", 0.0))
+            progress(ProgressEvent(report_name, "xlsx_acquisition", "started"))
+        try:
+            workbook, source_name = FeishuDocumentSource.export_xlsx(url)
+        except RuntimeError as exc:
+            if progress:
+                progress(
+                    ProgressEvent(
+                        report_name,
+                        "xlsx_acquisition",
+                        "error",
+                        (perf_counter() - export_started) * 1000,
+                        str(exc),
+                    )
+                )
+            raise
+        if progress:
+            progress(
+                ProgressEvent(
+                    report_name,
+                    "xlsx_acquisition",
+                    "completed",
+                    (perf_counter() - export_started) * 1000,
+                )
+            )
         return self._analyze_many(
             [(workbook, source_name, [])],
             source_type="feishu_document",
             source_name=source_name,
+            progress=progress,
         )
 
     def get_analysis(self, analysis_id: str) -> WorkbookAnalysis:
@@ -167,6 +277,7 @@ class ScoringService:
         source_type: str,
         source_name: str,
         batch_summary: BatchImportSummary | None = None,
+        progress: Callable[[ProgressEvent], None] | None = None,
     ) -> WorkbookAnalysis:
         sessions = []
         issues: list[ValidationIssue] = []
@@ -176,11 +287,24 @@ class ScoringService:
             report_sessions = []
             report_issues = list(source_issues)
             if workbook is not None:
+                parse_started = perf_counter()
+                if progress:
+                    progress(ProgressEvent(report_name, "workbook_parse", "started"))
                 try:
                     report_sessions, parsed_issues = read_workbook(
-                        workbook, source_name=report_name
+                        workbook,
+                        source_name=report_name,
                     )
                     report_issues.extend(parsed_issues)
+                    if progress:
+                        progress(
+                            ProgressEvent(
+                                report_name,
+                                "workbook_parse",
+                                "completed",
+                                (perf_counter() - parse_started) * 1000,
+                            )
+                        )
                 except (OSError, ValueError) as exc:
                     report_issues.append(
                         ValidationIssue(
@@ -190,6 +314,50 @@ class ScoringService:
                             source_name=report_name,
                         )
                     )
+                    if progress:
+                        progress(
+                            ProgressEvent(
+                                report_name,
+                                "workbook_parse",
+                                "error",
+                                (perf_counter() - parse_started) * 1000,
+                                str(exc),
+                            )
+                        )
+            progress_open = workbook is not None and not any(
+                issue.code == "workbook_parse_failed" for issue in report_issues
+            )
+            if progress and progress_open:
+                for checkpoint_id in (
+                    "template_structure",
+                    "session_identity",
+                    "reviewer_roster",
+                    "attendance_signoff",
+                    "opinions_problems",
+                ):
+                    checkpoint_started = perf_counter()
+                    progress(ProgressEvent(report_name, checkpoint_id, "started"))
+                    relevant = [
+                        issue
+                        for issue in report_issues
+                        if self._issue_checkpoint(issue.code) == checkpoint_id
+                    ]
+                    errors = [issue for issue in relevant if issue.severity == "error"]
+                    warnings = [issue for issue in relevant if issue.severity == "warning"]
+                    status = "error" if errors else "warning" if warnings else "completed"
+                    message = (errors or warnings)[0].message if (errors or warnings) else ""
+                    progress(
+                        ProgressEvent(
+                            report_name,
+                            checkpoint_id,
+                            status,
+                            (perf_counter() - checkpoint_started) * 1000,
+                            message,
+                        )
+                    )
+                    if errors:
+                        progress_open = False
+                        break
             for session in report_sessions:
                 key = (session.project_code, session.stage)
                 previous_source = seen_sessions.get(key)
@@ -206,11 +374,56 @@ class ScoringService:
                     )
                 else:
                     seen_sessions[key] = report_name
+            duplicate_issues = [
+                issue
+                for issue in report_issues
+                if self._issue_checkpoint(issue.code) == "session_uniqueness"
+            ]
+            if progress and progress_open:
+                unique_started = perf_counter()
+                progress(ProgressEvent(report_name, "session_uniqueness", "started"))
+                progress(
+                    ProgressEvent(
+                        report_name,
+                        "session_uniqueness",
+                        "error" if duplicate_issues else "completed",
+                        (perf_counter() - unique_started) * 1000,
+                        duplicate_issues[0].message if duplicate_issues else "",
+                    )
+                )
+                if duplicate_issues:
+                    progress_open = False
+            score_started = perf_counter()
+            if progress and progress_open:
+                progress(ProgressEvent(report_name, "score_bounds", "started"))
             report_experts = build_project_scores(report_sessions)
             score_issues = validate_score_bounds(report_experts)
             for issue in score_issues:
                 issue.source_name = report_name
             report_issues.extend(score_issues)
+            if progress and progress_open:
+                score_checkpoint_issues = [
+                    issue
+                    for issue in report_issues
+                    if self._issue_checkpoint(issue.code) == "score_bounds"
+                ]
+                score_errors = [
+                    issue for issue in score_checkpoint_issues if issue.severity == "error"
+                ]
+                score_warnings = [
+                    issue for issue in score_checkpoint_issues if issue.severity == "warning"
+                ]
+                progress(
+                    ProgressEvent(
+                        report_name,
+                        "score_bounds",
+                        "error" if score_errors else "warning" if score_warnings else "completed",
+                        (perf_counter() - score_started) * 1000,
+                        (score_errors or score_warnings)[0].message
+                        if (score_errors or score_warnings)
+                        else "",
+                    )
+                )
             sessions.extend(report_sessions)
             issues.extend(report_issues)
             reports.append(
@@ -267,3 +480,42 @@ class ScoringService:
         )
         self._analyses[analysis.analysis_id] = analysis
         return analysis
+
+    @staticmethod
+    def _issue_checkpoint(code: str) -> str:
+        if code.startswith(("section_", "signoff_header_", "problem_header_")) or code in {
+            "basic_field_missing",
+            "basic_field_duplicate",
+        }:
+            return "template_structure"
+        if code in {
+            "basic_field_value_missing",
+            "no_effective_sessions",
+            "project_name",
+            "project_code",
+            "project_identity_invalid",
+            "project_manager",
+            "stage",
+            "stage_invalid",
+            "meeting_date",
+            "meeting_conclusion_missing",
+            "meeting_conclusion_invalid",
+        }:
+            return "session_identity"
+        if code in {
+            "effective_signoff_minimum",
+            "role_missing",
+            "reviewer_missing",
+            "reviewer_duplicate",
+            "proxy_missing",
+        }:
+            return "reviewer_roster"
+        if code == "absent_with_basis":
+            return "opinions_problems"
+        if code.startswith(("attendance_", "absent_", "signoff_")):
+            return "attendance_signoff"
+        if code.startswith(("problem_", "opinion_", "reviewer_unmatched", "basis_")):
+            return "opinions_problems"
+        if code in {"stage_conflict", "cross_report_stage_duplicate"}:
+            return "session_uniqueness"
+        return "score_bounds"

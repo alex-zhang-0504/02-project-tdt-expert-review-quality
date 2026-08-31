@@ -3,6 +3,19 @@ const EXPECTED_PROJECT_ID = "tdt-expert-review-quality";
 const EXPECTED_BUILD_ID = new URLSearchParams(window.location.search).get("build") || "";
 const SERVICE_DISCONNECTED_MESSAGE = "无法连接本地评分服务。请重新双击 start.cmd，并使用新打开的页面重新导入评审表";
 const SERVICE_RESTARTED_MESSAGE = "本地评分服务已重新启动，原评审分析已失效。请返回读取评审表并重新导入后再评分";
+const IMPORT_PROGRESS_STEP_MS = 120;
+const IMPORT_CHECKPOINTS = [
+  ["report_acquisition", "获取报告"],
+  ["xlsx_acquisition", "获取XLSX"],
+  ["workbook_parse", "解析工作簿"],
+  ["template_structure", "检查模板结构"],
+  ["session_identity", "检查场次身份"],
+  ["reviewer_roster", "检查评审名单"],
+  ["attendance_signoff", "检查出勤与会签"],
+  ["opinions_problems", "检查意见与问题"],
+  ["session_uniqueness", "检查场次唯一性"],
+  ["score_bounds", "检查评分边界"],
+];
 
 const state = {
   activeStep: 1,
@@ -24,6 +37,12 @@ const state = {
   serviceVersion: "",
   analysisServiceInstanceId: null,
   analysisStale: false,
+  feishuAuthReady: false,
+  importJobId: null,
+  importJobStatus: "queued",
+  importProgressReports: [],
+  displayProgressReports: [],
+  progressPlaybackTimer: null,
 };
 
 const elements = {
@@ -49,7 +68,6 @@ const elements = {
   checkState: document.querySelector("#check-state"),
   reportList: document.querySelector("#report-list"),
   batchSummary: document.querySelector("#batch-summary"),
-  checkProgress: document.querySelector("#check-progress"),
   warningConfirm: document.querySelector("#warning-confirm"),
   warningAcknowledged: document.querySelector("#warning-acknowledged"),
   continueAnalysis: document.querySelector("#continue-analysis"),
@@ -107,7 +125,8 @@ function setServiceStatus(label, message, ready) {
 function syncServiceActions() {
   document.querySelectorAll('[data-service-action="true"]').forEach((button) => {
     if (button === elements.calculate) return;
-    button.disabled = button.dataset.busy === "true" || !state.serviceAvailable;
+    const authorizationMissing = button === elements.importFeishu && !state.feishuAuthReady;
+    button.disabled = button.dataset.busy === "true" || !state.serviceAvailable || authorizationMissing;
   });
   updateSubmitAvailability();
 }
@@ -213,7 +232,8 @@ function syncExpertNavigationState() {
 function validationCounts() {
   const issues = state.analysis?.issues || [];
   const errors = issues.filter((issue) => issue.severity === "error").length;
-  return { errors, warnings: issues.length - errors };
+  const warnings = issues.filter((issue) => issue.severity === "warning").length;
+  return { errors, warnings };
 }
 
 function qualityGatePassed() {
@@ -244,13 +264,14 @@ async function importLocal() {
       ? state.droppedFiles
       : [...elements.file.files];
     if (!selectedFiles.length) throw new Error("请选择或拖入.xlsx格式的TDRX评审报告");
-    startCheckAnimation(selectedFiles.map((file) => file.name));
+    startProgressDisplay(selectedFiles.map((file) => file.name));
     const formData = new FormData();
     selectedFiles.forEach((file) => formData.append("files", file, file.name));
-    const analysis = await requestJson("/api/import/local-batch", {
+    const job = await requestJson("/api/import/local-batch/start", {
       method: "POST",
       body: formData,
     });
+    const analysis = await pollImportJob(job.job_id);
     await receiveAnalysis(analysis);
   } catch (error) {
     finishCheckWithRequestError(error.message);
@@ -263,16 +284,17 @@ async function importLocal() {
 async function importFeishu() {
   const button = elements.importFeishu;
   clearNotice();
-  startCheckAnimation(["飞书归档文件夹"]);
+  startProgressDisplay([]);
   setBusy(button, true, "正在枚举并检查飞书报告…");
   try {
     const url = elements.feishuUrl.value.trim();
     if (!url) throw new Error("请输入飞书归档文件夹URL");
-    const analysis = await requestJson("/api/import/feishu", {
+    const job = await requestJson("/api/import/feishu/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
+    const analysis = await pollImportJob(job.job_id);
     await receiveAnalysis(analysis);
   } catch (error) {
     finishCheckWithRequestError(error.message);
@@ -302,18 +324,32 @@ async function receiveAnalysis(analysis) {
   elements.projectSummary.textContent = `${candidateCount}份候选报告 · ${analysis.sessions.length}场 · ${analysis.experts.length}位专家`;
   renderBatchSummary();
   renderExpertNavigation();
-  await finishCheckAnimation();
+  renderReportList();
+  if (analysis.reports?.length) selectReport(0);
+  else renderIssues(analysis.issues, analysis.source_name);
   activateStep(1);
 }
 
-function resetCheckItems() {
-  elements.checkProgress.querySelectorAll("li").forEach((item) => item.className = "");
-}
-
-function startCheckAnimation(sourceNames = []) {
+function startProgressDisplay(sourceNames = []) {
+  stopProgressPlayback();
   state.analysis = null;
   state.selectedExpert = null;
   state.selectedReportIndex = 0;
+  state.importJobId = null;
+  state.importJobStatus = "queued";
+  state.importProgressReports = sourceNames.map((sourceName) => ({
+    source_name: sourceName,
+    status: "queued",
+    progress_percent: 0,
+    current_checkpoint_label: "等待检查",
+    message: "",
+  }));
+  state.displayProgressReports = state.importProgressReports.map((report) => ({
+    ...report,
+    target_percent: 0,
+    display_percent: 0,
+    display_checkpoint_label: "等待检查",
+  }));
   state.warningsAcknowledged = false;
   elements.projectSummary.textContent = "正在检查评审表";
   renderExpertNavigation();
@@ -327,99 +363,187 @@ function startCheckAnimation(sourceNames = []) {
   elements.batchSummary.innerHTML = "";
   elements.warningConfirm.classList.add("is-hidden");
   elements.continueAnalysis.disabled = true;
-  resetCheckItems();
-  renderReportList(sourceNames);
-  const items = [...elements.checkProgress.querySelectorAll("li")];
-  items[0].classList.add("is-active");
-  elements.checkTitle.textContent = `正在检查：${items[0].textContent.trim()}`;
-  elements.checkState.textContent = `检查中 1/${items.length}`;
+  renderReportList();
 }
 
-const issueCheckMap = {
-    file_extension_invalid: "extension",
-    file_limits_invalid: "file_limits",
-    xlsx_structure_invalid: "xlsx_structure",
-    workbook_parse_failed: "workbook_parse",
-    section_structure_missing: "section_structure",
-    section_structure_duplicate: "section_structure",
-    section_order_invalid: "section_structure",
-    basic_field_missing: "section_structure",
-    basic_field_duplicate: "section_structure",
-    basic_field_value_missing: "section_structure",
-    project_identity_invalid: "project_code",
-    hidden_sheet_parsed: "effective_sessions",
-    effective_signoff_minimum: "effective_sessions",
-    signoff_header_missing: "signoff_headers",
-    signoff_header_duplicate: "signoff_headers",
-    problem_header_missing: "problem_headers",
-    problem_header_duplicate: "problem_headers",
-    no_effective_sessions: "effective_sessions",
-    project_name: "project_name",
-    project_code: "project_code",
-    stage: "stage",
-    stage_invalid: "stage",
-    stage_legacy_combined: "stage",
-    stage_conflict: "stage",
-    cross_report_stage_duplicate: "stage",
-    meeting_date: "meeting_date",
-    project_manager: "project_name",
-    meeting_conclusion_missing: "meeting_conclusion",
-    meeting_conclusion_invalid: "meeting_conclusion",
-    role_missing: "signoff_people",
-    reviewer_missing: "signoff_people",
-    reviewer_duplicate: "signoff_people",
-    attendance_missing: "attendance",
-    attendance_invalid: "attendance",
-    absent_reviewer_unmatched: "attendance",
-    absent_proxy_normalized: "attendance",
-    absent_with_proxy: "attendance",
-    absent_with_valid_signoff: "attendance",
-    signoff_missing: "signoff",
-    signoff_not_provided: "signoff",
-    signoff_invalid: "signoff",
-    basis_missing: "opinion",
-    absent_with_basis: "opinion",
-    proxy_missing: "signoff_people",
-    problem_number_missing: "problem_number",
-    problem_number_invalid: "problem_number",
-    problem_number_duplicate: "problem_number",
-    problem_number_conflict: "problem_number",
-    problem_reviewer_missing: "problem_content",
-    problem_description_missing: "problem_content",
-    problem_status_missing: "problem_content",
-    problem_status_invalid: "problem_content",
-    problem_status_alias: "problem_content",
-    problem_description_split: "problem_content",
-    problem_description_maybe_multiple: "problem_content",
-    problem_row_missing: "problem_content",
-    opinion_elements_missing: "problem_content",
-    reviewer_unmatched: "problem_content",
-    filename_stage_missing: "stage",
-    filename_stage_mismatch: "stage",
-    sheet_name_stage_mismatch: "stage",
-    session_score_out_of_range: "score",
-    session_count_mismatch: "score",
-    project_score_out_of_range: "score",
-    service_score_out_of_range: "score",
-    objective_score_out_of_range: "score",
-};
+async function pollImportJob(jobId) {
+  state.importJobId = jobId;
+  while (true) {
+    const job = await requestJson(`/api/import/jobs/${encodeURIComponent(jobId)}?ts=${Date.now()}`, {
+      cache: "no-store",
+    });
+    state.importJobStatus = job.status;
+    syncProgressTargets(job.reports || []);
+    if (job.status === "completed") {
+      await waitForProgressPlayback();
+      return job.result;
+    }
+    if (job.status === "error") throw new Error(job.error || "评审报告批量读取失败");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+function stopProgressPlayback() {
+  if (state.progressPlaybackTimer !== null) {
+    window.clearTimeout(state.progressPlaybackTimer);
+    state.progressPlaybackTimer = null;
+  }
+}
+
+function syncProgressTargets(reports) {
+  const previous = state.displayProgressReports;
+  state.importProgressReports = reports;
+  state.displayProgressReports = reports.map((report, index) => {
+    const target = Math.max(0, Math.min(100, Number(report.progress_percent) || 0));
+    const existing = previous[index];
+    const canReuse = existing?.source_name === report.source_name;
+    const displayPercent = canReuse
+      ? Math.min(Number(existing.display_percent) || 0, target)
+      : 0;
+    return {
+      ...report,
+      target_percent: target,
+      display_percent: displayPercent,
+      display_checkpoint_label: canReuse
+        ? existing.display_checkpoint_label
+        : "等待检查",
+    };
+  });
+  renderReportList();
+  updateProgressHeader();
+  scheduleProgressPlayback();
+}
+
+function nextProgressReport() {
+  const reports = state.displayProgressReports;
+  const preparing = reports.find((report) => (
+    report.display_percent < Math.min(20, report.target_percent)
+  ));
+  if (preparing) return preparing;
+  const allPrepared = reports.length > 0 && reports.every((report) => (
+    report.target_percent >= 20 || report.status === "error"
+  ));
+  if (!allPrepared) return null;
+  return reports.find((report) => report.display_percent < report.target_percent) || null;
+}
+
+function advanceProgressPlayback() {
+  const report = nextProgressReport();
+  if (!report) return false;
+  report.display_percent = Math.min(report.target_percent, report.display_percent + 10);
+  const checkpointIndex = Math.max(0, Math.ceil(report.display_percent / 10) - 1);
+  report.display_checkpoint_label = IMPORT_CHECKPOINTS[checkpointIndex]?.[1] || "等待检查";
+  renderReportList();
+  updateProgressHeader();
+  return true;
+}
+
+function scheduleProgressPlayback() {
+  if (state.progressPlaybackTimer !== null || !nextProgressReport()) return;
+  state.progressPlaybackTimer = window.setTimeout(() => {
+    state.progressPlaybackTimer = null;
+    if (advanceProgressPlayback()) scheduleProgressPlayback();
+  }, IMPORT_PROGRESS_STEP_MS);
+}
+
+async function waitForProgressPlayback() {
+  scheduleProgressPlayback();
+  while (nextProgressReport() || state.progressPlaybackTimer !== null) {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+}
+
+function updateProgressHeader() {
+  const reports = state.displayProgressReports;
+  if (!reports.length) {
+    elements.checkTitle.textContent = "正在枚举飞书归档文件夹";
+    elements.checkState.textContent = "检查中";
+    return;
+  }
+  const completed = reports.filter((report) => (
+    report.status === "completed" && report.display_percent >= report.target_percent
+  )).length;
+  const failed = reports.filter((report) => report.status === "error").length;
+  const playbackComplete = reports.every((report) => (
+    report.display_percent >= report.target_percent
+  ));
+  elements.checkTitle.textContent = state.importJobStatus === "completed" && playbackComplete
+    ? "评审报告检查完成"
+    : `正在逐份检查${reports.length}份评审报告`;
+  elements.checkState.textContent = `${completed}完成${failed ? ` · ${failed}失败` : ""}`;
+}
 
 function selectedReport() {
   return state.analysis?.reports?.[state.selectedReportIndex] || null;
 }
 
-function renderReportList(sourceNames = []) {
+function renderReportList() {
   const reports = state.analysis
-    ? state.analysis.reports
-    : sourceNames.map((sourceName) => ({ source_name: sourceName, issues: null }));
+    ? state.analysis.reports.map((report, index) => {
+      const live = state.displayProgressReports[index];
+      const errors = report.issues.filter((issue) => issue.severity === "error").length;
+      const warnings = report.issues.filter((issue) => issue.severity === "warning").length;
+      return {
+        ...(live || {}),
+        source_name: report.source_name,
+        status: errors ? "error" : warnings ? "warning" : "completed",
+        display_percent: live?.display_percent ?? (errors ? 0 : 100),
+        target_percent: live?.target_percent ?? (errors ? 0 : 100),
+        display_checkpoint_label: live?.display_checkpoint_label
+          || IMPORT_CHECKPOINTS.at(-1)[1],
+        message: errors ? `${errors}项错误` : warnings ? `${warnings}项提醒` : "检查通过",
+      };
+    })
+    : state.displayProgressReports;
   elements.reportList.innerHTML = reports.map((report, index) => {
-    const errors = report.issues?.filter((issue) => issue.severity === "error").length || 0;
-    const warnings = (report.issues?.length || 0) - errors;
-    const status = report.issues === null ? "检查中" : errors ? `${errors}项错误` : warnings ? `${warnings}项提醒` : "通过";
-    const statusClass = report.issues === null ? "is-pending" : errors ? "is-error" : warnings ? "is-warning" : "is-ok";
-    return `<button class="report-chip ${statusClass} ${index === state.selectedReportIndex ? "is-active" : ""}" type="button" data-index="${index}" ${state.analysis ? "" : "disabled"}><span>${escapeHtml(report.source_name)}</span><small>${status}</small></button>`;
+    const percent = Math.max(0, Math.min(100, Number(report.display_percent) || 0));
+    const targetPercent = Math.max(percent, Math.min(100, Number(report.target_percent) || 0));
+    const completedSegments = Math.floor(percent / 10);
+    const currentCheckpointIndex = IMPORT_CHECKPOINTS.findIndex(
+      ([checkpointId]) => checkpointId === report.current_checkpoint
+    );
+    const actualCheckpointIsNext = targetPercent === percent
+      && report.status === "running"
+      && currentCheckpointIndex === completedSegments;
+    const playbackCheckpointIndex = targetPercent > percent ? completedSegments : -1;
+    const activeCheckpointIndex = playbackCheckpointIndex >= 0
+      ? playbackCheckpointIndex
+      : actualCheckpointIsNext ? currentCheckpointIndex : -1;
+    const checkpointLabel = playbackCheckpointIndex >= 0
+      ? IMPORT_CHECKPOINTS[playbackCheckpointIndex]?.[1]
+      : targetPercent === percent && actualCheckpointIsNext
+        ? report.current_checkpoint_label
+        : report.display_checkpoint_label || "等待检查";
+    const playbackPending = targetPercent > percent;
+    const statusClass = report.status === "error"
+      ? "is-error"
+      : playbackPending
+        ? "is-pending"
+        : report.status === "warning"
+          ? "is-warning"
+          : report.status === "completed" ? "is-ok" : "is-pending";
+    const summaryText = report.status === "error"
+      ? report.message || "检查失败"
+      : !playbackPending && (report.status === "completed" || report.status === "warning")
+        ? report.message || "检查完成"
+        : `已完成${completedSegments}／${IMPORT_CHECKPOINTS.length}项`;
+    const segments = IMPORT_CHECKPOINTS.map((_, segmentIndex) => {
+      const classes = ["report-progress-segment"];
+      if (segmentIndex < completedSegments) classes.push("is-complete");
+      if (segmentIndex === activeCheckpointIndex) classes.push("is-current");
+      return `<span class="${classes.join(" ")}"></span>`;
+    }).join("");
+    const tag = state.analysis ? "button" : "div";
+    return `<${tag} class="report-progress-row ${statusClass} ${index === state.selectedReportIndex && state.analysis ? "is-active" : ""}" ${state.analysis ? `type="button" data-index="${index}"` : ""}>
+      <span class="report-progress-name" data-full-name="${escapeHtml(report.source_name)}"><strong>${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small></span>
+      <span class="report-progress-reader ${activeCheckpointIndex >= 0 ? "is-reading" : ""}"><small>当前检查</small><strong>${escapeHtml(checkpointLabel)}</strong></span>
+      <span class="report-progress-meter">
+        <span class="report-progress-segments" role="progressbar" aria-label="${escapeHtml(report.source_name)}检查进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">${segments}</span>
+        <span class="report-progress-value">${percent}%</span>
+      </span>
+    </${tag}>`;
   }).join("");
-  elements.reportList.querySelectorAll(".report-chip").forEach((button) => {
+  elements.reportList.querySelectorAll("button.report-progress-row").forEach((button) => {
     button.addEventListener("click", () => selectReport(Number(button.dataset.index)));
   });
 }
@@ -443,15 +567,6 @@ function renderBatchSummary() {
 function renderSelectedReportChecks() {
   const report = selectedReport();
   if (!report) return;
-  const items = [...elements.checkProgress.querySelectorAll("li")];
-  items.forEach((item) => item.className = "is-ok");
-  report.issues.forEach((issue) => {
-    const checkName = issueCheckMap[issue.code] || "score";
-    const checkItem = elements.checkProgress.querySelector(`[data-check="${checkName}"]`);
-    if (!checkItem) return;
-    if (issue.severity === "error") checkItem.className = "is-error";
-    else if (!checkItem.classList.contains("is-error")) checkItem.className = "is-warning";
-  });
   renderIssues(report.issues, report.source_name);
 }
 
@@ -462,37 +577,7 @@ function selectReport(index) {
   renderSelectedReportChecks();
 }
 
-async function finishCheckAnimation() {
-  const reports = state.analysis.reports;
-  if (!reports.length) {
-    renderReportList();
-    renderIssues(state.analysis.issues, state.analysis.source_name);
-    return;
-  }
-  for (let index = 0; index < reports.length; index += 1) {
-    state.selectedReportIndex = index;
-    renderReportList();
-    renderSelectedReportChecks();
-    if (reports.length > 1 && index < reports.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 120));
-    }
-  }
-  if (reports.length) selectReport(0);
-}
-
 function finishCheckWithRequestError(message) {
-  const items = [...elements.checkProgress.querySelectorAll("li")];
-  let targetName = "source";
-  if (/仅支持\.xlsx|扩展名/.test(message)) targetName = "extension";
-  else if (/为空|30MB|大小/.test(message)) targetName = "file_limits";
-  else if (/不是有效的\.xlsx|ZIP|压缩结构/.test(message)) targetName = "xlsx_structure";
-  else if (/Excel解析失败|工作簿|解析/.test(message)) targetName = "workbook_parse";
-  const active = elements.checkProgress.querySelector(`[data-check="${targetName}"]`)
-    || items.find((item) => item.classList.contains("is-active"))
-    || items[0];
-  const targetIndex = items.indexOf(active);
-  items.forEach((item, index) => item.className = index < targetIndex ? "is-ok" : "");
-  active.className = "is-error";
   elements.checkTitle.textContent = "评审报告读取失败";
   elements.checkState.textContent = "未通过";
   elements.checkState.className = "check-state is-error";
@@ -505,7 +590,7 @@ function renderAnalysis() {
     elements.analysisSummary.textContent = "尚未读取评审表";
     elements.expertDetail.innerHTML = `
       <div class="empty-detail">
-        <strong>客观分数考核需要TDRX评审表</strong>
+        <strong>评审过程表现需要TDRX评审表</strong>
         <p>请先在“读取评审表”模块导入并通过文档质量检查。</p>
         <button class="secondary-button" id="go-import" type="button">前往读取评审表</button>
       </div>`;
@@ -520,12 +605,12 @@ function renderIssues(issues, reportName = "") {
   const batchIssues = state.analysis?.batch_summary
     ? state.analysis.issues.filter((issue) => issue.code.startsWith("feishu_folder_"))
     : [];
-  const visibleIssues = [...issues];
+  const visibleIssues = issues.filter((issue) => issue.severity !== "info");
   batchIssues.forEach((issue) => {
-    if (!visibleIssues.includes(issue)) visibleIssues.push(issue);
+    if (issue.severity !== "info" && !visibleIssues.includes(issue)) visibleIssues.push(issue);
   });
   const errors = visibleIssues.filter((issue) => issue.severity === "error").length;
-  const warnings = visibleIssues.length - errors;
+  const warnings = visibleIssues.filter((issue) => issue.severity === "warning").length;
   const aggregate = validationCounts();
   const label = reportName ? `“${reportName}”` : "评审报告";
   if (!visibleIssues.length) {
@@ -534,9 +619,13 @@ function renderIssues(issues, reportName = "") {
     elements.checkState.className = "check-state is-ok";
     elements.issueSummary.innerHTML = `<p><strong>未发现错误或提醒。</strong>评审报告可以进入后续评分。</p>`;
   } else {
-    elements.checkTitle.textContent = errors ? `${label}存在错误` : `${label}存在提醒`;
-    elements.checkState.textContent = errors ? `${errors}项错误` : `${warnings}项提醒`;
-    elements.checkState.className = `check-state ${errors ? "is-error" : "is-warning"}`;
+    elements.checkTitle.textContent = errors
+      ? `${label}存在错误`
+      : warnings ? `${label}存在提醒` : `${label}检查完成`;
+    elements.checkState.textContent = errors
+      ? `${errors}项错误`
+      : warnings ? `${warnings}项提醒` : "检查通过";
+    elements.checkState.className = `check-state ${errors ? "is-error" : warnings ? "is-warning" : "is-ok"}`;
     elements.issueSummary.innerHTML = `
       <strong>${errors}项错误，${warnings}项提醒</strong>
       <ul>${visibleIssues.map((issue) => {
@@ -544,7 +633,8 @@ function renderIssues(issues, reportName = "") {
           ? `${issue.sheet_name}${issue.cell_reference ? `!${issue.cell_reference}` : ""}`
           : "工作簿";
         const expert = issue.expert_name ? `；专家：${issue.expert_name}` : "";
-        return `<li class="issue-item ${issue.severity}"><span class="severity">${issue.severity === "error" ? "错误" : "提醒"}</span><span class="issue-location">${escapeHtml(location)}</span><span>${escapeHtml(issue.message + expert)}</span></li>`;
+        const severityLabel = issue.severity === "error" ? "错误" : "提醒";
+        return `<li class="issue-item ${issue.severity}"><span class="severity">${severityLabel}</span><span class="issue-location">${escapeHtml(location)}</span><span>${escapeHtml(issue.message + expert)}</span></li>`;
       }).join("")}</ul>`;
   }
   elements.warningConfirm.classList.toggle("is-hidden", aggregate.warnings === 0 || aggregate.errors > 0);
@@ -574,7 +664,7 @@ function selectExpert(index) {
 function renderExpertNavigation() {
   const experts = state.analysis?.experts || [];
   if (!experts.length) {
-    elements.expertList.innerHTML = `<span class="expert-placeholder">读取评审表后显示评审专家</span>`;
+    elements.expertList.innerHTML = `<span class="expert-placeholder">读取评审表后显示评审人</span>`;
     return;
   }
   const selectedKey = state.selectedExpert ? expertKey(state.selectedExpert) : "";
@@ -869,7 +959,7 @@ function renderResults() {
   if (!state.analysis) {
     const result = state.lastResult;
     if (!result) {
-      elements.result.innerHTML = `<div class="empty-detail"><strong>还没有评分结果</strong><p>导入评审表后，这里会汇总全部评审专家的完成状态。</p></div>`;
+      elements.result.innerHTML = `<div class="empty-detail"><strong>还没有评分结果</strong><p>导入评审表后，这里会汇总全部评审人的完成状态。</p></div>`;
       return;
     }
     elements.result.innerHTML = `
@@ -885,7 +975,7 @@ function renderResults() {
   elements.result.innerHTML = `
     ${rankingPending ? '<p class="result-note">年度等级将在本批次全体专家的客观分数和主观分数均完成后统一生成。</p>' : ""}
     <table class="results-table">
-      <thead><tr><th>评审专家</th><th class="numeric">客观分数／60</th><th class="numeric">主观分数／40</th><th class="numeric">年度总分／100</th><th>等级</th><th>状态</th></tr></thead>
+      <thead><tr><th>评审人</th><th class="numeric">客观分数／60</th><th class="numeric">主观分数／40</th><th class="numeric">年度总分／100</th><th>等级</th><th>状态</th></tr></thead>
       <tbody>${experts.map((expert) => {
         const complete = expert.status === "已完成";
         return `<tr>
@@ -915,6 +1005,8 @@ function reset() {
   state.droppedFiles = [];
   state.selectedReportIndex = 0;
   state.warningsAcknowledged = false;
+  state.importJobId = null;
+  state.importProgressReports = [];
   elements.file.value = "";
   elements.fileName.textContent = "支持一次上传多个项目，不修改、不覆盖原始评审表";
   elements.projectSummary.textContent = "尚未读取评审表";
@@ -951,13 +1043,17 @@ function navigateStep(step) {
 async function checkFeishuAuthorization() {
   try {
     const status = await requestJson("/api/feishu/auth/status");
+    state.feishuAuthReady = status.ready === true;
     elements.feishuAuthStatus.textContent = status.ready
       ? `已授权：${status.user_name || "当前飞书用户"}`
       : "首次使用需要完成飞书只读授权";
     elements.authorizeFeishu.classList.toggle("is-hidden", status.ready);
     elements.completeFeishuAuth.classList.add("is-hidden");
+    syncServiceActions();
   } catch (error) {
+    state.feishuAuthReady = false;
     elements.feishuAuthStatus.textContent = error.message;
+    syncServiceActions();
   }
 }
 
@@ -966,6 +1062,7 @@ async function startFeishuAuthorization() {
   try {
     const authorization = await requestJson("/api/feishu/auth/start", { method: "POST" });
     window.open(authorization.verification_url, "_blank", "noopener");
+    state.feishuAuthReady = false;
     elements.feishuAuthStatus.textContent = "请在新窗口完成授权，然后点击右侧按钮";
     elements.completeFeishuAuth.classList.remove("is-hidden");
   } catch (error) {
@@ -979,10 +1076,12 @@ async function completeFeishuAuthorization() {
   setBusy(elements.completeFeishuAuth, true, "正在确认授权…");
   try {
     const status = await requestJson("/api/feishu/auth/complete", { method: "POST" });
+    state.feishuAuthReady = status.ready === true;
     elements.feishuAuthStatus.textContent = `已授权：${status.user_name || "当前飞书用户"}`;
     elements.authorizeFeishu.classList.add("is-hidden");
     elements.completeFeishuAuth.classList.add("is-hidden");
     clearNotice();
+    syncServiceActions();
   } catch (error) {
     setNotice(error.message, "error");
   } finally {

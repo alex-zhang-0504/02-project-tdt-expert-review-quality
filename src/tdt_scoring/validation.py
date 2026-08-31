@@ -16,15 +16,7 @@ VALID_ATTENDANCE = {
 VALID_CONCLUSIONS = {"Go", "Go with Risk", "Redirect"}
 VALID_STAGES = {"TDR1", "TDR2", "TDR3"}
 VALID_PROBLEM_STATUSES = {"open", "closed"}
-PROBLEM_NUMBER_PATTERN = re.compile(r"^(?:TDR[123]-)?\d+(?:\.\d+)?$", re.IGNORECASE)
-
-
-def _problem_matches_stage(number: str, stage: str) -> bool:
-    prefix = number.split("-", 1)[0].upper()
-    normalized_stage = stage.upper()
-    if normalized_stage == "TDR1+TDR2":
-        return prefix in {"TDR1", "TDR2"}
-    return prefix == normalized_stage
+PROBLEM_NUMBER_PATTERN = re.compile(r"^[1-9]\d*$")
 
 
 def validate_session(session: ReviewSession) -> list[ValidationIssue]:
@@ -118,17 +110,10 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
             )
         if not signoff.conclusion_raw:
             issues.append(ValidationIssue("signoff_missing", "未记录会签结果，按0分记录", "warning", **common, cell_reference=conclusion_reference))
-        elif signoff.conclusion_raw in {"-", "－", "—", "–"}:
-            issues.append(
-                ValidationIssue(
-                    "signoff_not_provided",
-                    "技术项目经理已记录评审人未给会签结果；评审记录有效，结果会签按0分记录",
-                    "warning",
-                    **common,
-                    cell_reference=conclusion_reference,
-                )
-            )
-        elif signoff.conclusion not in VALID_CONCLUSIONS:
+        elif (
+            signoff.conclusion_raw not in {"-", "－", "—", "–"}
+            and signoff.conclusion not in VALID_CONCLUSIONS
+        ):
             issues.append(
                 ValidationIssue(
                     "signoff_invalid",
@@ -141,7 +126,7 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
         if signoff.attendance.startswith("改派") and not signoff.proxy_name:
             issues.append(ValidationIssue("proxy_missing", "改派记录缺少代理人后缀", "error", **common, cell_reference=reviewer_reference))
 
-    seen_problem_numbers: set[str] = set()
+    seen_problem_numbers: dict[str, int] = {}
     for problem in session.problems:
         references = problem.cell_references
         common = {
@@ -150,28 +135,30 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
         }
         if not problem.number:
             issues.append(ValidationIssue("problem_number_missing", "问题编号为空", "error", **common, cell_reference=references.get("number", f"A{problem.row_number}")))
-        elif not PROBLEM_NUMBER_PATTERN.fullmatch(problem.number):
+        problem_number = problem.source_number or problem.number
+        if problem_number and not PROBLEM_NUMBER_PATTERN.fullmatch(problem_number):
             issues.append(
                 ValidationIssue(
                     "problem_number_invalid",
-                    f"问题编号“{problem.number}”格式不正确",
+                    f"问题编号“{problem_number}”格式不正确；只允许从1开始的正整数",
                     "warning",
                     **common,
                     cell_reference=references.get("number", f"A{problem.row_number}"),
                 )
             )
-        if problem.number and problem.number in seen_problem_numbers:
+        previous_row = seen_problem_numbers.get(problem_number)
+        if problem_number and previous_row is not None and previous_row != problem.row_number:
             issues.append(
                 ValidationIssue(
                     "problem_number_duplicate",
-                    f"问题编号“{problem.number}”重复",
+                    f"问题编号“{problem_number}”重复",
                     "error",
                     **common,
                     cell_reference=references.get("number", f"A{problem.row_number}"),
                 )
             )
-        if problem.number:
-            seen_problem_numbers.add(problem.number)
+        if problem_number:
+            seen_problem_numbers.setdefault(problem_number, problem.row_number)
         if not problem.reviewers_raw and not problem.reviewers:
             issues.append(ValidationIssue("problem_reviewer_missing", "问题提出人为空", "error", **common, cell_reference=references.get("reviewers", f"B{problem.row_number}")))
         if not problem.description:
@@ -180,8 +167,6 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
             issues.append(ValidationIssue("problem_status_missing", "问题状态为空", "error", **common, cell_reference=references.get("status", f"G{problem.row_number}")))
         elif problem.status.casefold() not in VALID_PROBLEM_STATUSES:
             issues.append(ValidationIssue("problem_status_invalid", f"问题状态“{problem.status_raw or problem.status}”不在open／closed枚举中", "error", **common, cell_reference=references.get("status", f"G{problem.row_number}")))
-        elif problem.status_raw and problem.status_raw.casefold() != problem.status.casefold():
-            issues.append(ValidationIssue("problem_status_alias", f"问题状态“{problem.status_raw}”已兼容识别为{problem.status}，请后续使用模板下拉选项", "warning", **common, cell_reference=references.get("status", f"G{problem.row_number}")))
 
     return issues
 
@@ -208,20 +193,20 @@ def validate_stage_conflicts(sessions: list[ReviewSession]) -> list[ValidationIs
 
 def validate_problem_number_conflicts(sessions: list[ReviewSession]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    seen: dict[tuple[str, str], tuple[str, str]] = {}
+    seen: dict[tuple[str, str], tuple[str, str, int]] = {}
     for session in sessions:
         for problem in session.problems:
             if not problem.number:
                 continue
-            normalized_number = problem.number.upper()
-            number_key = (
-                normalized_number
-                if "-" in normalized_number
-                else f"{session.stage.upper()}:{normalized_number}"
-            )
+            normalized_number = (problem.source_number or problem.number).upper()
+            number_key = f"{session.stage.upper()}:{normalized_number}"
             key = (session.project_code, number_key)
             previous = seen.get(key)
-            if previous and previous[0] != problem.description:
+            if (
+                previous
+                and (previous[1], previous[2]) != (session.sheet_name, problem.row_number)
+                and previous[0] != problem.description
+            ):
                 issues.append(
                     ValidationIssue(
                         "problem_number_conflict",
@@ -233,7 +218,7 @@ def validate_problem_number_conflicts(sessions: list[ReviewSession]) -> list[Val
                     )
                 )
             else:
-                seen[key] = (problem.description, session.sheet_name)
+                seen[key] = (problem.description, session.sheet_name, problem.row_number)
     return issues
 
 

@@ -6,7 +6,13 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from tdt_scoring.excel_reader import parse_date, parse_project, parse_reviewer, read_workbook
+from tdt_scoring.excel_reader import (
+    parse_date,
+    parse_project,
+    parse_reviewer,
+    read_workbook,
+    split_numbered_items,
+)
 from tdt_scoring.scoring import build_project_scores
 
 from tests.workbook_factory import build_v04_workbook, build_workbook
@@ -114,7 +120,7 @@ class ExcelReaderTests(unittest.TestCase):
 
         self.assertEqual(1, len(sessions))
         self.assertEqual(0, scores["虚拟专家甲"].sessions[0].signoff.score)
-        self.assertTrue(any(issue.code == "signoff_not_provided" for issue in issues))
+        self.assertFalse(any(issue.code == "signoff_not_provided" for issue in issues))
         self.assertFalse(any(issue.code == "effective_signoff_minimum" for issue in issues))
 
     def test_v04_fewer_than_three_recorded_reviewers_blocks_sheet(self) -> None:
@@ -198,7 +204,8 @@ class ExcelReaderTests(unittest.TestCase):
         sessions, issues = read_workbook(source)
 
         self.assertEqual(1, len(sessions[0].problems))
-        self.assertTrue(any(issue.code == "problem_status_alias" for issue in issues))
+        self.assertEqual("closed", sessions[0].problems[0].status)
+        self.assertFalse(any(issue.code == "problem_status_alias" for issue in issues))
         self.assertFalse(any(issue.code == "problem_status_invalid" for issue in issues))
 
     def test_v04_unmatched_absent_reviewer_is_reported_without_guessing(self) -> None:
@@ -248,7 +255,9 @@ class ExcelReaderTests(unittest.TestCase):
         self.assertEqual("虚拟专家丁（代理）", sessions[0].absent_reviewers_raw)
         self.assertEqual(["虚拟专家甲"], sessions[0].absent_reviewers)
         self.assertEqual("正常", sessions[0].signoffs[0].attendance)
-        self.assertTrue(any(issue.code == "absent_proxy_normalized" for issue in issues))
+        proxy_issues = [issue for issue in issues if issue.code == "absent_proxy_resolved"]
+        self.assertEqual(1, len(proxy_issues))
+        self.assertEqual("info", proxy_issues[0].severity)
 
     def test_v04_problem_reviewers_intersect_roster_after_proxy_normalization(self) -> None:
         source = build_v04_workbook(
@@ -311,38 +320,103 @@ class ExcelReaderTests(unittest.TestCase):
 
         sessions, issues = read_workbook(source)
 
-        self.assertEqual(["1.1", "1.2"], [item.number for item in sessions[0].problems])
+        self.assertEqual(["1", "1"], [item.number for item in sessions[0].problems])
         self.assertEqual(
             ["C26-第1项", "C26-第2项"],
             [item.cell_references["description"] for item in sessions[0].problems],
         )
-        self.assertTrue(any(issue.code == "problem_description_split" for issue in issues))
+        split_issue = next(issue for issue in issues if issue.code == "problem_description_split")
+        self.assertEqual("info", split_issue.severity)
+        self.assertFalse(any(issue.code == "problem_number_invalid" for issue in issues))
+        self.assertFalse(any(issue.code == "problem_number_duplicate" for issue in issues))
 
-    def test_v04_semicolon_problem_stays_one_item_with_reminder(self) -> None:
-        source = build_v04_workbook(
-            [{
-                "stage": "TDR2",
-                "problems": [{
-                    "number": "1",
-                    "reviewer": "虚拟专家甲",
-                    "description": "需确认弱网边界；建议补充高温验证",
-                    "status": "open",
-                }],
-            }]
+    def test_v04_punctuation_only_problem_stays_one_item_without_reminder(self) -> None:
+        for description in (
+            "1.价值KPI和成本分析不一致；",
+            "需确认弱网边界；建议补充高温验证",
+        ):
+            with self.subTest(description=description):
+                source = build_v04_workbook(
+                    [{
+                        "stage": "TDR2",
+                        "problems": [{
+                            "number": "1",
+                            "reviewer": "虚拟专家甲",
+                            "description": description,
+                            "status": "open",
+                        }],
+                    }]
+                )
+
+                sessions, issues = read_workbook(source)
+
+                self.assertEqual(1, len(sessions[0].problems))
+                self.assertFalse(
+                    any(issue.code == "problem_description_maybe_multiple" for issue in issues)
+                )
+
+    def test_common_number_and_letter_markers_split_as_multiple_items(self) -> None:
+        cases = (
+            "1.第一项\n2.第二项",
+            "1、第一项\n2、第二项",
+            "a.第一项\nb.第二项",
+            "a、第一项\nb、第二项",
+            "A）第一项\nB）第二项",
+            "（a）第一项\n（b）第二项",
+            "一、第一项\n二、第二项",
+            "①第一项\n②第二项",
+            "1.第一项；2.第二项",
         )
 
-        sessions, issues = read_workbook(source)
+        for description in cases:
+            with self.subTest(description=description):
+                self.assertEqual(["第一项", "第二项"], split_numbered_items(description))
 
-        self.assertEqual(1, len(sessions[0].problems))
-        self.assertTrue(any(issue.code == "problem_description_maybe_multiple" for issue in issues))
-
-    def test_v04_filename_stage_is_only_a_consistency_reminder(self) -> None:
+    def test_v04_filename_never_controls_or_validates_stage(self) -> None:
         source = build_v04_workbook([{"stage": "TDR2"}])
 
-        sessions, issues = read_workbook(source, source_name="虚拟项目-B260001-TDR1.xlsx")
+        for source_name in (
+            "虚拟项目-B260001.xlsx",
+            "虚拟项目-B260001-TDR1.xlsx",
+            "虚拟项目-B260001-TDR1+TDR2.xlsx",
+            "TDR1能力优化-B260001.xlsx",
+        ):
+            with self.subTest(source_name=source_name):
+                sessions, issues = read_workbook(source, source_name=source_name)
+
+                self.assertEqual("TDR2", sessions[0].stage)
+                self.assertFalse(any(issue.code.startswith("filename_stage_") for issue in issues))
+
+    def test_v04_multi_sheet_stages_only_come_from_internal_fields(self) -> None:
+        source = build_v04_workbook([
+            {"stage": "TDR1"},
+            {"stage": "TDR2"},
+            {"stage": "TDR3"},
+        ])
+
+        sessions, issues = read_workbook(
+            source,
+            source_name="任意文件名.xlsx",
+        )
+
+        self.assertEqual(["TDR1", "TDR2", "TDR3"], [item.stage for item in sessions])
+        self.assertFalse(any(issue.code.startswith("filename_stage_") for issue in issues))
+
+    def test_v04_sheet_name_is_not_a_stage_check(self) -> None:
+        source = build_v04_workbook([{"stage": "TDR2"}])
+        workbook = load_workbook(BytesIO(source))
+        workbook["TDR2评审报告"].title = "任意工作表名称"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+
+        sessions, issues = read_workbook(
+            buffer.getvalue(),
+            source_name="虚拟项目-B260001-TDR2.xlsx",
+        )
 
         self.assertEqual("TDR2", sessions[0].stage)
-        self.assertTrue(any(issue.code == "filename_stage_mismatch" for issue in issues))
+        self.assertFalse(any(issue.code == "sheet_name_stage_mismatch" for issue in issues))
 
     def test_v04_fields_and_headers_survive_inserted_rows_and_columns(self) -> None:
         source = build_v04_workbook(
@@ -483,7 +557,7 @@ class ExcelReaderTests(unittest.TestCase):
         issue = next(issue for issue in issues if issue.code == "signoff_header_duplicate")
         self.assertEqual("D7、E7", issue.cell_reference)
 
-    def test_v04_hidden_valid_sheet_is_parsed_with_warning(self) -> None:
+    def test_v04_hidden_valid_sheet_is_parsed_without_warning(self) -> None:
         source = build_v04_workbook([{"stage": "TDR3"}])
         workbook = load_workbook(BytesIO(source))
         sheet = workbook["TDR3评审报告"]
@@ -496,7 +570,7 @@ class ExcelReaderTests(unittest.TestCase):
         sessions, issues = read_workbook(buffer.getvalue())
 
         self.assertEqual(1, len(sessions))
-        self.assertTrue(any(issue.code == "hidden_sheet_parsed" for issue in issues))
+        self.assertFalse(any(issue.code == "hidden_sheet_parsed" for issue in issues))
 
     def test_v04_unrelated_auxiliary_sheet_is_silently_skipped(self) -> None:
         source = build_v04_workbook([{"stage": "TDR3"}])
@@ -511,7 +585,7 @@ class ExcelReaderTests(unittest.TestCase):
         self.assertEqual(1, len(sessions))
         self.assertFalse(any(issue.sheet_name == "说明" for issue in issues))
 
-    def test_v04_legacy_combined_stage_is_read_as_tdr2_with_warning(self) -> None:
+    def test_v04_combined_stage_is_invalid_without_normalization(self) -> None:
         source = build_v04_workbook([{"stage": "TDR2"}])
         workbook = load_workbook(BytesIO(source))
         workbook["TDR2评审报告"]["E5"] = "TDR1+TDR2"
@@ -521,8 +595,26 @@ class ExcelReaderTests(unittest.TestCase):
 
         sessions, issues = read_workbook(buffer.getvalue())
 
-        self.assertEqual("TDR2", sessions[0].stage)
-        self.assertTrue(any(issue.code == "stage_legacy_combined" for issue in issues))
+        self.assertEqual("TDR1+TDR2", sessions[0].stage)
+        issue = next(issue for issue in issues if issue.code == "stage_invalid")
+        self.assertEqual("error", issue.severity)
+
+    def test_v04_problem_number_only_accepts_positive_integer(self) -> None:
+        for number in ("0", "TDR1-1", "1.1"):
+            with self.subTest(number=number):
+                source = build_v04_workbook([{
+                    "stage": "TDR1",
+                    "problems": [{
+                        "number": number,
+                        "reviewer": "虚拟专家甲",
+                        "description": "需复核边界条件",
+                        "status": "open",
+                    }],
+                }])
+
+                _, issues = read_workbook(source)
+
+                self.assertTrue(any(issue.code == "problem_number_invalid" for issue in issues))
 
 
 if __name__ == "__main__":

@@ -71,15 +71,43 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('issue.cell_reference', APP_JS)
         self.assertIn('warningAcknowledged', APP_JS)
         self.assertIn('errors === 0', APP_JS)
+        self.assertIn('issue.severity !== "info"', APP_JS)
+        self.assertNotIn('"已处理"', APP_JS)
 
-    def test_quality_check_has_twenty_four_mapped_items(self) -> None:
-        self.assertEqual(INDEX_HTML.count('data-check="'), 24)
-        self.assertIn("grid-template-columns: repeat(6, 1fr)", STYLES_CSS)
-        self.assertIn('reviewer_unmatched: "problem_content"', APP_JS)
-        self.assertIn('problem_description_split: "problem_content"', APP_JS)
-        self.assertIn('absent_proxy_normalized: "attendance"', APP_JS)
-        self.assertIn('filename_stage_mismatch: "stage"', APP_JS)
-        self.assertNotIn("CHECK_ITEM_MINIMUM_MS", APP_JS)
+    def test_quality_check_lists_reports_with_backend_progress(self) -> None:
+        self.assertNotIn('data-check="', INDEX_HTML)
+        self.assertIn('class="report-progress-list"', INDEX_HTML)
+        self.assertIn("report.progress_percent", APP_JS)
+        self.assertIn("report.current_checkpoint_label", APP_JS)
+        self.assertIn("/api/import/jobs/", APP_JS)
+        self.assertIn("/api/import/feishu/start", APP_JS)
+        self.assertNotIn("finishCheckAnimation", APP_JS)
+
+    def test_quality_check_smoothly_reads_ten_checkpoints_in_three_columns(self) -> None:
+        self.assertIn("const IMPORT_PROGRESS_STEP_MS = 120", APP_JS)
+        self.assertIn("const IMPORT_CHECKPOINTS = [", APP_JS)
+        self.assertIn("waitForProgressPlayback()", APP_JS)
+        self.assertIn("updateProgressHeader()", APP_JS)
+        self.assertIn('state.importJobStatus === "completed" && playbackComplete', APP_JS)
+        self.assertIn('class="report-progress-reader', APP_JS)
+        self.assertIn('class="report-progress-segments"', APP_JS)
+        self.assertIn("report.display_percent < Math.min(20, report.target_percent)", APP_JS)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr))", STYLES_CSS)
+        self.assertIn("grid-template-columns: repeat(10, minmax(8px, 1fr))", STYLES_CSS)
+        self.assertIn("transform: skewX(-24deg)", STYLES_CSS)
+        self.assertIn("checkpoint-flash", STYLES_CSS)
+        self.assertNotIn("progress-segment-pulse", STYLES_CSS)
+
+    def test_interface_uses_reviewer_wording_and_preserves_full_report_name(self) -> None:
+        self.assertNotIn("评审专家", INDEX_HTML)
+        self.assertNotIn("评审专家", APP_JS)
+        self.assertIn("评审人打分", INDEX_HTML)
+        self.assertIn('class="report-progress-name" data-full-name="${escapeHtml(report.source_name)}"', APP_JS)
+        self.assertNotIn('title="${escapeHtml(report.source_name)}"', APP_JS)
+        self.assertIn("content: attr(data-full-name)", STYLES_CSS)
+        self.assertIn(".report-progress-name:hover::after", STYLES_CSS)
+        self.assertIn("transition-delay: .45s", STYLES_CSS)
+        self.assertIn("background: var(--surface); color: var(--ink)", STYLES_CSS)
 
     def test_quality_check_can_switch_between_reports(self) -> None:
         self.assertIn('id="report-list"', INDEX_HTML)
@@ -94,7 +122,8 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("session.opinion_evidence.source_cell", APP_JS)
 
     def test_topbar_and_results_follow_confirmed_structure(self) -> None:
-        self.assertIn("客观分数考核", INDEX_HTML)
+        self.assertIn("评审过程表现", INDEX_HTML)
+        self.assertNotIn("客观分数考核", INDEX_HTML)
         self.assertIn("主观分数考核", INDEX_HTML)
         self.assertIn('class="module-tabs"', INDEX_HTML)
         self.assertIn('class="expert-slider"', INDEX_HTML)
@@ -118,7 +147,7 @@ class WebAssetTests(unittest.TestCase):
             STYLES_CSS,
         )
         self.assertIn('class="expert-rail-slot"', INDEX_HTML)
-        self.assertIn('class="module-label-short">客观</span>', INDEX_HTML)
+        self.assertIn('class="module-label-short">过程</span>', INDEX_HTML)
 
     def test_all_modules_share_the_full_width_header_container(self) -> None:
         self.assertIn("--content-max-width: 1480px", STYLES_CSS)
@@ -182,7 +211,7 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('font-size: var(--font-size-supporting); font-weight: var(--font-weight-control)', STYLES_CSS)
         self.assertIn('font-size: 28px; font-weight: var(--font-weight-heading)', STYLES_CSS)
         self.assertIn('min-height: 42px', STYLES_CSS)
-        self.assertIn('min-height: 72px', STYLES_CSS)
+        self.assertIn('.report-progress-row { --progress-color: var(--accent); width: 100%', STYLES_CSS)
         self.assertIn('font-size: 18px; font-weight: var(--font-weight-heading)', STYLES_CSS)
         self.assertIn('font-size: var(--font-size-content); font-weight: var(--font-weight-control)', STYLES_CSS)
         self.assertIn('.result-equation small { color: var(--muted); font-size: var(--font-size-supporting); }', STYLES_CSS)
@@ -196,9 +225,10 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("color: var(--muted); font-size: var(--font-size-micro); line-height: 1.2; opacity: .62", STYLES_CSS)
         self.assertIn("pointer-events: none; user-select: none", STYLES_CSS)
 
-    def test_v04_quality_check_copy_uses_semantic_fields(self) -> None:
-        self.assertIn("检查标准区块与基础字段", INDEX_HTML)
-        self.assertIn("读取“技术项目名和编码”中的项目名称", INDEX_HTML)
+    def test_quality_check_does_not_render_internal_checkpoint_catalog(self) -> None:
+        self.assertIn("正在逐份检查", APP_JS)
+        self.assertIn("正在枚举飞书归档文件夹", APP_JS)
+        self.assertNotIn("检查标准区块与基础字段", INDEX_HTML)
         self.assertNotIn("读取标题中的项目名称", INDEX_HTML)
 
 

@@ -87,7 +87,7 @@ class ValidationTests(unittest.TestCase):
 
         self.assertTrue(any(issue.code == "reviewer_duplicate" for issue in issues))
 
-    def test_conflicting_problem_number_across_sessions_is_an_error(self) -> None:
+    def test_stage_prefixed_problem_numbers_are_invalid(self) -> None:
         workbook = build_workbook(
             [
                 {
@@ -111,7 +111,8 @@ class ValidationTests(unittest.TestCase):
 
         _, issues = read_workbook(workbook)
 
-        self.assertTrue(any(issue.code == "problem_number_conflict" for issue in issues))
+        invalid_numbers = [issue for issue in issues if issue.code == "problem_number_invalid"]
+        self.assertEqual(2, len(invalid_numbers))
 
     def test_simple_problem_numbers_can_restart_in_each_stage(self) -> None:
         workbook = build_workbook(

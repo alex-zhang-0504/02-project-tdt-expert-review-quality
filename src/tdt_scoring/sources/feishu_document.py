@@ -7,7 +7,11 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
+from typing import Callable
 from urllib.parse import urlparse
+
+from ..progress import ProgressEvent
 
 
 SUPPORTED_HOSTS = ("feishu.cn", "larksuite.com", "doubao.com")
@@ -82,8 +86,31 @@ class FeishuDocumentSource:
         return {}
 
     @staticmethod
+    def _json_object(value: str) -> dict[str, object]:
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            decoder = json.JSONDecoder()
+            for index, character in enumerate(text):
+                if character != "{":
+                    continue
+                try:
+                    payload, _ = decoder.raw_decode(text, index)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    return payload
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
     def _error_message(result: subprocess.CompletedProcess[str]) -> str:
         payload = FeishuDocumentSource._payload(result)
+        if not payload:
+            payload = FeishuDocumentSource._json_object(result.stderr or "")
         error = payload.get("error") if isinstance(payload, dict) else None
         if isinstance(error, dict):
             subtype = str(error.get("subtype", ""))
@@ -96,7 +123,12 @@ class FeishuDocumentSource:
             if message:
                 return message
         detail = (result.stderr or result.stdout).strip()
-        return detail.splitlines()[-1] if detail else "飞书命令执行失败"
+        if detail:
+            non_empty_lines = [line.strip() for line in detail.splitlines() if line.strip()]
+            for line in reversed(non_empty_lines):
+                if line not in {"{", "}", "[", "]"}:
+                    return line
+        return "飞书命令执行失败"
 
     @staticmethod
     def validate_url(url: str) -> str:
@@ -210,7 +242,12 @@ class FeishuDocumentSource:
             return content, output_name
 
     @staticmethod
-    def export_folder_xlsx(url: str) -> FeishuFolderExport:
+    def export_folder_xlsx(
+        url: str,
+        *,
+        on_candidates: Callable[[list[str]], None] | None = None,
+        on_progress: Callable[[ProgressEvent], None] | None = None,
+    ) -> FeishuFolderExport:
         validated_url = FeishuDocumentSource.validate_folder_url(url)
         folder_token = FeishuDocumentSource._folder_token(validated_url)
         items = FeishuDocumentSource._list_folder_items(folder_token)
@@ -218,7 +255,9 @@ class FeishuDocumentSource:
         candidates: list[tuple[str, str | None, str | None]] = []
         seen_tokens: dict[str, str] = {}
 
+        candidate_durations: list[float] = []
         for item in items:
+            candidate_started = perf_counter()
             name = str(item.get("name") or "未命名飞书资源").strip() or "未命名飞书资源"
             item_type = str(item.get("type") or "").casefold()
             token = ""
@@ -253,15 +292,44 @@ class FeishuDocumentSource:
             elif token:
                 seen_tokens[token] = name
             candidates.append((name, token or None, candidate_error))
+            candidate_durations.append((perf_counter() - candidate_started) * 1000)
+
+        name_counts: dict[str, int] = {}
+        unique_candidates: list[tuple[str, str | None, str | None]] = []
+        for name, token, candidate_error in candidates:
+            name_counts[name] = name_counts.get(name, 0) + 1
+            display_name = (
+                name
+                if name_counts[name] == 1
+                else f"{name}（同名第{name_counts[name]}份）"
+            )
+            unique_candidates.append((display_name, token, candidate_error))
+        candidates = unique_candidates
+
+        if on_candidates:
+            on_candidates([name for name, _, _ in candidates])
 
         workbooks: list[FeishuWorkbookExport] = []
         with tempfile.TemporaryDirectory(prefix="tdt-scoring-feishu-folder-") as temp_dir:
             for index, (name, token, candidate_error) in enumerate(candidates, start=1):
+                if on_progress:
+                    on_progress(
+                        ProgressEvent(
+                            name,
+                            "report_acquisition",
+                            "error" if candidate_error or not token else "completed",
+                            candidate_durations[index - 1],
+                            candidate_error or "",
+                        )
+                    )
                 if candidate_error or not token:
                     workbooks.append(
                         FeishuWorkbookExport(name, None, candidate_error or "无法解析电子表格目标")
                     )
                     continue
+                export_started = perf_counter()
+                if on_progress:
+                    on_progress(ProgressEvent(name, "xlsx_acquisition", "started"))
                 try:
                     content = FeishuDocumentSource._export_spreadsheet(
                         spreadsheet_token=token,
@@ -269,8 +337,27 @@ class FeishuDocumentSource:
                         cwd=temp_dir,
                     )
                     workbooks.append(FeishuWorkbookExport(name, content))
+                    if on_progress:
+                        on_progress(
+                            ProgressEvent(
+                                name,
+                                "xlsx_acquisition",
+                                "completed",
+                                (perf_counter() - export_started) * 1000,
+                            )
+                        )
                 except RuntimeError as exc:
                     workbooks.append(FeishuWorkbookExport(name, None, str(exc)))
+                    if on_progress:
+                        on_progress(
+                            ProgressEvent(
+                                name,
+                                "xlsx_acquisition",
+                                "error",
+                                (perf_counter() - export_started) * 1000,
+                                str(exc),
+                            )
+                        )
 
         return FeishuFolderExport(
             source_name="飞书归档文件夹",

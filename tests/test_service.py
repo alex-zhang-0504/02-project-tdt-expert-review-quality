@@ -4,12 +4,72 @@ import unittest
 from unittest.mock import patch
 
 from tdt_scoring.service import ScoringService
+from tdt_scoring.progress import CHECKPOINTS, ImportJobStore
 from tdt_scoring.sources.feishu_document import FeishuFolderExport, FeishuWorkbookExport
 
 from tests.workbook_factory import build_v04_workbook, build_workbook
 
 
 class ServiceTests(unittest.TestCase):
+    @patch("tdt_scoring.service.FeishuDocumentSource.export_xlsx")
+    def test_feishu_import_uses_only_internal_stage_field(
+        self, export_xlsx
+    ) -> None:
+        export_xlsx.return_value = (
+            build_v04_workbook([{"stage": "TDR3"}]),
+            "tdrx-review.xlsx",
+        )
+
+        analysis = ScoringService().import_feishu_url(
+            "https://example.feishu.cn/sheets/sheet123"
+        )
+
+        self.assertFalse(
+            any(issue.code.startswith("filename_stage_") for issue in analysis.issues)
+        )
+
+    def test_local_import_does_not_validate_filename_stage(self) -> None:
+        analysis = ScoringService().import_local_files(
+            [(build_v04_workbook([{"stage": "TDR3"}]), "任意文件名-TDR1+TDR2.xlsx")]
+        )
+
+        self.assertEqual("TDR3", analysis.sessions[0].stage)
+        self.assertFalse(
+            any(issue.code.startswith("filename_stage_") for issue in analysis.issues)
+        )
+
+    def test_valid_report_emits_all_real_checkpoints_in_order(self) -> None:
+        events = []
+
+        ScoringService().import_local_files(
+            [(build_v04_workbook([{"stage": "TDR3"}]), "P001-TDR3.xlsx")],
+            progress=events.append,
+        )
+
+        completed = [
+            event.checkpoint_id
+            for event in events
+            if event.status in {"completed", "warning"}
+        ]
+        self.assertEqual([checkpoint_id for checkpoint_id, _ in CHECKPOINTS], completed)
+        self.assertTrue(all(event.duration_ms >= 0 for event in events))
+
+    def test_progress_tracks_two_local_reports_with_the_same_filename_separately(self) -> None:
+        store = ImportJobStore()
+        job = store.create("local_excel")
+        store.set_reports(job.job_id, ["同名报告.xlsx", "同名报告.xlsx"])
+
+        ScoringService().import_local_files(
+            [
+                (build_v04_workbook([{"stage": "TDR1"}], project="项目甲-P001"), "同名报告.xlsx"),
+                (build_v04_workbook([{"stage": "TDR2"}], project="项目乙-P002"), "同名报告.xlsx"),
+            ],
+            progress=lambda event: store.record(job.job_id, event),
+        )
+
+        reports = store.snapshot(job.job_id).reports
+        self.assertEqual([100, 100], [report.progress_percent for report in reports])
+
     @patch("tdt_scoring.service.FeishuDocumentSource.export_folder_xlsx")
     def test_feishu_folder_failure_keeps_successes_visible_and_blocks_batch(
         self, export_folder

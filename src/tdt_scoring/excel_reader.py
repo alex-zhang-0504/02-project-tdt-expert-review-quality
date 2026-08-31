@@ -42,8 +42,10 @@ PROJECT_CODE_PATTERN = re.compile(r"[（(]([^（）()]*)[）)]")
 PROXY_PATTERN = re.compile(r"^(.*?)[（(]\s*(?:代理\s*[:：]?\s*)?(.*?)[）)]\s*$")
 ABSENT_ROLE_PATTERN = re.compile(r"^(.*?)[（(][^（）()]+[）)]$")
 RECORDED_NO_CONCLUSION_MARKERS = {"-", "－", "—", "–"}
+NUMBERED_ITEM_TOKEN = r"(?:[0-9０-９]+|[A-Za-zＡ-Ｚａ-ｚ]|[一二三四五六七八九十]+)"
 NUMBERED_ITEM_PATTERN = re.compile(
-    r"(?m)^[ \t]*(?:\d+[、．.]|[（(]\d+[）)]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])[ \t]*"
+    rf"(?m)(?:^[ \t]*|(?<=[；;\n])[ \t]*)(?:{NUMBERED_ITEM_TOKEN}[、．.）):：]|"
+    rf"[（(]{NUMBERED_ITEM_TOKEN}[）)]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])[ \t]*"
 )
 V04_SECTION_ALIASES = {
     "signoff": (SECTION_SIGNOFF,),
@@ -198,7 +200,7 @@ def split_numbered_items(value: object) -> list[str]:
     items: list[str] = []
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        item = normalize_text(text[match.end() : end])
+        item = normalize_text(text[match.end() : end]).rstrip("；;").rstrip()
         if item:
             items.append(item)
     return items if len(items) >= 2 else []
@@ -217,8 +219,14 @@ def split_opinion_items(value: object) -> list[str]:
 
 
 def normalize_opinion_key(value: object) -> str:
-    text = unicodedata.normalize("NFKC", normalize_text(value)).casefold()
-    text = re.sub(r"^(?:\d+[、.]|\(\d+\)|[①②③④⑤⑥⑦⑧⑨⑩])\s*", "", text)
+    text = normalize_text(value)
+    text = re.sub(
+        rf"^(?:{NUMBERED_ITEM_TOKEN}[、．.)）:：]|[（(]{NUMBERED_ITEM_TOKEN}[）)]|"
+        r"[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])[ \t]*",
+        "",
+        text,
+    )
+    text = unicodedata.normalize("NFKC", text).casefold()
     return re.sub(r"[\s,，。.;；:：、!?！？()（）\[\]【】\-—–－]", "", text)
 
 
@@ -680,7 +688,7 @@ def _parse_v04_problems(
                 ValidationIssue(
                     "problem_description_split",
                     f"问题描述一格包含{len(description_items)}项明确序号，已拆分为多条问题事实",
-                    "warning",
+                    "info",
                     ws.title,
                     row_number=row_number,
                     cell_reference=_cell_reference(row_number, columns["description"]),
@@ -689,18 +697,6 @@ def _parse_v04_problems(
             )
         else:
             description_items = [values["description"]]
-            if re.search(r"[；;]", values["description"]):
-                issues.append(
-                    ValidationIssue(
-                        "problem_description_maybe_multiple",
-                        "问题描述含分号但没有明确序号，已按一条问题保留；请后续一行只记录一个问题",
-                        "warning",
-                        ws.title,
-                        row_number=row_number,
-                        cell_reference=_cell_reference(row_number, columns["description"]),
-                        source_name=source_name,
-                    )
-                )
         raw_reviewers = split_reviewers(ws.cell(row_number, columns["reviewers"]).value)
         status_raw = values["status"]
         status = canonical_problem_status(status_raw)
@@ -714,7 +710,6 @@ def _parse_v04_problems(
             logical_item_index: int | None = None
             if len(description_items) > 1:
                 logical_item_index = item_index
-                number = f"{number}.{item_index}" if number else ""
                 references["description"] = f"{references['description']}-第{item_index}项"
                 references["number"] = f"{references['number']}-第{item_index}项"
             problems.append(
@@ -761,21 +756,10 @@ def _normalize_v04_people(
     issues: list[ValidationIssue] = []
     proxy_to_original = _proxy_to_original(signoffs)
     roster = {signoff.expert_name for signoff in signoffs if signoff.expert_name}
+    raw_absent = set(absent_reviewers)
     normalized_absent: list[str] = []
     for name in absent_reviewers:
         normalized = proxy_to_original.get(name, name)
-        if normalized != name:
-            issues.append(
-                ValidationIssue(
-                    "absent_proxy_normalized",
-                    f"缺席名单中的代理人“{name}”已按区块2唯一代理关系归一到原评审人“{normalized}”",
-                    "warning",
-                    sheet_name,
-                    normalized,
-                    cell_reference=absent_cell,
-                    source_name=source_name,
-                )
-            )
         if normalized not in normalized_absent:
             normalized_absent.append(normalized)
 
@@ -785,16 +769,26 @@ def _normalize_v04_people(
         if signoff.proxy_name:
             signoff.attendance = "正常"
             if listed_absent:
+                if signoff.proxy_name in raw_absent:
+                    message = (
+                        f"缺席名单中的代理人“{signoff.proxy_name}”已归一到原评审人"
+                        f"“{signoff.expert_name}”，并结合代理履职记录按出席处理"
+                    )
+                else:
+                    message = (
+                        f"原评审人“{signoff.expert_name}”虽在缺席名单中，但区块2已记录"
+                        f"代理人“{signoff.proxy_name}”履职，按出席处理"
+                    )
                 issues.append(
                     ValidationIssue(
-                        "absent_with_proxy",
-                        f"原评审人“{signoff.expert_name}”虽在缺席名单中，但区块2已记录代理人“{signoff.proxy_name}”履职，按出勤处理",
-                        "warning",
-                        sheet_name,
-                        signoff.expert_name,
-                        signoff.row_number,
-                        signoff.cell_references.get("reviewer"),
-                        source_name,
+                        "absent_proxy_resolved",
+                        message,
+                        "info",
+                        sheet_name=sheet_name,
+                        expert_name=signoff.expert_name,
+                        row_number=signoff.row_number,
+                        cell_reference=absent_cell,
+                        source_name=source_name,
                     )
                 )
         elif has_valid_conclusion:
@@ -803,7 +797,7 @@ def _normalize_v04_people(
                 issues.append(
                     ValidationIssue(
                         "absent_with_valid_signoff",
-                        f"评审人“{signoff.expert_name}”虽在缺席名单中，但已提交有效会签，按已履职处理",
+                        f"评审人“{signoff.expert_name}”出现在缺席名单中但已提交有效会签；按规则以有效会签为准，按出席和正常会签统计，请核实并修正缺席名单",
                         "warning",
                         sheet_name,
                         signoff.expert_name,
@@ -1059,7 +1053,7 @@ def _parse_v04_sheet(
             cell_reference=field_references["meeting_date"],
         )
 
-    stage = "TDR2" if raw_stage.upper() == "TDR1+TDR2" else raw_stage
+    stage = raw_stage
     recorded_reviewer_names = {
         signoff.expert_name
         for signoff in signoffs
@@ -1100,17 +1094,6 @@ def _parse_v04_sheet(
         field_references=field_references,
         parser_profile="v0.4",
     )
-    if raw_stage.upper() == "TDR1+TDR2":
-        issues.append(
-            ValidationIssue(
-                "stage_legacy_combined",
-                "旧阶段值“TDR1+TDR2”已按TDR2读取，请在源表中改为TDR2",
-                "warning",
-                ws.title,
-                cell_reference=field_references["stage"],
-                source_name=source_name,
-            )
-        )
     session.issues.extend(issues)
     session.issues.extend(validate_session(session))
     return session, []
@@ -1144,16 +1127,6 @@ def read_workbook(
             if not is_legacy_candidate and _is_v04_candidate(ws):
                 session, parse_issues = _parse_v04_sheet(ws, source_name=source_name)
                 if session:
-                    if ws.sheet_state != "visible":
-                        session.issues.append(
-                            ValidationIssue(
-                                "hidden_sheet_parsed",
-                                "隐藏Sheet符合有效报告规则，已正常解析；无需删除",
-                                "warning",
-                                ws.title,
-                                source_name=source_name,
-                            )
-                        )
                     sessions.append(session)
                 structure_issues.extend(parse_issues)
                 continue
@@ -1219,61 +1192,9 @@ def read_workbook(
             session = _parse_sheet(ws, sections)
             if session:
                 session.source_name = source_name
-                if ws.sheet_state != "visible":
-                    session.issues.append(
-                        ValidationIssue(
-                            "hidden_sheet_parsed",
-                            "隐藏Sheet符合有效报告规则，已正常解析；无需删除",
-                            "warning",
-                            ws.title,
-                            source_name=source_name,
-                        )
-                    )
                 sessions.append(session)
     finally:
         workbook.close()
-
-    for session in sessions:
-        sheet_stages = {value.upper() for value in re.findall(r"TDR[123]", session.sheet_name, re.IGNORECASE)}
-        if sheet_stages and session.stage.upper() not in sheet_stages:
-            structure_issues.append(
-                ValidationIssue(
-                    "sheet_name_stage_mismatch",
-                    f"Sheet名称标注阶段“{'／'.join(sorted(sheet_stages))}”与字段“评审阶段”的{session.stage}不一致；已按字段内容读取",
-                    "warning",
-                    session.sheet_name,
-                    cell_reference=session.field_references.get("stage"),
-                    source_name=source_name,
-                )
-            )
-    if source_name and sessions:
-        filename = Path(source_name).name
-        filename_stages = {
-            value.upper()
-            for value in re.findall(r"TDR[123]", filename, re.IGNORECASE)
-        }
-        actual_stages = {session.stage.upper() for session in sessions}
-        if not filename_stages:
-            structure_issues.append(
-                ValidationIssue(
-                    "filename_stage_missing",
-                    "文件名未标明所含TDR阶段；已按Sheet内字段读取，请后续按命名规则补充阶段",
-                    "warning",
-                    source_name=source_name,
-                )
-            )
-        elif filename_stages != actual_stages:
-            structure_issues.append(
-                ValidationIssue(
-                    "filename_stage_mismatch",
-                    (
-                        f"文件名阶段“{'／'.join(sorted(filename_stages))}”与有效Sheet阶段"
-                        f"“{'／'.join(sorted(actual_stages))}”不一致；已按Sheet内字段读取"
-                    ),
-                    "warning",
-                    source_name=source_name,
-                )
-            )
 
     issues = structure_issues + [issue for session in sessions for issue in session.issues]
     issues.extend(validate_stage_conflicts(sessions))

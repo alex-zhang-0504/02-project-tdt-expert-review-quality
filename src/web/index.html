@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TDT评审专家打分</title>
+    <title>TDT评审人打分</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css?build=__BUILD_ID__" />
   </head>
@@ -14,7 +14,7 @@
           <div class="topbar">
             <div>
               <p class="eyebrow">TDT EXPERT REVIEW</p>
-              <h1>评审专家打分</h1>
+              <h1>评审人打分</h1>
             </div>
             <span class="project-summary" id="project-summary">尚未读取评审表</span>
             <div class="spacer"></div>
@@ -23,7 +23,7 @@
           <div class="toolrow">
             <nav class="module-tabs" aria-label="打分流程">
               <button class="module-tab is-active" data-step="1" aria-label="读取评审表"><span class="module-label-full">读取评审表</span><span class="module-label-short">读取</span></button>
-              <button class="module-tab" data-step="2" aria-label="客观分数考核"><span class="module-label-full">客观分数考核</span><span class="module-label-short">客观</span></button>
+              <button class="module-tab" data-step="2" aria-label="评审过程表现"><span class="module-label-full">评审过程表现</span><span class="module-label-short">过程</span></button>
               <button class="module-tab" data-step="3" aria-label="主观分数考核"><span class="module-label-full">主观分数考核</span><span class="module-label-short">主观</span></button>
               <button class="module-tab" data-step="4" aria-label="评分结果"><span class="module-label-full">评分结果</span><span class="module-label-short">结果</span></button>
             </nav>
@@ -35,7 +35,7 @@
         <div class="expert-rail-slot">
           <aside class="expert-rail" aria-label="评审人列表">
             <p class="expert-rail-title">评审人列表</p>
-            <div class="expert-slider" id="expert-list"><span class="expert-placeholder">读取评审表后显示评审专家</span></div>
+            <div class="expert-slider" id="expert-list"><span class="expert-placeholder">读取评审表后显示评审人</span></div>
           </aside>
         </div>
 
@@ -87,40 +87,14 @@
                 <div><p class="section-index">文档质量检查</p><h3 id="check-title">正在检查评审报告</h3></div>
                 <span class="check-state" id="check-state">检查中</span>
               </div>
-              <div class="report-list" id="report-list"></div>
               <div class="batch-summary usage-note is-hidden" id="batch-summary"></div>
-              <ol class="check-progress" id="check-progress">
-                <li data-check="source"><span></span>读取数据来源</li>
-                <li data-check="extension"><span></span>检查文件扩展名</li>
-                <li data-check="file_limits"><span></span>检查文件非空与大小</li>
-                <li data-check="xlsx_structure"><span></span>验证XLSX文件结构</li>
-                <li data-check="workbook_parse"><span></span>解析Excel工作簿</li>
-                <li data-check="sheet_inventory"><span></span>读取工作表清单</li>
-                <li data-check="sheet_filter"><span></span>排除示例与空白表</li>
-                <li data-check="section_structure"><span></span>检查标准区块与基础字段</li>
-                <li data-check="signoff_headers"><span></span>检查会签表头</li>
-                <li data-check="problem_headers"><span></span>检查问题表头</li>
-                <li data-check="effective_sessions"><span></span>识别正式评审场次</li>
-                <li data-check="project_name"><span></span>读取“技术项目名和编码”中的项目名称</li>
-                <li data-check="project_code"><span></span>读取“技术项目名和编码”中的项目编码</li>
-                <li data-check="stage"><span></span>检查阶段枚举与重复</li>
-                <li data-check="meeting_date"><span></span>检查会议日期</li>
-                <li data-check="absent_reviewers"><span></span>读取缺席评审人名单</li>
-                <li data-check="meeting_conclusion"><span></span>检查会议评审结论</li>
-                <li data-check="signoff_people"><span></span>检查角色与专家名单</li>
-                <li data-check="attendance"><span></span>按缺席名单判定出勤</li>
-                <li data-check="signoff"><span></span>检查有效会签结果</li>
-                <li data-check="opinion"><span></span>提取评审意见证据</li>
-                <li data-check="problem_number"><span></span>检查问题编号唯一性</li>
-                <li data-check="problem_content"><span></span>检查问题字段与三要素</li>
-                <li data-check="score"><span></span>检查评分汇总与边界</li>
-              </ol>
+              <div class="report-progress-list" id="report-list"></div>
               <div class="issue-list" id="issue-summary"></div>
               <label class="warning-confirm is-hidden" id="warning-confirm">
                 <input id="warning-acknowledged" type="checkbox" />
                 <span>我已阅读并确认以上提醒，继续进入评分。</span>
               </label>
-              <button class="primary-button" id="continue-analysis" type="button" disabled>进入客观分数考核</button>
+              <button class="primary-button" id="continue-analysis" type="button" disabled>进入评审过程表现</button>
             </section>
           </section>
 
@@ -128,7 +102,7 @@
             <div class="panel-heading">
               <div>
                 <p class="section-index">步骤 2</p>
-                <h2>维度一：客观分数考核</h2>
+                <h2>维度一：评审过程表现</h2>
                 <p id="analysis-summary"></p>
               </div>
               <button class="ghost-button" id="restart">重新读取</button>
@@ -168,7 +142,7 @@
               <div>
                 <p class="section-index">步骤 4</p>
                 <h2>评分结果</h2>
-                <p>汇总展示全部评审专家；全体专家的客观分数和主观分数均完成后，统一生成年度等级。</p>
+                <p>汇总展示全部评审人；全体评审人的客观分数和主观分数均完成后，统一生成年度等级。</p>
               </div>
             </div>
             <div class="score-result" id="score-result"></div>

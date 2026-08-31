@@ -109,6 +109,52 @@ class SourceTests(unittest.TestCase):
         self.assertIn("重复指向", result.workbooks[-1].error)
         self.assertEqual(3, export_spreadsheet.call_count)
 
+    @patch.object(FeishuDocumentSource, "_export_spreadsheet", return_value=b"xlsx")
+    @patch.object(FeishuDocumentSource, "_list_folder_items")
+    def test_folder_export_emits_real_candidate_and_export_progress(
+        self, list_items, _export_spreadsheet
+    ) -> None:
+        list_items.return_value = [
+            {"name": "报告A", "type": "sheet", "token": "s1"},
+        ]
+        candidates = []
+        events = []
+
+        FeishuDocumentSource.export_folder_xlsx(
+            "https://example.feishu.cn/drive/folder/fld123",
+            on_candidates=candidates.extend,
+            on_progress=events.append,
+        )
+
+        self.assertEqual(["报告A"], candidates)
+        self.assertEqual(
+            [
+                ("report_acquisition", "completed"),
+                ("xlsx_acquisition", "started"),
+                ("xlsx_acquisition", "completed"),
+            ],
+            [(event.checkpoint_id, event.status) for event in events],
+        )
+        self.assertGreaterEqual(events[-1].duration_ms, 0)
+
+    def test_cli_error_json_on_stderr_is_reported_instead_of_closing_brace(self) -> None:
+        result = CompletedProcess(
+            [],
+            1,
+            stdout="",
+            stderr=(
+                "token refresh notice\n"
+                "{\n"
+                '  "error": {"subtype": "token_missing", "message": "need_user_authorization"}\n'
+                "}\n"
+            ),
+        )
+
+        message = FeishuDocumentSource._error_message(result)
+
+        self.assertIn("授权缺失", message)
+        self.assertNotEqual("}", message)
+
     @patch("tdt_scoring.sources.feishu_document.subprocess.run")
     @patch("tdt_scoring.sources.feishu_document.shutil.which", return_value="lark-cli.cmd")
     def test_lark_cli_output_is_decoded_as_utf8(self, _which, run) -> None:
