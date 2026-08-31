@@ -52,6 +52,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("/api/import/local-batch/start", paths)
         self.assertIn("/api/import/feishu/start", paths)
         self.assertIn("/api/import/jobs/{job_id}", paths)
+        self.assertIn("/api/export/dimension-one", paths)
+        self.assertIn("/api/import/dimension-one-submissions", paths)
 
     @patch("tdt_scoring.api.FeishuDocumentSource.authorization_status")
     def test_feishu_import_job_is_blocked_until_user_authorization_is_ready(

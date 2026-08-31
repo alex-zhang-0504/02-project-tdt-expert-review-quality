@@ -18,7 +18,9 @@ const IMPORT_CHECKPOINTS = [
 ];
 
 const state = {
-  activeStep: 1,
+  activeStep: 0,
+  workflowMode: null,
+  currentBatchId: "",
   analysis: null,
   selectedExpert: null,
   questions: [],
@@ -30,6 +32,7 @@ const state = {
   auditDrafts: {},
   lastResult: null,
   droppedFiles: [],
+  droppedSubmissionFiles: [],
   selectedReportIndex: 0,
   warningsAcknowledged: false,
   serviceAvailable: false,
@@ -43,11 +46,22 @@ const state = {
   importProgressReports: [],
   displayProgressReports: [],
   progressPlaybackTimer: null,
+  dimensionOneVisibleRows: [],
 };
 
 const elements = {
+  mainContent: document.querySelector(".main-content"),
   status: document.querySelector("#service-status"),
   notice: document.querySelector("#notice"),
+  modePanel: document.querySelector("#mode-panel"),
+  mergePanel: document.querySelector("#merge-panel"),
+  mergeNotice: document.querySelector("#merge-notice"),
+  submissionFiles: document.querySelector("#submission-files"),
+  submissionUploadBox: document.querySelector("#submission-upload-box"),
+  submissionFileName: document.querySelector("#submission-file-name"),
+  expectedManagerCount: document.querySelector("#expected-manager-count"),
+  expectedProjectCount: document.querySelector("#expected-project-count"),
+  mergeSubmissions: document.querySelector("#merge-submissions"),
   importLocal: document.querySelector("#import-local"),
   importFeishu: document.querySelector("#import-feishu"),
   file: document.querySelector("#workbook-file"),
@@ -58,10 +72,25 @@ const elements = {
   authorizeFeishu: document.querySelector("#authorize-feishu"),
   completeFeishuAuth: document.querySelector("#complete-feishu-auth"),
   importPanel: document.querySelector("#import-panel"),
+  importModeLabel: document.querySelector("#import-mode-label"),
+  managerMeta: document.querySelector("#manager-meta"),
+  managerBatchId: document.querySelector("#manager-batch-id"),
+  managerId: document.querySelector("#manager-id"),
+  managerName: document.querySelector("#manager-name"),
+  managerRevision: document.querySelector("#manager-revision"),
   analysisPanel: document.querySelector("#analysis-panel"),
   questionnairePanel: document.querySelector("#questionnaire-panel"),
   resultPanel: document.querySelector("#result-panel"),
   analysisSummary: document.querySelector("#analysis-summary"),
+  dimensionOneSearch: document.querySelector("#dimension-one-search"),
+  dimensionOneProject: document.querySelector("#dimension-one-project"),
+  dimensionOneStage: document.querySelector("#dimension-one-stage"),
+  dimensionOneExceptionOnly: document.querySelector("#dimension-one-exception-only"),
+  dimensionOneSummary: document.querySelector("#dimension-one-summary"),
+  dimensionOneTableWrap: document.querySelector("#dimension-one-table-wrap"),
+  centralBatchField: document.querySelector(".central-batch-field"),
+  centralBatchId: document.querySelector("#central-batch-id"),
+  exportDimensionOne: document.querySelector("#export-dimension-one"),
   projectSummary: document.querySelector("#project-summary"),
   checkCard: document.querySelector("#check-card"),
   checkTitle: document.querySelector("#check-title"),
@@ -83,6 +112,10 @@ const elements = {
   standaloneExpertName: document.querySelector("#standalone-expert-name"),
   calculate: document.querySelector("#calculate-total"),
   result: document.querySelector("#score-result"),
+  evidenceBackdrop: document.querySelector("#evidence-backdrop"),
+  evidenceDrawer: document.querySelector("#evidence-drawer"),
+  evidenceDrawerTitle: document.querySelector("#evidence-drawer-title"),
+  evidenceDrawerContent: document.querySelector("#evidence-drawer-content"),
 };
 
 function escapeHtml(value) {
@@ -126,7 +159,15 @@ function syncServiceActions() {
   document.querySelectorAll('[data-service-action="true"]').forEach((button) => {
     if (button === elements.calculate) return;
     const authorizationMissing = button === elements.importFeishu && !state.feishuAuthReady;
-    button.disabled = button.dataset.busy === "true" || !state.serviceAvailable || authorizationMissing;
+    const analysisMissing = button === elements.exportDimensionOne
+      && (!state.analysis || !qualityGatePassed());
+    const submissionsMissing = button === elements.mergeSubmissions
+      && !selectedSubmissionFiles().length;
+    button.disabled = button.dataset.busy === "true"
+      || !state.serviceAvailable
+      || authorizationMissing
+      || analysisMissing
+      || submissionsMissing;
   });
   updateSubmitAvailability();
 }
@@ -205,6 +246,7 @@ async function requestJson(url, options = {}) {
 
 function activateStep(step) {
   state.activeStep = step;
+  elements.mainContent.classList.toggle("is-wide", step === 0 || step === 2);
   document.querySelectorAll(".module-tab").forEach((item) => {
     const itemStep = Number(item.dataset.step);
     item.classList.toggle("is-active", itemStep === step);
@@ -216,7 +258,7 @@ function activateStep(step) {
 }
 
 function expertSelectionEnabled() {
-  return state.activeStep === 2 || state.activeStep === 3;
+  return state.activeStep === 3;
 }
 
 function syncExpertNavigationState() {
@@ -243,16 +285,67 @@ function qualityGatePassed() {
 }
 
 function canNavigate(step) {
-  if (step === 1) return true;
+  if (!state.workflowMode) return false;
+  if (step === 1) return state.workflowMode !== "merge";
+  if ((state.workflowMode === "manager" || state.workflowMode === "merge") && step >= 3) {
+    return false;
+  }
   if (!state.analysis) return step === 3 || step === 4;
   return qualityGatePassed();
 }
 
 function showPanel(panel) {
-  [elements.importPanel, elements.analysisPanel, elements.questionnairePanel, elements.resultPanel]
+  [elements.modePanel, elements.mergePanel, elements.importPanel, elements.analysisPanel, elements.questionnairePanel, elements.resultPanel]
     .forEach((item) => item.classList.add("is-hidden"));
   panel.classList.remove("is-hidden");
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function selectWorkflow(mode) {
+  state.workflowMode = mode;
+  state.currentBatchId = "";
+  if (mode === "merge") {
+    showPanel(elements.mergePanel);
+    activateStep(0);
+    syncServiceActions();
+    return;
+  }
+  elements.importModeLabel.textContent = mode === "manager"
+    ? "方案 2 · 项目经理提交 · 步骤 1"
+    : "方案 1 · 集中评分 · 步骤 1";
+  elements.managerMeta.classList.toggle("is-hidden", mode !== "manager");
+  showPanel(elements.importPanel);
+  activateStep(1);
+  syncServiceActions();
+}
+
+function returnToMode() {
+  if (state.analysis && !window.confirm("返回方案选择会清空当前页面中的分析结果，是否继续？")) return;
+  clearAnalysisState();
+  state.workflowMode = null;
+  state.currentBatchId = "";
+  showPanel(elements.modePanel);
+  activateStep(0);
+}
+
+function managerMetadata() {
+  const metadata = {
+    batch_id: elements.managerBatchId.value.trim(),
+    manager_id: elements.managerId.value.trim(),
+    manager_name: elements.managerName.value.trim(),
+    revision: Number(elements.managerRevision.value),
+  };
+  if (!metadata.batch_id || !metadata.manager_id || !metadata.manager_name) {
+    throw new Error("请先填写年度批次编号、项目经理编号和项目经理姓名");
+  }
+  if (!Number.isInteger(metadata.revision) || metadata.revision < 1) {
+    throw new Error("修订号必须是大于等于1的整数");
+  }
+  return metadata;
+}
+
+function validateWorkflowMetadata() {
+  if (state.workflowMode === "manager") managerMetadata();
 }
 
 async function importLocal() {
@@ -260,6 +353,7 @@ async function importLocal() {
   clearNotice();
   setBusy(button, true, "正在读取与检查…");
   try {
+    validateWorkflowMetadata();
     const selectedFiles = state.droppedFiles.length
       ? state.droppedFiles
       : [...elements.file.files];
@@ -287,6 +381,7 @@ async function importFeishu() {
   startProgressDisplay([]);
   setBusy(button, true, "正在枚举并检查飞书报告…");
   try {
+    validateWorkflowMetadata();
     const url = elements.feishuUrl.value.trim();
     if (!url) throw new Error("请输入飞书归档文件夹URL");
     const job = await requestJson("/api/import/feishu/start", {
@@ -318,16 +413,20 @@ async function receiveAnalysis(analysis) {
   state.lastResult = null;
   state.selectedReportIndex = 0;
   state.warningsAcknowledged = false;
+  if (state.workflowMode === "manager") {
+    state.currentBatchId = elements.managerBatchId.value.trim();
+  }
   elements.warningAcknowledged.checked = false;
   const reportCount = analysis.reports?.length || 1;
   const candidateCount = analysis.batch_summary?.candidate_count ?? reportCount;
-  elements.projectSummary.textContent = `${candidateCount}份候选报告 · ${analysis.sessions.length}场 · ${analysis.experts.length}位专家`;
+  elements.projectSummary.textContent = `${candidateCount}份候选报告 · ${analysis.sessions.length}场 · ${analysis.experts.length}位评审人`;
   renderBatchSummary();
   renderExpertNavigation();
   renderReportList();
   if (analysis.reports?.length) selectReport(0);
   else renderIssues(analysis.issues, analysis.source_name);
   activateStep(1);
+  syncServiceActions();
 }
 
 function startProgressDisplay(sourceNames = []) {
@@ -597,8 +696,172 @@ function renderAnalysis() {
     document.querySelector("#go-import").addEventListener("click", () => navigateStep(1));
     return;
   }
-  elements.analysisSummary.textContent = `${analysis.source_name} · 仅纳入已完成TDR3的项目 · ${analysis.experts.length}位专家`;
-  renderExpertDetail();
+  elements.analysisSummary.textContent = `${analysis.source_name} · 仅纳入已完成TDR3的项目 · ${analysis.experts.length}位评审人`;
+  renderDimensionOneControls();
+  renderDimensionOneTable();
+}
+
+function dimensionOneRows() {
+  if (!state.analysis) return [];
+  return state.analysis.experts.flatMap((expert) =>
+    expert.project_process_scores.map((project) => ({
+      expert,
+      project,
+      sessions: expert.sessions.filter((session) => session.project_code === project.project_code),
+    })),
+  );
+}
+
+function renderDimensionOneControls() {
+  const projects = [...new Map(
+    dimensionOneRows().map((row) => [row.project.project_code, row.project.project_name]),
+  ).entries()].sort(([left], [right]) => left.localeCompare(right, "zh-CN"));
+  const selected = elements.dimensionOneProject.value;
+  elements.dimensionOneProject.innerHTML = `<option value="">全部项目</option>${projects.map(([code, name]) => (
+    `<option value="${escapeHtml(code)}">${escapeHtml(code)} · ${escapeHtml(name)}</option>`
+  )).join("")}`;
+  if (projects.some(([code]) => code === selected)) elements.dimensionOneProject.value = selected;
+  const centralMode = state.workflowMode === "central";
+  elements.centralBatchField.classList.toggle("is-hidden", !centralMode);
+  elements.exportDimensionOne.textContent = state.workflowMode === "manager"
+    ? "导出个人维度一提交表"
+    : state.workflowMode === "merge" ? "导出汇总后的维度一结果" : "导出维度一结果";
+  syncServiceActions();
+}
+
+function filteredDimensionOneRows() {
+  const search = elements.dimensionOneSearch.value.trim().toLocaleLowerCase("zh-CN");
+  const projectCode = elements.dimensionOneProject.value;
+  const stage = elements.dimensionOneStage.value;
+  const exceptionOnly = elements.dimensionOneExceptionOnly.checked;
+  return dimensionOneRows().filter((row) => {
+    if (search && !row.expert.expert_name.toLocaleLowerCase("zh-CN").includes(search)) return false;
+    if (projectCode && row.project.project_code !== projectCode) return false;
+    if (stage && !row.sessions.some((session) => session.stage === stage)) return false;
+    if (exceptionOnly && row.sessions.every((session) => session.total === 50)) return false;
+    return true;
+  }).sort((left, right) => (
+    left.expert.expert_name.localeCompare(right.expert.expert_name, "zh-CN")
+      || left.project.project_code.localeCompare(right.project.project_code, "zh-CN")
+  ));
+}
+
+function dimensionOneScoreCell(session, metric, rowIndex) {
+  if (!session) return "<td></td>";
+  const value = metric === "total" ? session.total : session[metric].score;
+  const label = metric === "attendance" ? "出勤表现"
+    : metric === "signoff" ? "结果会签"
+      : metric === "opinion" ? "评审意见" : "阶段小计";
+  return `<td class="numeric"><button class="score-detail-button" type="button" data-row-index="${rowIndex}" data-stage="${escapeHtml(session.stage)}" data-metric="${metric}" aria-label="查看${escapeHtml(label)}计分依据">${value}</button></td>`;
+}
+
+function renderDimensionOneTable() {
+  if (!state.analysis) return;
+  const rows = filteredDimensionOneRows();
+  state.dimensionOneVisibleRows = rows;
+  const visibleStages = elements.dimensionOneStage.value
+    ? [elements.dimensionOneStage.value]
+    : ["TDR1", "TDR2", "TDR3"];
+  const projectCount = new Set(rows.map((row) => row.project.project_code)).size;
+  const reviewerCount = new Set(rows.map((row) => row.expert.expert_name)).size;
+  elements.dimensionOneSummary.innerHTML = `<strong>${reviewerCount}位评审人 · ${projectCount}个项目 · ${rows.length}行</strong>；单击任一分数可查看原文与单元格证据。年度服务贡献基于当前完整批次统一重算。`;
+  if (!rows.length) {
+    elements.dimensionOneTableWrap.innerHTML = `<div class="dimension-one-empty">当前筛选条件下没有维度一记录。</div>`;
+    return;
+  }
+  const stageHeaders = visibleStages.map((stage) => `<th colspan="4">${stage}</th>`).join("");
+  const subHeaders = visibleStages.map(() => (
+    '<th>出勤／15</th><th>会签／25</th><th>意见／10</th><th>小计／50</th>'
+  )).join("");
+  elements.dimensionOneTableWrap.innerHTML = `
+    <table class="dimension-one-table">
+      <thead>
+        <tr>
+          <th class="sticky-1" rowspan="2">评审人</th>
+          <th class="sticky-2" rowspan="2">项目编码</th>
+          <th class="sticky-3" rowspan="2">子任务名称</th>
+          ${stageHeaders}
+          <th colspan="2">项目汇总</th>
+          <th colspan="5">年度服务贡献</th>
+          <th colspan="3">年度汇总</th>
+          <th class="evidence-sticky" rowspan="2">证据</th>
+        </tr>
+        <tr>${subHeaders}<th>有效场次</th><th>项目均分／50</th><th>参与项目</th><th>参与分／6</th><th>问题项目</th><th>问题分／4</th><th>服务／10</th><th>过程均分／50</th><th>代理场次</th><th class="objective-sticky">客观分／60</th></tr>
+      </thead>
+      <tbody>${rows.map((row, rowIndex) => {
+        const stageMap = new Map(row.sessions.map((session) => [session.stage, session]));
+        const stageCells = visibleStages.map((stage) => {
+          const session = stageMap.get(stage);
+          return ["attendance", "signoff", "opinion", "total"]
+            .map((metric) => dimensionOneScoreCell(session, metric, rowIndex)).join("");
+        }).join("");
+        return `<tr>
+          <td class="sticky-1">${escapeHtml(row.expert.expert_name)}</td>
+          <td class="sticky-2">${escapeHtml(row.project.project_code)}</td>
+          <td class="sticky-3 project-name-cell"><span class="project-name-tooltip" data-full-name="${escapeHtml(row.project.project_name)}">${escapeHtml(row.project.project_name)}</span></td>
+          ${stageCells}
+          <td class="numeric">${row.project.session_count}</td>
+          <td class="numeric">${row.project.process_average}</td>
+          <td class="numeric">${row.expert.participation_project_count}</td>
+          <td class="numeric">${row.expert.participation_score}</td>
+          <td class="numeric">${row.expert.problem_project_count}</td>
+          <td class="numeric">${row.expert.problem_score}</td>
+          <td class="numeric">${row.expert.annual_service_score}</td>
+          <td class="numeric">${row.expert.process_average}</td>
+          <td class="numeric">${row.expert.proxy_session_count}／${row.expert.expected_session_count}</td>
+          <td class="numeric objective-sticky">${row.expert.objective_score}</td>
+          <td class="evidence-sticky"><button class="row-evidence-button" type="button" data-row-index="${rowIndex}">查看</button></td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>`;
+  elements.dimensionOneTableWrap.querySelectorAll(".score-detail-button").forEach((button) => {
+    button.addEventListener("click", () => openDimensionOneEvidence(
+      Number(button.dataset.rowIndex),
+      button.dataset.stage,
+      button.dataset.metric,
+    ));
+  });
+  elements.dimensionOneTableWrap.querySelectorAll(".row-evidence-button").forEach((button) => {
+    button.addEventListener("click", () => openDimensionOneEvidence(Number(button.dataset.rowIndex)));
+  });
+}
+
+function openDimensionOneEvidence(rowIndex, stage = "", metric = "") {
+  const row = state.dimensionOneVisibleRows[rowIndex];
+  if (!row) return;
+  const sessions = stage ? row.sessions.filter((session) => session.stage === stage) : row.sessions;
+  const metricLabels = {
+    attendance: "出勤表现",
+    signoff: "结果会签",
+    opinion: "评审意见",
+    total: "阶段小计",
+  };
+  elements.evidenceDrawerTitle.textContent = `${row.expert.expert_name} · ${row.project.project_code}`;
+  elements.evidenceDrawerContent.innerHTML = sessions.map((session) => {
+    const evidence = session.opinion_evidence;
+    const scoreDetails = metric && metric !== "total"
+      ? `<div><dt>${metricLabels[metric]}</dt><dd>${session[metric].score}分 · ${escapeHtml(session[metric].reason)}</dd></div>`
+      : `<div><dt>出勤表现</dt><dd>${session.attendance.score}分 · ${escapeHtml(session.attendance.reason)}</dd></div>
+         <div><dt>结果会签</dt><dd>${session.signoff.score}分 · ${escapeHtml(session.signoff.reason)}</dd></div>
+         <div><dt>评审意见</dt><dd>${session.opinion.score}分 · ${escapeHtml(session.opinion.reason)}</dd></div>`;
+    const sourceCells = evidence.source_cells?.length ? evidence.source_cells : evidence.source_cell ? [evidence.source_cell] : [];
+    const sourceTexts = evidence.source_texts?.length ? evidence.source_texts : evidence.source_text ? [evidence.source_text] : [];
+    return `<section class="evidence-block"><h4>${escapeHtml(session.stage)} · ${session.total}／50</h4><dl>
+      ${scoreDetails}
+      <div><dt>技术对象</dt><dd>${escapeHtml(evidence.technical_object || "未识别")}</dd></div>
+      <div><dt>专业动作</dt><dd>${escapeHtml(evidence.professional_action || "未识别")}</dd></div>
+      <div><dt>具体细节</dt><dd>${escapeHtml(evidence.specific_detail || "未识别")}</dd></div>
+      <div><dt>证据位置</dt><dd>${escapeHtml(sourceCells.map((cell) => `${session.sheet_name}!${cell}`).join("、") || "无")}</dd></div>
+      <div><dt>原始文本</dt><dd>${escapeHtml(sourceTexts.join(" ｜ ") || "未填写评审意见")}</dd></div>
+    </dl></section>`;
+  }).join("");
+  elements.evidenceBackdrop.classList.remove("is-hidden");
+  elements.evidenceDrawer.classList.remove("is-hidden");
+}
+
+function closeDimensionOneEvidence() {
+  elements.evidenceBackdrop.classList.add("is-hidden");
+  elements.evidenceDrawer.classList.add("is-hidden");
 }
 
 function renderIssues(issues, reportName = "") {
@@ -990,7 +1253,131 @@ function renderResults() {
     </table>`;
 }
 
-function reset() {
+async function downloadDimensionOne() {
+  if (!state.analysis || !qualityGatePassed()) return;
+  let metadata;
+  let packageKind;
+  if (state.workflowMode === "manager") {
+    metadata = managerMetadata();
+    packageKind = "manager_submission";
+  } else {
+    const batchId = state.workflowMode === "merge"
+      ? state.currentBatchId
+      : elements.centralBatchId.value.trim();
+    if (!batchId) {
+      window.alert("请填写年度批次编号");
+      return;
+    }
+    metadata = { batch_id: batchId, manager_id: "", manager_name: "", revision: 1 };
+    packageKind = "annual_result";
+  }
+  setBusy(elements.exportDimensionOne, true, "正在生成Excel…");
+  try {
+    const response = await fetch("/api/export/dimension-one", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        analysis_id: state.analysis.analysis_id,
+        package_kind: packageKind,
+        ...metadata,
+      }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.detail || `导出失败（${response.status}）`);
+    }
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const filename = encodedName ? decodeURIComponent(encodedName) : "维度1年度结果.xlsx";
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    setBusy(elements.exportDimensionOne, false);
+  }
+}
+
+function selectedSubmissionFiles() {
+  return state.droppedSubmissionFiles.length
+    ? state.droppedSubmissionFiles
+    : [...(elements.submissionFiles?.files || [])];
+}
+
+function setMergeNotice(message, type = "info") {
+  elements.mergeNotice.textContent = message;
+  elements.mergeNotice.className = `notice notice-${type}`;
+}
+
+function useSubmissionFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length || files.some((file) => !file.name.toLowerCase().endsWith(".xlsx"))) {
+    state.droppedSubmissionFiles = [];
+    elements.submissionFileName.textContent = "只接受由本系统生成的“年度评分提交”Excel";
+    setMergeNotice("请选择系统导出的.xlsx维度1提交表", "error");
+    syncServiceActions();
+    return;
+  }
+  state.droppedSubmissionFiles = files;
+  const preview = files.slice(0, 3).map((file) => file.name).join("、");
+  elements.submissionFileName.textContent = files.length > 3
+    ? `已选择${files.length}份：${preview}等`
+    : `已选择${files.length}份：${preview}`;
+  elements.mergeNotice.className = "notice is-hidden";
+  syncServiceActions();
+}
+
+async function mergeDimensionOneSubmissions() {
+  const files = selectedSubmissionFiles();
+  if (!files.length) return;
+  const expectedManagers = Number(elements.expectedManagerCount.value);
+  const projectText = elements.expectedProjectCount.value.trim();
+  const expectedProjects = projectText ? Number(projectText) : null;
+  if (!Number.isInteger(expectedManagers) || expectedManagers < 1) {
+    setMergeNotice("预计项目经理人数必须是大于等于1的整数", "error");
+    return;
+  }
+  if (expectedProjects !== null && (!Number.isInteger(expectedProjects) || expectedProjects < 1)) {
+    setMergeNotice("预计项目数必须是大于等于1的整数", "error");
+    return;
+  }
+  setBusy(elements.mergeSubmissions, true, "正在校验与汇总…");
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file, file.name));
+  formData.append("expected_manager_count", String(expectedManagers));
+  if (expectedProjects !== null) formData.append("expected_project_count", String(expectedProjects));
+  try {
+    const analysis = await requestJson("/api/import/dimension-one-submissions", {
+      method: "POST",
+      body: formData,
+    });
+    await receiveAnalysis(analysis);
+    const errors = analysis.issues.filter((issue) => issue.severity === "error");
+    if (errors.length) {
+      setMergeNotice(errors.map((issue) => issue.message).join("；"), "error");
+      showPanel(elements.mergePanel);
+      activateStep(0);
+      return;
+    }
+    state.warningsAcknowledged = true;
+    state.currentBatchId = analysis.source_name.split(" · ")[0];
+    renderAnalysis();
+    showPanel(elements.analysisPanel);
+    activateStep(2);
+  } catch (error) {
+    setMergeNotice(error.message, "error");
+  } finally {
+    setBusy(elements.mergeSubmissions, false);
+  }
+}
+
+function clearAnalysisState() {
   state.analysis = null;
   state.analysisServiceInstanceId = null;
   state.analysisStale = false;
@@ -1007,15 +1394,26 @@ function reset() {
   state.warningsAcknowledged = false;
   state.importJobId = null;
   state.importProgressReports = [];
+  state.dimensionOneVisibleRows = [];
   elements.file.value = "";
   elements.fileName.textContent = "支持一次上传多个项目，不修改、不覆盖原始评审表";
   elements.projectSummary.textContent = "尚未读取评审表";
   elements.checkCard.classList.add("is-hidden");
   elements.reportList.innerHTML = "";
+  closeDimensionOneEvidence();
   renderExpertNavigation();
   clearNotice();
-  showPanel(elements.importPanel);
-  activateStep(1);
+}
+
+function reset() {
+  clearAnalysisState();
+  if (state.workflowMode === "merge") {
+    showPanel(elements.mergePanel);
+    activateStep(0);
+  } else {
+    showPanel(elements.importPanel);
+    activateStep(1);
+  }
 }
 
 function openResultPanel() {
@@ -1115,6 +1513,13 @@ document.querySelectorAll(".source-tab").forEach((tab) => {
   });
 });
 
+document.querySelector("#choose-central").addEventListener("click", () => selectWorkflow("central"));
+document.querySelector("#choose-manager").addEventListener("click", () => selectWorkflow("manager"));
+document.querySelector("#choose-merge").addEventListener("click", () => selectWorkflow("merge"));
+document.querySelectorAll(".back-to-mode").forEach((button) => {
+  button.addEventListener("click", returnToMode);
+});
+
 elements.file.addEventListener("change", () => {
   useDroppedFiles(elements.file.files);
 });
@@ -1136,6 +1541,28 @@ elements.uploadBox.addEventListener("drop", (event) => {
   elements.uploadBox.classList.remove("is-dragging");
   useDroppedFiles(event.dataTransfer.files);
   elements.file.value = "";
+});
+elements.submissionFiles.addEventListener("change", () => {
+  useSubmissionFiles(elements.submissionFiles.files);
+});
+elements.submissionUploadBox.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+  elements.submissionUploadBox.classList.add("is-dragging");
+});
+elements.submissionUploadBox.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  elements.submissionUploadBox.classList.add("is-dragging");
+});
+elements.submissionUploadBox.addEventListener("dragleave", (event) => {
+  if (!elements.submissionUploadBox.contains(event.relatedTarget)) {
+    elements.submissionUploadBox.classList.remove("is-dragging");
+  }
+});
+elements.submissionUploadBox.addEventListener("drop", (event) => {
+  event.preventDefault();
+  elements.submissionUploadBox.classList.remove("is-dragging");
+  useSubmissionFiles(event.dataTransfer.files);
+  elements.submissionFiles.value = "";
 });
 document.querySelectorAll(".module-tab").forEach((step) => {
   step.addEventListener("click", () => navigateStep(Number(step.dataset.step)));
@@ -1168,10 +1595,17 @@ elements.warningAcknowledged.addEventListener("change", () => {
   state.warningsAcknowledged = elements.warningAcknowledged.checked;
   elements.continueAnalysis.disabled = !qualityGatePassed();
   activateStep(1);
+  syncServiceActions();
 });
 elements.continueAnalysis.addEventListener("click", () => navigateStep(2));
 document.querySelector("#restart").addEventListener("click", reset);
 elements.calculate.addEventListener("click", submitQuestionnaire);
+elements.mergeSubmissions.addEventListener("click", mergeDimensionOneSubmissions);
+elements.exportDimensionOne.addEventListener("click", downloadDimensionOne);
+[elements.dimensionOneSearch, elements.dimensionOneProject, elements.dimensionOneStage, elements.dimensionOneExceptionOnly]
+  .forEach((control) => control.addEventListener(control.tagName === "INPUT" && control.type === "search" ? "input" : "change", renderDimensionOneTable));
+document.querySelector("#close-evidence").addEventListener("click", closeDimensionOneEvidence);
+elements.evidenceBackdrop.addEventListener("click", closeDimensionOneEvidence);
 
 Promise.all([
   requestJson("/api/health"),
@@ -1179,7 +1613,8 @@ Promise.all([
 ]).then(([health, questionnaire]) => {
   if (!applyServiceHealth(health)) return;
   state.questions = questionnaire.questions;
-  activateStep(1);
+  showPanel(elements.modePanel);
+  activateStep(0);
   checkFeishuAuthorization();
 }).catch((error) => {
   markServiceUnavailable(error.message || SERVICE_DISCONNECTED_MESSAGE);

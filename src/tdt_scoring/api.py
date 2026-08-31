@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from io import BytesIO
 from pathlib import Path
+from typing import Literal
+from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -23,6 +26,7 @@ from .scoring import (
 from .service import ScoringService
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import MAX_WORKBOOK_BYTES
+from .submission import EXCEL_MEDIA_TYPE, build_dimension_one_workbook
 
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
@@ -60,6 +64,15 @@ class ContributionRequest(BaseModel):
     professional_reason_tags: list[str] = Field(default_factory=list)
     professional_reason_note: str = ""
     outstanding_contribution_reason: str = ""
+
+
+class DimensionOneExportRequest(BaseModel):
+    analysis_id: str = Field(min_length=1)
+    package_kind: Literal["annual_result", "manager_submission"]
+    batch_id: str = Field(min_length=1)
+    manager_id: str = ""
+    manager_name: str = ""
+    revision: int = Field(default=1, ge=1)
 
 
 def _encoded(value: object) -> object:
@@ -288,6 +301,68 @@ def start_feishu_import(payload: FeishuImportRequest) -> dict[str, object]:
 @app.get("/api/import/jobs/{job_id}")
 def import_job_status(job_id: str) -> dict[str, object]:
     return _job_payload(job_id)
+
+
+@app.post("/api/export/dimension-one")
+def export_dimension_one(payload: DimensionOneExportRequest) -> StreamingResponse:
+    try:
+        analysis = service.get_analysis(payload.analysis_id)
+        content = build_dimension_one_workbook(
+            analysis,
+            package_kind=payload.package_kind,
+            batch_id=payload.batch_id,
+            manager_id=payload.manager_id,
+            manager_name=payload.manager_name,
+            revision=payload.revision,
+            product_version=PRODUCT_VERSION,
+            build_id=BUILD_ID,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.package_kind == "manager_submission":
+        filename = f"年度评分提交_{payload.batch_id}_{payload.manager_id}_R{payload.revision:02d}.xlsx"
+    else:
+        filename = f"维度1年度结果_{payload.batch_id}.xlsx"
+    disposition = (
+        'attachment; filename="dimension-one.xlsx"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+    return StreamingResponse(
+        BytesIO(content),
+        media_type=EXCEL_MEDIA_TYPE,
+        headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/import/dimension-one-submissions")
+async def import_dimension_one_submissions(
+    files: list[UploadFile] = File(...),
+    expected_manager_count: int = Form(..., ge=1),
+    expected_project_count: int | None = Form(default=None, ge=1),
+) -> object:
+    if not files:
+        raise HTTPException(status_code=400, detail="请至少选择一份项目经理维度1提交表")
+    uploads: list[tuple[bytes, str]] = []
+    for upload in files:
+        filename = upload.filename or ""
+        if not filename:
+            raise HTTPException(status_code=400, detail="存在文件名为空的维度1提交表")
+        content = await upload.read(MAX_WORKBOOK_BYTES + 1)
+        if len(content) > MAX_WORKBOOK_BYTES:
+            raise HTTPException(status_code=413, detail=f"“{filename}”超过30MB限制")
+        uploads.append((content, filename))
+    try:
+        return _encoded(
+            service.merge_dimension_one_submissions(
+                uploads,
+                expected_manager_count=expected_manager_count,
+                expected_project_count=expected_project_count,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/score/finalize")

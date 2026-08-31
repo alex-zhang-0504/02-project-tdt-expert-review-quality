@@ -22,6 +22,7 @@ from .scoring import (
 )
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import LocalExcelSource
+from .submission import load_dimension_one_workbook
 from .validation import validate_score_bounds
 
 
@@ -226,6 +227,145 @@ class ScoringService:
             return self._analyses[analysis_id]
         except KeyError as exc:
             raise KeyError("评分分析不存在或本地服务已重启，请重新导入评审表") from exc
+
+    def merge_dimension_one_submissions(
+        self,
+        uploads: list[tuple[bytes, str]],
+        *,
+        expected_manager_count: int,
+        expected_project_count: int | None = None,
+    ) -> WorkbookAnalysis:
+        if not uploads:
+            raise ValueError("请至少选择一份项目经理维度1提交表")
+        if expected_manager_count < 1:
+            raise ValueError("预计项目经理人数必须大于等于1")
+        if expected_project_count is not None and expected_project_count < 1:
+            raise ValueError("预计项目数必须大于等于1")
+
+        packages = [
+            load_dimension_one_workbook(content, filename)
+            for content, filename in uploads
+        ]
+        issues: list[ValidationIssue] = []
+        batch_ids = {package.batch_id for package in packages}
+        if len(batch_ids) != 1:
+            issues.append(
+                ValidationIssue(
+                    "submission_batch_mismatch",
+                    "提交表的年度批次编号不一致，不能合并",
+                    "error",
+                    source_name="维度1提交表汇总",
+                )
+            )
+
+        manager_packages: dict[str, list[str]] = {}
+        project_owners: dict[str, list[str]] = {}
+        session_sources: dict[tuple[str, str], list[str]] = {}
+        sessions = []
+        reports = []
+        for package in packages:
+            manager_packages.setdefault(package.manager_id, []).append(package.filename)
+            for project_code in package.project_codes:
+                project_owners.setdefault(project_code, []).append(package.manager_id)
+            for session in package.sessions:
+                session_sources.setdefault(
+                    (session.project_code, session.stage), []
+                ).append(package.filename)
+            sessions.extend(package.sessions)
+            issues.extend(package.issues)
+            reports.append(
+                ReportAnalysis(
+                    report_id=uuid4().hex,
+                    source_type="manager_submission",
+                    source_name=package.filename,
+                    session_count=len(package.sessions),
+                    expert_count=len(
+                        {
+                            signoff.expert_name
+                            for session in package.sessions
+                            for signoff in session.signoffs
+                            if signoff.expert_name
+                        }
+                    ),
+                    issues=package.issues,
+                )
+            )
+
+        duplicate_managers = {
+            manager_id: filenames
+            for manager_id, filenames in manager_packages.items()
+            if len(filenames) > 1
+        }
+        for manager_id, filenames in sorted(duplicate_managers.items()):
+            issues.append(
+                ValidationIssue(
+                    "submission_manager_duplicate",
+                    f"项目经理编号{manager_id}存在多份提交：{'、'.join(filenames)}",
+                    "error",
+                    source_name="维度1提交表汇总",
+                )
+            )
+
+        if len(manager_packages) != expected_manager_count:
+            issues.append(
+                ValidationIssue(
+                    "submission_manager_count_mismatch",
+                    f"预计{expected_manager_count}位项目经理，实际识别{len(manager_packages)}位",
+                    "error",
+                    source_name="维度1提交表汇总",
+                )
+            )
+
+        for project_code, manager_ids in sorted(project_owners.items()):
+            unique_manager_ids = sorted(set(manager_ids))
+            if len(unique_manager_ids) > 1:
+                issues.append(
+                    ValidationIssue(
+                        "submission_project_owner_conflict",
+                        f"项目{project_code}同时出现在项目经理编号{'、'.join(unique_manager_ids)}的提交中",
+                        "error",
+                        source_name="维度1提交表汇总",
+                    )
+                )
+
+        for (project_code, stage), filenames in sorted(session_sources.items()):
+            if len(filenames) > 1:
+                issues.append(
+                    ValidationIssue(
+                        "submission_stage_duplicate",
+                        f"项目{project_code}的{stage}在多份提交表中重复：{'、'.join(filenames)}",
+                        "error",
+                        source_name="维度1提交表汇总",
+                    )
+                )
+
+        project_count = len(project_owners)
+        if expected_project_count is not None and project_count != expected_project_count:
+            issues.append(
+                ValidationIssue(
+                    "submission_project_count_mismatch",
+                    f"预计{expected_project_count}个项目，实际识别{project_count}个",
+                    "error",
+                    source_name="维度1提交表汇总",
+                )
+            )
+
+        has_errors = any(issue.severity == "error" for issue in issues)
+        experts = [] if has_errors else build_annual_scores(sessions)
+        if not has_errors:
+            issues.extend(validate_score_bounds(experts))
+        batch_id = next(iter(batch_ids)) if len(batch_ids) == 1 else "批次不一致"
+        analysis = WorkbookAnalysis(
+            analysis_id=uuid4().hex,
+            source_type="dimension_one_merge",
+            source_name=f"{batch_id} · {len(packages)}份项目经理提交表",
+            sessions=sessions,
+            experts=experts,
+            issues=issues,
+            reports=reports,
+        )
+        self._analyses[analysis.analysis_id] = analysis
+        return analysis
 
     def finalize_expert(
         self,

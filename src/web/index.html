@@ -22,7 +22,7 @@
           </div>
           <div class="toolrow">
             <nav class="module-tabs" aria-label="打分流程">
-              <button class="module-tab is-active" data-step="1" aria-label="读取评审表"><span class="module-label-full">读取评审表</span><span class="module-label-short">读取</span></button>
+              <button class="module-tab" data-step="1" aria-label="读取评审表" disabled><span class="module-label-full">读取评审表</span><span class="module-label-short">读取</span></button>
               <button class="module-tab" data-step="2" aria-label="评审过程表现"><span class="module-label-full">评审过程表现</span><span class="module-label-short">过程</span></button>
               <button class="module-tab" data-step="3" aria-label="主观分数考核"><span class="module-label-full">主观分数考核</span><span class="module-label-short">主观</span></button>
               <button class="module-tab" data-step="4" aria-label="评分结果"><span class="module-label-full">评分结果</span><span class="module-label-short">结果</span></button>
@@ -40,13 +40,75 @@
         </div>
 
         <div class="panel-stack">
-          <section class="panel" id="import-panel">
+          <section class="panel mode-panel" id="mode-panel">
             <div class="panel-heading">
               <div>
-                <p class="section-index">步骤 1</p>
+                <p class="section-index">年度评分方式</p>
+                <h2>选择维度一数据处理方式</h2>
+                <p>两种方式共用同一套TDRX解析、校验、年度重算和结果大表。</p>
+              </div>
+            </div>
+            <div class="mode-grid">
+              <article class="mode-card is-available">
+                <div class="mode-card-meta"><span>方案 1</span><span>集中评分</span></div>
+                <h3>一次性导入全部项目</h3>
+                <p>由一人统一读取全部TDRX报告，完成维度一检查、年度汇总和结果导出。</p>
+                <ul><li>本地Excel或飞书归档文件夹</li><li>直接生成完整年度维度一结果</li></ul>
+                <button class="primary-button" id="choose-central" type="button">开始集中评分</button>
+              </article>
+              <article class="mode-card is-available">
+                <div class="mode-card-meta"><span>方案 2</span><span>分散提交／统一汇总</span></div>
+                <h3>多位项目经理分别处理</h3>
+                <p>每位项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。</p>
+                <ul><li>维度一提交与汇总已开放</li><li class="is-planned">维度二暂未开放</li></ul>
+                <div class="mode-actions">
+                  <button class="primary-button" id="choose-manager" type="button">生成个人提交表</button>
+                  <button class="secondary-button" id="choose-merge" type="button">汇总提交表</button>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel is-hidden" id="merge-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-index">方案 2 · 年度汇总人</p>
+                <h2>汇总项目经理维度一提交表</h2>
+                <p>选择全部系统导出的提交表；系统先校验批次、项目经理、项目归属和重复阶段，再统一重算年度结果。</p>
+              </div>
+              <button class="ghost-button back-to-mode" type="button">返回方案选择</button>
+            </div>
+            <div class="merge-form">
+              <label class="upload-box" id="submission-upload-box" for="submission-files">
+                <input id="submission-files" type="file" multiple accept=".xlsx" />
+                <span class="upload-icon">↑</span>
+                <strong>选择或拖入全部项目经理提交表</strong>
+                <small id="submission-file-name">只接受由本系统生成的“年度评分提交”Excel</small>
+              </label>
+              <div class="identity-grid merge-counts">
+                <label class="field"><span>预计项目经理人数</span><input id="expected-manager-count" type="number" min="1" value="16" /></label>
+                <label class="field"><span>预计项目数（选填）</span><input id="expected-project-count" type="number" min="1" placeholder="用于检查项目遗漏" /></label>
+              </div>
+              <div class="notice is-hidden" id="merge-notice" role="status"></div>
+              <button class="primary-button" id="merge-submissions" data-service-action="true" type="button" disabled>校验并汇总维度一</button>
+            </div>
+          </section>
+
+          <section class="panel is-hidden" id="import-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-index" id="import-mode-label">方案 1 · 集中评分 · 步骤 1</p>
                 <h2>读取TDRX评审表</h2>
                 <p>两种来源进入同一套解析、校验与计分流程。</p>
               </div>
+              <button class="ghost-button back-to-mode" type="button">返回方案选择</button>
+            </div>
+
+            <div class="manager-meta is-hidden" id="manager-meta">
+              <label class="field"><span>年度批次编号</span><input id="manager-batch-id" type="text" placeholder="例如：2025年度评分" /></label>
+              <label class="field"><span>项目经理编号</span><input id="manager-id" type="text" placeholder="使用年度内唯一编号" /></label>
+              <label class="field"><span>项目经理姓名</span><input id="manager-name" type="text" placeholder="须与TDRX中的技术项目经理一致" /></label>
+              <label class="field"><span>修订号</span><input id="manager-revision" type="number" min="1" value="1" /></label>
             </div>
 
             <div class="source-tabs" role="tablist">
@@ -105,10 +167,21 @@
                 <h2>维度一：评审过程表现</h2>
                 <p id="analysis-summary"></p>
               </div>
-              <button class="ghost-button" id="restart">重新读取</button>
+              <div class="heading-actions"><button class="ghost-button" id="restart">重新读取</button><button class="ghost-button back-to-mode" type="button">返回方案选择</button></div>
             </div>
-
-            <div class="expert-detail" id="expert-detail"></div>
+            <div class="dimension-one-controls">
+              <label class="field"><span>搜索评审人</span><input id="dimension-one-search" type="search" placeholder="输入评审人姓名" /></label>
+              <label class="field"><span>项目筛选</span><select id="dimension-one-project"><option value="">全部项目</option></select></label>
+              <label class="field"><span>阶段筛选</span><select id="dimension-one-stage"><option value="">全部阶段</option><option value="TDR1">TDR1</option><option value="TDR2">TDR2</option><option value="TDR3">TDR3</option></select></label>
+              <label class="dimension-one-toggle"><input id="dimension-one-exception-only" type="checkbox" /><span>只看非满档</span></label>
+              <div class="dimension-one-export">
+                <label class="field central-batch-field"><span>年度批次编号</span><input id="central-batch-id" type="text" placeholder="例如：2025年度评分" /></label>
+                <button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled>导出维度一结果</button>
+              </div>
+            </div>
+            <div class="dimension-one-summary" id="dimension-one-summary"></div>
+            <div class="dimension-one-table-wrap" id="dimension-one-table-wrap"></div>
+            <div class="expert-detail is-hidden" id="expert-detail"></div>
           </section>
 
           <section class="panel is-hidden" id="questionnaire-panel">
@@ -150,6 +223,11 @@
         </div>
       </main>
     </div>
+    <div class="evidence-backdrop is-hidden" id="evidence-backdrop"></div>
+    <aside class="evidence-drawer is-hidden" id="evidence-drawer" aria-labelledby="evidence-drawer-title">
+      <div class="evidence-drawer-heading"><div><p class="section-index">计分依据</p><h3 id="evidence-drawer-title">维度一事实</h3></div><button class="ghost-button" id="close-evidence" type="button">关闭</button></div>
+      <div id="evidence-drawer-content"></div>
+    </aside>
     <div class="copyright-mark" aria-hidden="true">Designed by Siyuan for TRD</div>
     <script src="/static/app.js?build=__BUILD_ID__" defer></script>
   </body>

@@ -162,10 +162,31 @@ class WebAssetTests(unittest.TestCase):
         self.assertNotIn("width: min(1180px", STYLES_CSS)
 
     def test_expert_selection_is_limited_to_scoring_modules(self) -> None:
-        self.assertIn("return state.activeStep === 2 || state.activeStep === 3", APP_JS)
+        self.assertIn("return state.activeStep === 3", APP_JS)
         self.assertIn("if (!expertSelectionEnabled()) return", APP_JS)
         self.assertIn("button.disabled = !enabled", APP_JS)
         self.assertIn(".expert-chip:disabled", STYLES_CSS)
+
+    def test_dimension_one_supports_both_workflows_and_numbers_table(self) -> None:
+        self.assertIn('id="choose-central"', INDEX_HTML)
+        self.assertIn('id="choose-manager"', INDEX_HTML)
+        self.assertIn('id="choose-merge"', INDEX_HTML)
+        self.assertIn("/api/export/dimension-one", APP_JS)
+        self.assertIn("/api/import/dimension-one-submissions", APP_JS)
+        self.assertIn('class="dimension-one-table"', APP_JS)
+        self.assertIn("background: var(--accent); color: #fff", STYLES_CSS)
+        self.assertIn("border-collapse: separate; border-spacing: 0", STYLES_CSS)
+        self.assertIn("tbody tr:nth-child(even) td", STYLES_CSS)
+        self.assertIn("border-right-color: var(--line-strong)", STYLES_CSS)
+        self.assertNotIn("score-high", STYLES_CSS)
+        self.assertNotIn("score-medium", STYLES_CSS)
+        self.assertNotIn("score-low", STYLES_CSS)
+
+    def test_dimension_one_project_name_has_one_custom_full_name_tip(self) -> None:
+        self.assertIn('class="project-name-tooltip" data-full-name=', APP_JS)
+        self.assertNotIn('project-name-cell" title=', APP_JS)
+        self.assertIn(".project-name-tooltip::after", STYLES_CSS)
+        self.assertIn("background: var(--surface); color: var(--ink)", STYLES_CSS)
 
     def test_questionnaire_registers_score_only_after_submit_succeeds(self) -> None:
         self.assertIn('id="calculate-total" data-service-action="true" disabled>提交</button>', INDEX_HTML)
