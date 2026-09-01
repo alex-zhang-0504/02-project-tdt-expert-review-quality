@@ -1,17 +1,17 @@
 {
   "expert_name": "虚拟专家甲",
   "sessions": [
-    {"stage": "TDR1", "process_score": 40},
+    {"stage": "TDR1", "process_score": 38},
     {"stage": "TDR2", "process_score": 25},
-    {"stage": "TDR3", "process_score": 40}
+    {"stage": "TDR3", "process_score": 38}
   ],
-  "expected_process_average": 35.0,
+  "expected_process_average": 33.7,
   "contribution_answers": {
     "fulfillment_collaboration": "medium",
     "professional_judgement_guidance": "high",
     "outstanding_contribution": "low"
   },
   "expected_contribution_score": 26,
-  "expected_total_score": 61.0,
+  "expected_total_score": 59.7,
   "expected_grade": "待排名"
 }

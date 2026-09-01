@@ -54,9 +54,9 @@ class ScoringTests(unittest.TestCase):
             if item.expert_name == "虚拟专家甲"
         )
 
-        self.assertEqual(25.0, annual.process_average)
+        self.assertEqual(24.0, annual.process_average)
         self.assertEqual(4, annual.effective_session_count)
-        self.assertEqual([50.0, 0.0], [item.process_average for item in annual.project_process_scores])
+        self.assertEqual([48.0, 0.0], [item.process_average for item in annual.project_process_scores])
 
     def test_v04_signoff_and_opinion_are_scored_independently(self) -> None:
         workbook = build_v04_workbook(
@@ -74,9 +74,9 @@ class ScoringTests(unittest.TestCase):
         sessions, _ = read_workbook(workbook)
         scores = {score.expert_name: score for score in build_project_scores(sessions)}
 
-        self.assertEqual((25, 0, 40), (scores["虚拟专家甲"].sessions[0].signoff.score, scores["虚拟专家甲"].sessions[0].opinion.score, scores["虚拟专家甲"].sessions[0].total))
-        self.assertEqual((25, 6, 46), (scores["虚拟专家乙"].sessions[0].signoff.score, scores["虚拟专家乙"].sessions[0].opinion.score, scores["虚拟专家乙"].sessions[0].total))
-        self.assertEqual((25, 10, 50), (scores["虚拟专家丙"].sessions[0].signoff.score, scores["虚拟专家丙"].sessions[0].opinion.score, scores["虚拟专家丙"].sessions[0].total))
+        self.assertEqual((25, 0, 38), (scores["虚拟专家甲"].sessions[0].signoff.score, scores["虚拟专家甲"].sessions[0].opinion.score, scores["虚拟专家甲"].sessions[0].total))
+        self.assertEqual((25, 6, 44), (scores["虚拟专家乙"].sessions[0].signoff.score, scores["虚拟专家乙"].sessions[0].opinion.score, scores["虚拟专家乙"].sessions[0].total))
+        self.assertEqual((25, 10, 48), (scores["虚拟专家丙"].sessions[0].signoff.score, scores["虚拟专家丙"].sessions[0].opinion.score, scores["虚拟专家丙"].sessions[0].total))
         self.assertTrue(scores["虚拟专家丙"].sessions[0].opinion_evidence.has_technical_object)
         self.assertTrue(scores["虚拟专家丙"].sessions[0].opinion_evidence.has_professional_action)
         self.assertTrue(scores["虚拟专家丙"].sessions[0].opinion_evidence.has_specific_detail)
@@ -109,6 +109,37 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(3, annual.expected_session_count)
         self.assertEqual(2, annual.proxy_session_count)
         self.assertEqual(66.7, annual.proxy_rate)
+
+    def test_partial_and_proxy_partial_attendance_count_as_participated_sessions(self) -> None:
+        workbook = build_v04_workbook(
+            [
+                {
+                    "stage": "TDR1",
+                    "signoffs": [
+                        {"reviewer": "虚拟专家甲", "attendance": "部分参加", "conclusion": "Go"},
+                        {"reviewer": "虚拟专家乙", "conclusion": "Go"},
+                        {"reviewer": "虚拟专家丙", "conclusion": "Go"},
+                    ],
+                },
+                {
+                    "stage": "TDR2",
+                    "signoffs": [
+                        {"reviewer": "虚拟专家甲（虚拟专家丁）", "attendance": "改派（部分）", "conclusion": "Go"},
+                        {"reviewer": "虚拟专家乙", "conclusion": "Go"},
+                        {"reviewer": "虚拟专家丙", "conclusion": "Go"},
+                    ],
+                },
+                {"stage": "TDR3"},
+            ]
+        )
+
+        annual = next(
+            item for item in build_annual_scores(read_workbook(workbook)[0])
+            if item.expert_name == "虚拟专家甲"
+        )
+
+        self.assertEqual(3, annual.participation_session_count)
+        self.assertEqual(6, annual.participation_score)
     def test_complete_risk_opinion_scores_high(self) -> None:
         workbook = build_workbook(
             [
@@ -126,7 +157,7 @@ class ScoringTests(unittest.TestCase):
         sessions, _ = read_workbook(workbook)
         score = build_project_scores(sessions)[0].sessions[0]
 
-        self.assertEqual(50, score.total)
+        self.assertEqual(48, score.total)
         self.assertEqual(10, score.opinion.score)
 
     def test_partial_risk_opinion_scores_medium(self) -> None:
@@ -146,8 +177,89 @@ class ScoringTests(unittest.TestCase):
         sessions, _ = read_workbook(workbook)
         score = build_project_scores(sessions)[0].sessions[0]
 
-        self.assertEqual(46, score.total)
+        self.assertEqual(44, score.total)
         self.assertEqual(6, score.opinion.score)
+
+    def test_reference_only_opinion_scores_zero_without_inheriting_other_opinion(self) -> None:
+        workbook = build_v04_workbook(
+            [{
+                "stage": "TDR2",
+                "signoffs": [
+                    {
+                        "reviewer": "虚拟专家甲",
+                        "conclusion": "Go",
+                        "opinion": "与虚拟专家乙意见相同",
+                    },
+                    {
+                        "reviewer": "虚拟专家乙",
+                        "conclusion": "Go",
+                        "opinion": "需确认接口时序，建议补充高温场景验证。",
+                    },
+                    {"reviewer": "虚拟专家丙", "conclusion": "Go", "opinion": ""},
+                ],
+            }]
+        )
+
+        scores = {
+            item.expert_name: item.sessions[0]
+            for item in build_project_scores(read_workbook(workbook)[0])
+        }
+
+        self.assertEqual(0, scores["虚拟专家甲"].opinion.score)
+        self.assertEqual("只引用他人意见", scores["虚拟专家甲"].opinion_evidence.zero_reason)
+        self.assertEqual(10, scores["虚拟专家乙"].opinion.score)
+
+    def test_vague_attention_only_opinion_scores_zero(self) -> None:
+        workbook = build_v04_workbook(
+            [{"stage": "TDR2", "opinion": "注意风险、KPI、市场、价格、竞品、用户场景、技术可行性"}]
+        )
+
+        score = next(
+            item for item in build_project_scores(read_workbook(workbook)[0])
+            if item.expert_name == "虚拟专家甲"
+        ).sessions[0]
+
+        self.assertEqual(0, score.opinion.score)
+        self.assertEqual("只有泛化提醒", score.opinion_evidence.zero_reason)
+
+    def test_nonexcluded_substantive_opinion_scores_at_least_six(self) -> None:
+        workbook = build_v04_workbook(
+            [{"stage": "TDR2", "opinion": "建议补充验证"}]
+        )
+
+        score = next(
+            item for item in build_project_scores(read_workbook(workbook)[0])
+            if item.expert_name == "虚拟专家甲"
+        ).sessions[0]
+
+        self.assertEqual(6, score.opinion.score)
+        self.assertIsNone(score.opinion_evidence.zero_reason)
+
+    def test_reference_with_own_specific_supplement_is_scored(self) -> None:
+        workbook = build_v04_workbook(
+            [{"stage": "TDR2", "opinion": "参考虚拟专家乙意见；另建议补充高温场景验证"}]
+        )
+
+        score = next(
+            item for item in build_project_scores(read_workbook(workbook)[0])
+            if item.expert_name == "虚拟专家甲"
+        ).sessions[0]
+
+        self.assertEqual(10, score.opinion.score)
+        self.assertIsNone(score.opinion_evidence.zero_reason)
+
+    def test_generic_keyword_with_concrete_detail_is_not_excluded(self) -> None:
+        workbook = build_v04_workbook(
+            [{"stage": "TDR2", "opinion": "关注价格上涨20％对量产成本的影响，建议补充成本边界测算"}]
+        )
+
+        score = next(
+            item for item in build_project_scores(read_workbook(workbook)[0])
+            if item.expert_name == "虚拟专家甲"
+        ).sessions[0]
+
+        self.assertEqual(10, score.opinion.score)
+        self.assertIsNone(score.opinion_evidence.zero_reason)
 
     def test_questionnaire_and_total_match_fixture(self) -> None:
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -232,9 +344,9 @@ class ScoringTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(46, project_score.process_average)
+        self.assertEqual(44, project_score.process_average)
         self.assertEqual(20, completed.contribution_score)
-        self.assertEqual(66, completed.total_score)
+        self.assertEqual(64, completed.total_score)
         self.assertEqual("待排名", completed.grade)
 
     def test_professional_zero_requires_reason_tags_and_note(self) -> None:
@@ -348,19 +460,20 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual("待排名", experts[0].grade)
         self.assertIsNone(experts[1].grade)
 
-    def test_service_ranking_uses_two_distinct_counts_and_requires_three_projects(self) -> None:
+    def test_service_ranking_uses_two_distinct_positive_counts_with_shared_eligibility(self) -> None:
         counts = {"甲": 8, "乙": 8, "丙": 6, "丁": 5, "戊": 2}
+        eligible = {"甲", "乙", "丙", "丁"}
 
         self.assertEqual(
             {"甲": 6, "乙": 6, "丙": 3, "丁": 0, "戊": 0},
-            _dense_top_two_scores(counts, (6, 3)),
+            _dense_top_two_scores(counts, (6, 3), eligible),
         )
         self.assertEqual(
-            {"甲": 4, "乙": 4, "丙": 2, "丁": 0, "戊": 0},
-            _dense_top_two_scores(counts, (4, 2)),
+            {"甲": 6, "乙": 6, "丙": 3, "丁": 0, "戊": 0},
+            _dense_top_two_scores(counts, (6, 3), eligible),
         )
 
-    def test_service_contribution_deduplicates_projects_and_adds_to_objective_score(self) -> None:
+    def test_service_contribution_counts_sessions_and_deduplicates_problems_within_each_session(self) -> None:
         sessions = []
         for index in range(1, 4):
             workbook = build_v04_workbook(
@@ -382,11 +495,11 @@ class ScoringTests(unittest.TestCase):
             item for item in build_annual_scores(sessions) if item.expert_name == "虚拟专家甲"
         )
 
-        self.assertEqual(3, annual.participation_project_count)
-        self.assertEqual(3, annual.problem_project_count)
+        self.assertEqual(3, annual.participation_session_count)
+        self.assertEqual(3, annual.problem_session_count)
         self.assertEqual(6, annual.participation_score)
-        self.assertEqual(4, annual.problem_score)
-        self.assertEqual(10, annual.annual_service_score)
+        self.assertEqual(6, annual.problem_score)
+        self.assertEqual(12, annual.annual_service_score)
         self.assertEqual(60.0, annual.objective_score)
         completed = finalize_project_score(
             annual,
@@ -399,7 +512,7 @@ class ScoringTests(unittest.TestCase):
         )
         self.assertEqual(100.0, completed.total_score)
 
-    def test_three_stage_participation_requires_tdr1_and_tdr3_attendance(self) -> None:
+    def test_participation_counts_each_attended_session_and_uses_three_session_gate(self) -> None:
         workbook = build_v04_workbook(
             [
                 {
@@ -432,8 +545,29 @@ class ScoringTests(unittest.TestCase):
 
         annual = {item.expert_name: item for item in build_annual_scores(read_workbook(workbook)[0])}
 
-        self.assertEqual(1, annual["虚拟专家甲"].participation_project_count)
-        self.assertEqual(1, annual["虚拟专家乙"].participation_project_count)
+        self.assertEqual(3, annual["虚拟专家甲"].participation_session_count)
+        self.assertEqual(3, annual["虚拟专家乙"].participation_session_count)
+        self.assertEqual(6, annual["虚拟专家甲"].participation_score)
+        self.assertEqual(6, annual["虚拟专家乙"].participation_score)
+
+    def test_project_without_tdr3_is_scored_from_current_available_sessions(self) -> None:
+        workbook = build_v04_workbook(
+            [
+                {"stage": "TDR1", "opinion": "接口时序存在风险，建议补充高温场景验证。"},
+                {"stage": "TDR2", "opinion": "需确认边界条件，建议补充弱网测试。"},
+            ],
+            project="开发中项目-P009",
+        )
+
+        annual = next(
+            item for item in build_annual_scores(read_workbook(workbook)[0])
+            if item.expert_name == "虚拟专家甲"
+        )
+
+        self.assertEqual(2, annual.effective_session_count)
+        self.assertEqual(2, annual.participation_session_count)
+        self.assertEqual(48.0, annual.process_average)
+        self.assertEqual(0, annual.annual_service_score)
 
     def test_v04_c_column_problem_can_supply_and_deduplicate_opinion(self) -> None:
         detailed = "需确认NTRA线损范围。最差场景下可能抵消性能提升，建议补充边界数据。"
@@ -497,7 +631,7 @@ class ScoringTests(unittest.TestCase):
             if item.expert_name == "虚拟专家甲"
         ).sessions[0]
 
-        self.assertEqual(0, score.opinion.score)
+        self.assertEqual(6, score.opinion.score)
         self.assertEqual(2, len(sessions[0].signoffs[0].opinion_sources))
 
     def test_one_workbook_three_sheets_equals_three_single_sheet_workbooks(self) -> None:

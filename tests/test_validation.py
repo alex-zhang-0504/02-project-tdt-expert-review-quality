@@ -30,7 +30,7 @@ class ValidationTests(unittest.TestCase):
 
         self.assertTrue(any(issue.code == "proxy_missing" for issue in issues))
 
-    def test_required_basic_fields_and_enums_are_errors(self) -> None:
+    def test_only_scoring_basic_fields_and_enums_are_errors(self) -> None:
         workbook = build_workbook(
             [{
                 "stage": "TDR4",
@@ -46,10 +46,9 @@ class ValidationTests(unittest.TestCase):
         _, issues = read_workbook(workbook)
         codes = {issue.code for issue in issues if issue.severity == "error"}
 
-        self.assertTrue(
-            {"project_name", "stage_invalid", "meeting_conclusion_invalid", "role_missing"}
-            <= codes
-        )
+        self.assertTrue({"project_name", "stage_invalid"} <= codes)
+        self.assertNotIn("meeting_conclusion_invalid", codes)
+        self.assertNotIn("role_missing", codes)
 
     def test_problem_required_fields_do_not_control_opinion_scoring(self) -> None:
         workbook = build_workbook(
@@ -69,8 +68,8 @@ class ValidationTests(unittest.TestCase):
         _, issues = read_workbook(workbook)
         by_code = {issue.code: issue for issue in issues}
 
-        self.assertEqual("error", by_code["problem_description_missing"].severity)
-        self.assertEqual("error", by_code["problem_status_invalid"].severity)
+        self.assertEqual("warning", by_code["problem_description_missing"].severity)
+        self.assertNotIn("problem_status_invalid", by_code)
         self.assertNotIn("opinion_elements_missing", by_code)
 
     def test_duplicate_expert_in_one_session_is_an_error(self) -> None:
@@ -87,7 +86,7 @@ class ValidationTests(unittest.TestCase):
 
         self.assertTrue(any(issue.code == "reviewer_duplicate" for issue in issues))
 
-    def test_stage_prefixed_problem_numbers_are_invalid(self) -> None:
+    def test_problem_number_format_does_not_trigger_quality_issue(self) -> None:
         workbook = build_workbook(
             [
                 {
@@ -111,8 +110,7 @@ class ValidationTests(unittest.TestCase):
 
         _, issues = read_workbook(workbook)
 
-        invalid_numbers = [issue for issue in issues if issue.code == "problem_number_invalid"]
-        self.assertEqual(2, len(invalid_numbers))
+        self.assertFalse(any(issue.code.startswith("problem_number_") for issue in issues))
 
     def test_simple_problem_numbers_can_restart_in_each_stage(self) -> None:
         workbook = build_workbook(
@@ -141,7 +139,7 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(any(issue.code == "problem_number_conflict" for issue in issues))
 
     def test_score_bounds_are_explicitly_validated(self) -> None:
-        score_item = ScoreItem("high", 15, "测试")
+        score_item = ScoreItem("high", 13, "测试")
         session_score = ExpertSessionScore(
             review_id="VIRTUAL-001-TDR1-2026-08-01",
             sheet_name="TDR1",
@@ -155,14 +153,14 @@ class ValidationTests(unittest.TestCase):
             signoff=score_item,
             opinion=ScoreItem("high", 11, "越界测试"),
             opinion_evidence=OpinionEvidence("", "", None, None, None),
-            total=51,
+            total=49,
         )
         project_score = ExpertProjectScore(
             expert_name="虚拟专家甲",
             project_code="VIRTUAL-001",
             project_name="虚拟项目",
             sessions=[session_score],
-            process_average=51,
+            process_average=49,
             effective_session_count=1,
         )
 

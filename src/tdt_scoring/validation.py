@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from hashlib import sha256
 import re
+
+from pypinyin import Style, lazy_pinyin
 
 from .models import ExpertProjectScore, ReviewSession, ValidationIssue
 
@@ -15,20 +18,144 @@ VALID_ATTENDANCE = {
 }
 VALID_CONCLUSIONS = {"Go", "Go with Risk", "Redirect"}
 VALID_STAGES = {"TDR1", "TDR2", "TDR3"}
-VALID_PROBLEM_STATUSES = {"open", "closed"}
 PROBLEM_NUMBER_PATTERN = re.compile(r"^[1-9]\d*$")
+CHINESE_PERSON_NAME_PATTERN = re.compile(r"^[\u3400-\u9fff]{2,4}$")
+COMMON_COMPOUND_SURNAMES = {
+    "欧阳",
+    "司马",
+    "上官",
+    "诸葛",
+    "东方",
+    "皇甫",
+    "尉迟",
+    "公孙",
+    "慕容",
+    "司徒",
+    "司空",
+    "夏侯",
+    "南宫",
+    "令狐",
+    "长孙",
+    "宇文",
+}
+
+
+def _split_chinese_person_name(name: str) -> tuple[str, str] | None:
+    normalized = "".join(name.split())
+    if not CHINESE_PERSON_NAME_PATTERN.fullmatch(normalized):
+        return None
+    surname_length = 2 if normalized[:2] in COMMON_COMPOUND_SURNAMES else 1
+    given_name = normalized[surname_length:]
+    if not given_name:
+        return None
+    return normalized[:surname_length], given_name
+
+
+def _pinyin_syllables(text: str) -> tuple[str, ...]:
+    return tuple(
+        syllable.casefold()
+        for syllable in lazy_pinyin(text, style=Style.NORMAL, errors=lambda value: list(value))
+    )
+
+
+def _surname_sound_key(surname: str) -> tuple[str, ...]:
+    return tuple(
+        syllable[:-1] if syllable.endswith("ng") else syllable
+        for syllable in _pinyin_syllables(surname)
+    )
+
+
+def _reviewer_names_sound_similar(left: str, right: str) -> bool:
+    left_parts = _split_chinese_person_name(left)
+    right_parts = _split_chinese_person_name(right)
+    if left_parts is None or right_parts is None:
+        return False
+    left_surname, left_given = left_parts
+    right_surname, right_given = right_parts
+    if _pinyin_syllables(left_given) != _pinyin_syllables(right_given):
+        return False
+    if left_surname == right_surname:
+        return True
+    left_surname_pinyin = _pinyin_syllables(left_surname)
+    right_surname_pinyin = _pinyin_syllables(right_surname)
+    return (
+        left_surname_pinyin == right_surname_pinyin
+        or _surname_sound_key(left_surname) == _surname_sound_key(right_surname)
+    )
+
+
+def validate_reviewer_name_similarity(
+    sessions: list[ReviewSession],
+) -> list[ValidationIssue]:
+    locations_by_name: dict[str, list[str]] = {}
+    name_order: list[str] = []
+    for session in sessions:
+        for signoff in session.signoffs:
+            name = "".join(signoff.expert_name.split())
+            if not name or _split_chinese_person_name(name) is None:
+                continue
+            if name not in locations_by_name:
+                locations_by_name[name] = []
+                name_order.append(name)
+            cell = signoff.cell_references.get("reviewer", f"B{signoff.row_number}")
+            location = f"{session.source_name}／{session.sheet_name}!{cell}（{name}）"
+            if location not in locations_by_name[name]:
+                locations_by_name[name].append(location)
+
+    adjacency = {name: set() for name in name_order}
+    for index, left in enumerate(name_order):
+        for right in name_order[index + 1:]:
+            if _reviewer_names_sound_similar(left, right):
+                adjacency[left].add(right)
+                adjacency[right].add(left)
+
+    issues: list[ValidationIssue] = []
+    visited: set[str] = set()
+    for first_name in name_order:
+        if first_name in visited or not adjacency[first_name]:
+            continue
+        pending = [first_name]
+        component: set[str] = set()
+        while pending:
+            name = pending.pop()
+            if name in component:
+                continue
+            component.add(name)
+            pending.extend(adjacency[name] - component)
+        visited.update(component)
+        names = [name for name in name_order if name in component]
+        locations = [
+            location
+            for name in names
+            for location in locations_by_name[name]
+        ]
+        confirmation_key = "reviewer-name-similarity:" + sha256(
+            "\0".join(sorted(names)).encode("utf-8")
+        ).hexdigest()[:16]
+        issues.append(
+            ValidationIssue(
+                code="reviewer_name_similarity",
+                message=(
+                    f"疑似同一评审人：{'／'.join(names)}。姓名的名字拼音相同，且姓氏相同、同音或近音；"
+                    "请核实并统一源报告姓名。若确为不同人员，可确认后分别统计。"
+                ),
+                severity="error",
+                source_name="本批次",
+                requires_confirmation=True,
+                confirmation_key=confirmation_key,
+                related_locations=locations,
+            )
+        )
+    return issues
 
 
 def validate_session(session: ReviewSession) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    is_v04 = session.parser_profile == "v0.4"
     field_reference = session.field_references.get
     required = {
         "project_name": (session.project_name, "项目名称缺失", field_reference("project_identity", "B3")),
         "project_code": (session.project_code, "项目编码缺失", field_reference("project_identity", "B3")),
         "stage": (session.stage, "项目阶段缺失", field_reference("stage", "B4")),
-        "meeting_date": (session.meeting_date, "会议日期缺失或格式无法识别", field_reference("meeting_date", "B5")),
-        "meeting_conclusion_missing": (session.meeting_conclusion, "会议评审结论缺失", field_reference("meeting_conclusion", "B7")),
     }
     for code, (value, message, cell_reference) in required.items():
         if not value:
@@ -52,17 +179,6 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
                 cell_reference=field_reference("stage", "B4"),
             )
         )
-    if session.meeting_conclusion and session.meeting_conclusion not in VALID_CONCLUSIONS:
-        issues.append(
-            ValidationIssue(
-                "meeting_conclusion_invalid",
-                f"会议评审结论“{session.meeting_conclusion}”不在允许枚举中",
-                "error",
-                session.sheet_name,
-                cell_reference=field_reference("meeting_conclusion", "B7"),
-            )
-        )
-
     signoff_names = {signoff.expert_name for signoff in session.signoffs if signoff.expert_name}
     for absent_reviewer in session.absent_reviewers:
         if absent_reviewer not in signoff_names:
@@ -79,7 +195,6 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
     seen_signoff_names: set[str] = set()
     for signoff in session.signoffs:
         references = signoff.cell_references
-        role_reference = references.get("role", f"A{signoff.row_number}")
         reviewer_reference = references.get("reviewer", f"B{signoff.row_number}")
         attendance_reference = references.get("attendance", f"C{signoff.row_number}")
         conclusion_reference = references.get("conclusion", f"D{signoff.row_number}")
@@ -88,8 +203,6 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
             "expert_name": signoff.expert_name,
             "row_number": signoff.row_number,
         }
-        if not signoff.role:
-            issues.append(ValidationIssue("role_missing", "评审角色为空", "error", **common, cell_reference=role_reference))
         if not signoff.expert_name:
             issues.append(ValidationIssue("reviewer_missing", "评审人为空", "error", **common, cell_reference=reviewer_reference))
         elif signoff.expert_name in seen_signoff_names:
@@ -126,47 +239,16 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
         if signoff.attendance.startswith("改派") and not signoff.proxy_name:
             issues.append(ValidationIssue("proxy_missing", "改派记录缺少代理人后缀", "error", **common, cell_reference=reviewer_reference))
 
-    seen_problem_numbers: dict[str, int] = {}
     for problem in session.problems:
         references = problem.cell_references
         common = {
             "sheet_name": session.sheet_name,
             "row_number": problem.row_number,
         }
-        if not problem.number:
-            issues.append(ValidationIssue("problem_number_missing", "问题编号为空", "error", **common, cell_reference=references.get("number", f"A{problem.row_number}")))
-        problem_number = problem.source_number or problem.number
-        if problem_number and not PROBLEM_NUMBER_PATTERN.fullmatch(problem_number):
-            issues.append(
-                ValidationIssue(
-                    "problem_number_invalid",
-                    f"问题编号“{problem_number}”格式不正确；只允许从1开始的正整数",
-                    "warning",
-                    **common,
-                    cell_reference=references.get("number", f"A{problem.row_number}"),
-                )
-            )
-        previous_row = seen_problem_numbers.get(problem_number)
-        if problem_number and previous_row is not None and previous_row != problem.row_number:
-            issues.append(
-                ValidationIssue(
-                    "problem_number_duplicate",
-                    f"问题编号“{problem_number}”重复",
-                    "error",
-                    **common,
-                    cell_reference=references.get("number", f"A{problem.row_number}"),
-                )
-            )
-        if problem_number:
-            seen_problem_numbers.setdefault(problem_number, problem.row_number)
         if not problem.reviewers_raw and not problem.reviewers:
-            issues.append(ValidationIssue("problem_reviewer_missing", "问题提出人为空", "error", **common, cell_reference=references.get("reviewers", f"B{problem.row_number}")))
+            issues.append(ValidationIssue("problem_reviewer_missing", "问题提出人为空；该问题不归属专家、不计入问题贡献", "warning", **common, cell_reference=references.get("reviewers", f"B{problem.row_number}")))
         if not problem.description:
-            issues.append(ValidationIssue("problem_description_missing", "问题描述为空", "error", **common, cell_reference=references.get("description", f"C{problem.row_number}")))
-        if not problem.status:
-            issues.append(ValidationIssue("problem_status_missing", "问题状态为空", "error", **common, cell_reference=references.get("status", f"G{problem.row_number}")))
-        elif problem.status.casefold() not in VALID_PROBLEM_STATUSES:
-            issues.append(ValidationIssue("problem_status_invalid", f"问题状态“{problem.status_raw or problem.status}”不在open／closed枚举中", "error", **common, cell_reference=references.get("status", f"G{problem.row_number}")))
+            issues.append(ValidationIssue("problem_description_missing", "问题描述为空；该问题不归属专家、不计入问题贡献", "warning", **common, cell_reference=references.get("description", f"C{problem.row_number}")))
 
     return issues
 
@@ -191,46 +273,15 @@ def validate_stage_conflicts(sessions: list[ReviewSession]) -> list[ValidationIs
     return issues
 
 
-def validate_problem_number_conflicts(sessions: list[ReviewSession]) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
-    seen: dict[tuple[str, str], tuple[str, str, int]] = {}
-    for session in sessions:
-        for problem in session.problems:
-            if not problem.number:
-                continue
-            normalized_number = (problem.source_number or problem.number).upper()
-            number_key = f"{session.stage.upper()}:{normalized_number}"
-            key = (session.project_code, number_key)
-            previous = seen.get(key)
-            if (
-                previous
-                and (previous[1], previous[2]) != (session.sheet_name, problem.row_number)
-                and previous[0] != problem.description
-            ):
-                issues.append(
-                    ValidationIssue(
-                        "problem_number_conflict",
-                        f"问题编号“{problem.number}”在“{previous[1]}”与“{session.sheet_name}”对应不同问题描述",
-                        "error",
-                        session.sheet_name,
-                        row_number=problem.row_number,
-                        cell_reference=problem.cell_references.get("number", f"A{problem.row_number}"),
-                    )
-                )
-            else:
-                seen[key] = (problem.description, session.sheet_name, problem.row_number)
-    return issues
-
-
 def validate_score_bounds(experts: list[ExpertProjectScore]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for expert in experts:
         for session in expert.sessions:
-            if not 0 <= session.total <= 50:
+            if not 0 <= session.total <= 48:
                 issues.append(
                     ValidationIssue(
                         "session_score_out_of_range",
-                        f"专家“{expert.expert_name}”的场次过程分{session.total}超出0至50",
+                        f"评审人“{expert.expert_name}”的场次过程分{session.total}超出0至48",
                         "error",
                         session.sheet_name,
                         expert.expert_name,
@@ -240,25 +291,25 @@ def validate_score_bounds(experts: list[ExpertProjectScore]) -> list[ValidationI
             issues.append(
                 ValidationIssue(
                     "session_count_mismatch",
-                    f"专家“{expert.expert_name}”的有效场次数与评分明细数量不一致",
+                    f"评审人“{expert.expert_name}”的计分场次与评分明细数量不一致",
                     "error",
                     expert_name=expert.expert_name,
                 )
             )
-        if not 0 <= expert.process_average <= 50:
+        if not 0 <= expert.process_average <= 48:
             issues.append(
                 ValidationIssue(
                     "project_score_out_of_range",
-                    f"专家“{expert.expert_name}”的评审过程表现均分{expert.process_average}超出0至50",
+                    f"评审人“{expert.expert_name}”的评审过程表现均分{expert.process_average}超出0至48",
                     "error",
                     expert_name=expert.expert_name,
                 )
             )
-        if not 0 <= expert.annual_service_score <= 10:
+        if not 0 <= expert.annual_service_score <= 12:
             issues.append(
                 ValidationIssue(
                     "service_score_out_of_range",
-                    f"专家“{expert.expert_name}”的年度服务贡献分{expert.annual_service_score}超出0至10",
+                    f"评审人“{expert.expert_name}”的年度服务贡献分{expert.annual_service_score}超出0至12",
                     "error",
                     expert_name=expert.expert_name,
                 )
@@ -267,7 +318,7 @@ def validate_score_bounds(experts: list[ExpertProjectScore]) -> list[ValidationI
             issues.append(
                 ValidationIssue(
                     "objective_score_out_of_range",
-                    f"专家“{expert.expert_name}”的客观分数{expert.objective_score}超出0至60",
+                    f"评审人“{expert.expert_name}”的客观分数{expert.objective_score}超出0至60",
                     "error",
                     expert_name=expert.expert_name,
                 )

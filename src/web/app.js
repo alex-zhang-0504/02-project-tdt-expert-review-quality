@@ -85,8 +85,6 @@ const elements = {
   dimensionOneSearch: document.querySelector("#dimension-one-search"),
   dimensionOneProject: document.querySelector("#dimension-one-project"),
   dimensionOneStage: document.querySelector("#dimension-one-stage"),
-  dimensionOneExceptionOnly: document.querySelector("#dimension-one-exception-only"),
-  dimensionOneSummary: document.querySelector("#dimension-one-summary"),
   dimensionOneTableWrap: document.querySelector("#dimension-one-table-wrap"),
   centralBatchField: document.querySelector(".central-batch-field"),
   centralBatchId: document.querySelector("#central-batch-id"),
@@ -634,7 +632,7 @@ function renderReportList() {
     }).join("");
     const tag = state.analysis ? "button" : "div";
     return `<${tag} class="report-progress-row ${statusClass} ${index === state.selectedReportIndex && state.analysis ? "is-active" : ""}" ${state.analysis ? `type="button" data-index="${index}"` : ""}>
-      <span class="report-progress-name" data-full-name="${escapeHtml(report.source_name)}"><strong>${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small></span>
+      <span class="report-progress-name"><strong class="inline-name-expand">${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small></span>
       <span class="report-progress-reader ${activeCheckpointIndex >= 0 ? "is-reading" : ""}"><small>当前检查</small><strong>${escapeHtml(checkpointLabel)}</strong></span>
       <span class="report-progress-meter">
         <span class="report-progress-segments" role="progressbar" aria-label="${escapeHtml(report.source_name)}检查进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">${segments}</span>
@@ -696,7 +694,6 @@ function renderAnalysis() {
     document.querySelector("#go-import").addEventListener("click", () => navigateStep(1));
     return;
   }
-  elements.analysisSummary.textContent = `${analysis.source_name} · 仅纳入已完成TDR3的项目 · ${analysis.experts.length}位评审人`;
   renderDimensionOneControls();
   renderDimensionOneTable();
 }
@@ -729,16 +726,34 @@ function renderDimensionOneControls() {
   syncServiceActions();
 }
 
+function normalizedReviewerSearch(value) {
+  return value.toLocaleLowerCase("zh-CN").replace(/\s+/g, "");
+}
+
+function isSearchSubsequence(search, target) {
+  let searchIndex = 0;
+  for (const character of target) {
+    if (character === search[searchIndex]) searchIndex += 1;
+    if (searchIndex === search.length) return true;
+  }
+  return search.length === 0;
+}
+
+function reviewerMatchesSearch(expert, search) {
+  if (!search) return true;
+  return [expert.expert_name, expert.expert_name_pinyin, expert.expert_name_initials]
+    .filter(Boolean)
+    .some((candidate) => isSearchSubsequence(search, normalizedReviewerSearch(candidate)));
+}
+
 function filteredDimensionOneRows() {
-  const search = elements.dimensionOneSearch.value.trim().toLocaleLowerCase("zh-CN");
+  const search = normalizedReviewerSearch(elements.dimensionOneSearch.value);
   const projectCode = elements.dimensionOneProject.value;
   const stage = elements.dimensionOneStage.value;
-  const exceptionOnly = elements.dimensionOneExceptionOnly.checked;
   return dimensionOneRows().filter((row) => {
-    if (search && !row.expert.expert_name.toLocaleLowerCase("zh-CN").includes(search)) return false;
+    if (!reviewerMatchesSearch(row.expert, search)) return false;
     if (projectCode && row.project.project_code !== projectCode) return false;
     if (stage && !row.sessions.some((session) => session.stage === stage)) return false;
-    if (exceptionOnly && row.sessions.every((session) => session.total === 50)) return false;
     return true;
   }).sort((left, right) => (
     left.expert.expert_name.localeCompare(right.expert.expert_name, "zh-CN")
@@ -764,17 +779,30 @@ function renderDimensionOneTable() {
     : ["TDR1", "TDR2", "TDR3"];
   const projectCount = new Set(rows.map((row) => row.project.project_code)).size;
   const reviewerCount = new Set(rows.map((row) => row.expert.expert_name)).size;
-  elements.dimensionOneSummary.innerHTML = `<strong>${reviewerCount}位评审人 · ${projectCount}个项目 · ${rows.length}行</strong>；单击任一分数可查看原文与单元格证据。年度服务贡献基于当前完整批次统一重算。`;
+  const counts = state.analysis.experts.map((expert) => expert.participation_session_count);
+  const distribution = `少于3场${counts.filter((count) => count < 3).length}人、3—5场${counts.filter((count) => count >= 3 && count <= 5).length}人、6—10场${counts.filter((count) => count >= 6 && count <= 10).length}人、超过10场${counts.filter((count) => count > 10).length}人`;
+  elements.analysisSummary.textContent = `试算结果 · ${state.analysis.source_name}；${reviewerCount}位评审人、${projectCount}个项目、${rows.length}行；有效参评场次分布：${distribution}。单击分数查看证据，服务贡献按完整批次重算。`;
   if (!rows.length) {
     elements.dimensionOneTableWrap.innerHTML = `<div class="dimension-one-empty">当前筛选条件下没有维度一记录。</div>`;
     return;
   }
   const stageHeaders = visibleStages.map((stage) => `<th colspan="4">${stage}</th>`).join("");
   const subHeaders = visibleStages.map(() => (
-    '<th>出勤／15</th><th>会签／25</th><th>意见／10</th><th>小计／50</th>'
+    '<th>出勤／13</th><th>会签／25</th><th>意见／10</th><th>小计／48</th>'
   )).join("");
+  const stageColumns = visibleStages.map(() => (
+    '<col class="col-stage-score" /><col class="col-stage-score" /><col class="col-stage-score" /><col class="col-stage-score" />'
+  )).join("");
+  const tableWidth = 1364 + visibleStages.length * 288;
   elements.dimensionOneTableWrap.innerHTML = `
-    <table class="dimension-one-table">
+    <table class="dimension-one-table" style="--dimension-table-width:${tableWidth}px">
+      <colgroup>
+        <col class="col-reviewer" /><col class="col-project-code" /><col class="col-project-name" />
+        ${stageColumns}
+        <col class="col-valid-sessions" /><col class="col-project-average" />
+        <col class="col-service-project" /><col class="col-service-score" /><col class="col-service-project" /><col class="col-service-score" /><col class="col-service-total" />
+        <col class="col-annual-average" /><col class="col-proxy" /><col class="col-objective" /><col class="col-evidence" />
+      </colgroup>
       <thead>
         <tr>
           <th class="sticky-1" rowspan="2">评审人</th>
@@ -786,7 +814,7 @@ function renderDimensionOneTable() {
           <th colspan="3">年度汇总</th>
           <th class="evidence-sticky" rowspan="2">证据</th>
         </tr>
-        <tr>${subHeaders}<th>有效场次</th><th>项目均分／50</th><th>参与项目</th><th>参与分／6</th><th>问题项目</th><th>问题分／4</th><th>服务／10</th><th>过程均分／50</th><th>代理场次</th><th class="objective-sticky">客观分／60</th></tr>
+        <tr>${subHeaders}<th>计分场次</th><th>项目均分／48</th><th>有效参评场次</th><th>参与分／6</th><th>问题贡献场次</th><th>问题分／6</th><th>服务／12</th><th>过程均分／48</th><th>代理场次</th><th class="objective-sticky">客观分／60</th></tr>
       </thead>
       <tbody>${rows.map((row, rowIndex) => {
         const stageMap = new Map(row.sessions.map((session) => [session.stage, session]));
@@ -798,13 +826,13 @@ function renderDimensionOneTable() {
         return `<tr>
           <td class="sticky-1">${escapeHtml(row.expert.expert_name)}</td>
           <td class="sticky-2">${escapeHtml(row.project.project_code)}</td>
-          <td class="sticky-3 project-name-cell"><span class="project-name-tooltip" data-full-name="${escapeHtml(row.project.project_name)}">${escapeHtml(row.project.project_name)}</span></td>
+          <td class="sticky-3 project-name-cell"><span class="inline-name-expand">${escapeHtml(row.project.project_name)}</span></td>
           ${stageCells}
           <td class="numeric">${row.project.session_count}</td>
           <td class="numeric">${row.project.process_average}</td>
-          <td class="numeric">${row.expert.participation_project_count}</td>
+          <td class="numeric">${row.expert.participation_session_count}</td>
           <td class="numeric">${row.expert.participation_score}</td>
-          <td class="numeric">${row.expert.problem_project_count}</td>
+          <td class="numeric">${row.expert.problem_session_count}</td>
           <td class="numeric">${row.expert.problem_score}</td>
           <td class="numeric">${row.expert.annual_service_score}</td>
           <td class="numeric">${row.expert.process_average}</td>
@@ -846,8 +874,9 @@ function openDimensionOneEvidence(rowIndex, stage = "", metric = "") {
          <div><dt>评审意见</dt><dd>${session.opinion.score}分 · ${escapeHtml(session.opinion.reason)}</dd></div>`;
     const sourceCells = evidence.source_cells?.length ? evidence.source_cells : evidence.source_cell ? [evidence.source_cell] : [];
     const sourceTexts = evidence.source_texts?.length ? evidence.source_texts : evidence.source_text ? [evidence.source_text] : [];
-    return `<section class="evidence-block"><h4>${escapeHtml(session.stage)} · ${session.total}／50</h4><dl>
+    return `<section class="evidence-block"><h4>${escapeHtml(session.stage)} · ${session.total}／48</h4><dl>
       ${scoreDetails}
+      <div><dt>0分排除原因</dt><dd>${escapeHtml(evidence.zero_reason || "未触发")}</dd></div>
       <div><dt>技术对象</dt><dd>${escapeHtml(evidence.technical_object || "未识别")}</dd></div>
       <div><dt>专业动作</dt><dd>${escapeHtml(evidence.professional_action || "未识别")}</dd></div>
       <div><dt>具体细节</dt><dd>${escapeHtml(evidence.specific_detail || "未识别")}</dd></div>
@@ -865,12 +894,17 @@ function closeDimensionOneEvidence() {
 }
 
 function renderIssues(issues, reportName = "") {
-  const batchIssues = state.analysis?.batch_summary
-    ? state.analysis.issues.filter((issue) => issue.code.startsWith("feishu_folder_"))
-    : [];
+  const batchIssues = (state.analysis?.issues || []).filter((issue) => (
+    issue.requires_confirmation
+    || (state.analysis?.batch_summary && issue.code.startsWith("feishu_folder_"))
+  ));
   const visibleIssues = issues.filter((issue) => issue.severity !== "info");
   batchIssues.forEach((issue) => {
-    if (issue.severity !== "info" && !visibleIssues.includes(issue)) visibleIssues.push(issue);
+    const alreadyVisible = visibleIssues.some((visibleIssue) => (
+      visibleIssue === issue
+      || (issue.confirmation_key && visibleIssue.confirmation_key === issue.confirmation_key)
+    ));
+    if (issue.severity !== "info" && !alreadyVisible) visibleIssues.push(issue);
   });
   const errors = visibleIssues.filter((issue) => issue.severity === "error").length;
   const warnings = visibleIssues.filter((issue) => issue.severity === "warning").length;
@@ -880,7 +914,7 @@ function renderIssues(issues, reportName = "") {
     elements.checkTitle.textContent = `${label}检查完成`;
     elements.checkState.textContent = "检查通过";
     elements.checkState.className = "check-state is-ok";
-    elements.issueSummary.innerHTML = `<p><strong>未发现错误或提醒。</strong>评审报告可以进入后续评分。</p>`;
+    elements.issueSummary.innerHTML = `<p><strong>未发现格式错误或检查提醒。</strong>可以继续进入评分。</p>`;
   } else {
     elements.checkTitle.textContent = errors
       ? `${label}存在错误`
@@ -894,15 +928,58 @@ function renderIssues(issues, reportName = "") {
       <ul>${visibleIssues.map((issue) => {
         const location = issue.sheet_name
           ? `${issue.sheet_name}${issue.cell_reference ? `!${issue.cell_reference}` : ""}`
-          : "工作簿";
+          : issue.source_name || "工作簿";
         const expert = issue.expert_name ? `；专家：${issue.expert_name}` : "";
         const severityLabel = issue.severity === "error" ? "错误" : "提醒";
-        return `<li class="issue-item ${issue.severity}"><span class="severity">${severityLabel}</span><span class="issue-location">${escapeHtml(location)}</span><span>${escapeHtml(issue.message + expert)}</span></li>`;
+        const relatedLocations = issue.related_locations?.length
+          ? `<small class="issue-related-locations"><strong>表格位置：</strong>${issue.related_locations.map((location, index) => `<span>${index + 1}．${escapeHtml(location)}</span>`).join("")}</small>`
+          : "";
+        const confirmation = issue.code === "reviewer_name_similarity" && issue.confirmation_key
+          ? `<button class="secondary-button issue-confirm-button" type="button" data-confirm-reviewer-names="${escapeHtml(issue.confirmation_key)}">确认均为不同人员</button>`
+          : "";
+        return `<li class="issue-item ${issue.severity}"><span class="severity">${severityLabel}</span><span class="issue-location">${escapeHtml(location)}</span><span class="issue-content">${escapeHtml(issue.message + expert)}${relatedLocations}${confirmation}</span></li>`;
       }).join("")}</ul>`;
   }
-  elements.warningConfirm.classList.toggle("is-hidden", aggregate.warnings === 0 || aggregate.errors > 0);
-  elements.continueAnalysis.disabled = aggregate.errors > 0 || (aggregate.warnings > 0 && !state.warningsAcknowledged);
+  elements.issueSummary.querySelectorAll("[data-confirm-reviewer-names]").forEach((button) => {
+    button.addEventListener("click", () => confirmReviewerNamesDistinct(button));
+  });
+  elements.warningConfirm.classList.toggle("is-hidden", aggregate.errors > 0 || aggregate.warnings === 0);
+  elements.continueAnalysis.disabled = !qualityGatePassed();
   activateStep(1);
+}
+
+async function confirmReviewerNamesDistinct(button) {
+  const confirmationKey = button.dataset.confirmReviewerNames;
+  if (!state.analysis || !confirmationKey) return;
+  button.disabled = true;
+  button.textContent = "正在确认…";
+  try {
+    const selectedExpertKey = state.selectedExpert ? expertKey(state.selectedExpert) : "";
+    const analysis = await requestJson("/api/analysis/confirm-reviewer-names-distinct", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        analysis_id: state.analysis.analysis_id,
+        confirmation_key: confirmationKey,
+      }),
+    });
+    state.analysis = analysis;
+    state.selectedExpert = analysis.experts.find((expert) => expertKey(expert) === selectedExpertKey)
+      || analysis.experts[0]
+      || null;
+    state.warningsAcknowledged = false;
+    elements.warningAcknowledged.checked = false;
+    renderBatchSummary();
+    renderExpertNavigation();
+    renderReportList();
+    if (analysis.reports?.length) selectReport(state.selectedReportIndex);
+    else renderIssues(analysis.issues, analysis.source_name);
+    syncServiceActions();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "确认均为不同人员";
+    setNotice(error.message, "error");
+  }
 }
 
 function selectExpert(index) {
@@ -943,26 +1020,26 @@ function renderExpertNavigation() {
 function renderExpertDetail() {
   const expert = state.selectedExpert;
   if (!expert) {
-    elements.expertDetail.innerHTML = `<div class="empty-detail">当前报告中没有已完成TDR3、可进入年度考核的专家记录。</div>`;
+    elements.expertDetail.innerHTML = `<div class="empty-detail">当前报告中没有可进入年度考核的评审人记录。</div>`;
     return;
   }
   elements.expertDetail.innerHTML = `
     <div class="detail-heading">
-      <div><p>当前专家</p><h3>${escapeHtml(expert.expert_name)}</h3></div>
+      <div><p>当前评审人</p><h3>${escapeHtml(expert.expert_name)}</h3></div>
       <div class="average-score"><span>${expert.objective_score}</span><small>客观分数／60</small></div>
     </div>
     <div class="fact-score-grid">
-      <article><span>${expert.process_average}／50</span><small>评审过程表现</small></article>
-      <article><span>${expert.participation_score}／6</span><small>评审参与度 · ${expert.participation_project_count}个项目</small></article>
-      <article><span>${expert.problem_score}／4</span><small>问题贡献度 · ${expert.problem_project_count}个项目</small></article>
+      <article><span>${expert.process_average}／48</span><small>评审过程表现</small></article>
+      <article><span>${expert.participation_score}／6</span><small>评审参与度 · ${expert.participation_session_count}场</small></article>
+      <article><span>${expert.problem_score}／6</span><small>场次问题贡献 · ${expert.problem_session_count}场</small></article>
     </div>
-    <div class="formula-note">客观分数＝评审过程表现 ${expert.process_average}＋年度服务贡献 ${expert.annual_service_score}＝<strong>${expert.objective_score}</strong>。有效参评项目：${escapeHtml(expert.participation_project_codes.join("、") || "无")}；问题贡献项目：${escapeHtml(expert.problem_project_codes.join("、") || "无")}。年度代理事实：被代理 ${expert.proxy_session_count}／${expert.expected_session_count} 场，代理率 ${expert.proxy_rate}％（仅展示，不参与计分）。</div>
+    <div class="formula-note">客观分数＝评审过程表现 ${expert.process_average}＋年度服务贡献 ${expert.annual_service_score}＝<strong>${expert.objective_score}</strong>。有效参评场次：${escapeHtml(expert.participation_session_ids.join("、") || "无")}；问题贡献场次：${escapeHtml(expert.problem_session_ids.join("、") || "无")}。年度代理事实：被代理 ${expert.proxy_session_count}／${expert.expected_session_count} 场，代理率 ${expert.proxy_rate}％（仅展示，不参与计分）。</div>
     <details class="fact-details">
       <summary>查看逐场计分依据</summary>
       <div class="session-grid">
         ${expert.sessions.map((session) => `
           <article class="session-card">
-            <div class="session-title"><strong>${escapeHtml(session.project_code)} · ${escapeHtml(session.stage)}</strong><span>${session.total}／50</span></div>
+            <div class="session-title"><strong>${escapeHtml(session.project_code)} · ${escapeHtml(session.stage)}</strong><span>${session.total}／48</span></div>
             <dl>
               <div><dt>出勤表现</dt><dd>${session.attendance.score}</dd></div>
               <div><dt>结果会签</dt><dd>${session.signoff.score}</dd></div>
@@ -970,6 +1047,7 @@ function renderExpertDetail() {
             </dl>
             <p>${escapeHtml(session.opinion.reason)}</p>
             <div class="opinion-evidence">
+              <span>0分排除原因：${escapeHtml(session.opinion_evidence.zero_reason || "未触发")}</span>
               <span>技术对象：${escapeHtml(session.opinion_evidence.technical_object || "未识别")}</span>
               <span>专业动作：${escapeHtml(session.opinion_evidence.professional_action || "未识别")}</span>
               <span>具体细节：${escapeHtml(session.opinion_evidence.specific_detail || "未识别")}</span>
@@ -1019,7 +1097,7 @@ function openQuestionnaire() {
   const problems = expertProblems();
   elements.evidenceStrip.innerHTML = state.analysis ? `
     <strong>考核事实</strong>
-    <p>评审过程 ${expert.process_average}／50；有效参评 ${expert.participation_project_count}个项目；提出有效问题 ${expert.problem_project_count}个项目。</p>
+    <p>评审过程 ${expert.process_average}／48；有效参评 ${expert.participation_session_count}场；场次问题贡献 ${expert.problem_session_count}场。</p>
     ${problems.length
       ? `<div>${problems.map((problem) => `<span>${escapeHtml(problem.project_code)} · ${escapeHtml(problem.stage)} · ${escapeHtml(problem.number)} · ${escapeHtml(problem.description)}</span>`).join("")}</div>`
       : `<p>评审表中没有该专家名下的问题记录。</p>`}` : "";
@@ -1222,7 +1300,7 @@ function renderResults() {
   if (!state.analysis) {
     const result = state.lastResult;
     if (!result) {
-      elements.result.innerHTML = `<div class="empty-detail"><strong>还没有评分结果</strong><p>导入评审表后，这里会汇总全部评审人的完成状态。</p></div>`;
+      elements.result.innerHTML = `<div class="empty-detail"><strong>还没有总考核分数</strong><p>导入评审表后，这里会汇总全部评审人的完成状态。</p></div>`;
       return;
     }
     elements.result.innerHTML = `
@@ -1236,7 +1314,7 @@ function renderResults() {
   const experts = state.analysis.experts;
   const rankingPending = experts.some((expert) => expert.status === "已完成" && expert.grade === "待排名");
   elements.result.innerHTML = `
-    ${rankingPending ? '<p class="result-note">年度等级将在本批次全体专家的客观分数和主观分数均完成后统一生成。</p>' : ""}
+    ${rankingPending ? '<p class="result-note">年度等级将在本批次全体评审人的客观分数和主观分数均完成后统一生成。</p>' : ""}
     <table class="results-table">
       <thead><tr><th>评审人</th><th class="numeric">客观分数／60</th><th class="numeric">主观分数／40</th><th class="numeric">年度总分／100</th><th>等级</th><th>状态</th></tr></thead>
       <tbody>${experts.map((expert) => {
@@ -1571,7 +1649,7 @@ document.querySelector("#start-standalone-questionnaire").addEventListener("clic
   const projectCode = elements.standaloneProjectCode.value.trim();
   const expertName = elements.standaloneExpertName.value.trim();
   if (!projectCode || !expertName) {
-    window.alert("请填写项目编码和专家姓名");
+    window.alert("请填写项目编码和评审人姓名");
     return;
   }
   state.selectedExpert = {
@@ -1602,7 +1680,7 @@ document.querySelector("#restart").addEventListener("click", reset);
 elements.calculate.addEventListener("click", submitQuestionnaire);
 elements.mergeSubmissions.addEventListener("click", mergeDimensionOneSubmissions);
 elements.exportDimensionOne.addEventListener("click", downloadDimensionOne);
-[elements.dimensionOneSearch, elements.dimensionOneProject, elements.dimensionOneStage, elements.dimensionOneExceptionOnly]
+[elements.dimensionOneSearch, elements.dimensionOneProject, elements.dimensionOneStage]
   .forEach((control) => control.addEventListener(control.tagName === "INPUT" && control.type === "search" ? "input" : "change", renderDimensionOneTable));
 document.querySelector("#close-evidence").addEventListener("click", closeDimensionOneEvidence);
 elements.evidenceBackdrop.addEventListener("click", closeDimensionOneEvidence);

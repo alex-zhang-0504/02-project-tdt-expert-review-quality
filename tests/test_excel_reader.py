@@ -49,9 +49,9 @@ class ExcelReaderTests(unittest.TestCase):
         sessions, _ = read_workbook(workbook)
         score = build_project_scores(sessions)[0]
 
-        self.assertEqual([40, 25, 40], [item.total for item in score.sessions])
+        self.assertEqual([38, 25, 38], [item.total for item in score.sessions])
         self.assertEqual(3, score.effective_session_count)
-        self.assertEqual(35.0, score.process_average)
+        self.assertEqual(33.7, score.process_average)
 
     def test_project_and_proxy_parsing_use_last_parentheses(self) -> None:
         self.assertEqual(
@@ -159,6 +159,140 @@ class ExcelReaderTests(unittest.TestCase):
 
         self.assertEqual(("线损优化", "B250001", "TDR3"), (sessions[0].project_name, sessions[0].project_code, sessions[0].stage))
         self.assertFalse([issue for issue in issues if issue.severity == "error"])
+
+    def test_v04_multi_project_review_uses_first_numbered_project_once(self) -> None:
+        source = build_v04_workbook(
+            [{"stage": "TDR3"}],
+            project=(
+                "1. 印度5.5G通信-印度网络拥塞场景优化-B260084H\n"
+                "2. 印度5.5G通信-印度UPI扫码支付性能优化-B260084G\n"
+                "3. 印度5.5G通信-通信智慧场景感知-B260084A"
+            ),
+        )
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(1, len(sessions))
+        self.assertEqual("印度5.5G通信-印度网络拥塞场景优化", sessions[0].project_name)
+        self.assertEqual("B260084H", sessions[0].project_code)
+        self.assertFalse([issue for issue in issues if issue.severity == "error"])
+        selected = next(issue for issue in issues if issue.code == "multi_project_first_selected")
+        self.assertEqual("info", selected.severity)
+
+    def test_v04_multi_project_review_accepts_lettered_items(self) -> None:
+        source = build_v04_workbook(
+            [{"stage": "TDR3"}],
+            project=(
+                "a. 印度5.5G通信-印度网络拥塞场景优化-B260084H\n"
+                "b. 印度5.5G通信-印度UPI扫码支付性能优化-B260084G\n"
+                "c. 印度5.5G通信-通信智慧场景感知-B260084A"
+            ),
+        )
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(1, len(sessions))
+        self.assertEqual("印度5.5G通信-印度网络拥塞场景优化", sessions[0].project_name)
+        self.assertEqual("B260084H", sessions[0].project_code)
+        self.assertTrue(any(issue.code == "multi_project_first_selected" for issue in issues))
+
+    def test_v04_multi_project_review_accepts_consistent_unnumbered_lines(self) -> None:
+        source = build_v04_workbook(
+            [{"stage": "TDR3"}],
+            project=(
+                "印度5.5G通信-印度网络拥塞场景优化-B260084H\n"
+                "印度5.5G通信-印度UPI扫码支付性能优化-B260084G\n"
+                "印度5.5G通信-通信智慧场景感知-B260084A"
+            ),
+        )
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(1, len(sessions))
+        self.assertEqual("印度5.5G通信-印度网络拥塞场景优化", sessions[0].project_name)
+        self.assertEqual("B260084H", sessions[0].project_code)
+        self.assertTrue(any(issue.code == "multi_project_first_selected" for issue in issues))
+
+    def test_v04_single_project_manual_line_break_is_not_split(self) -> None:
+        source = build_v04_workbook(
+            [{"stage": "TDR3"}],
+            project="印度5.5G通信-印度网络拥塞\n场景优化-B260084H",
+        )
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(1, len(sessions))
+        self.assertEqual("印度5.5G通信-印度网络拥塞 场景优化", sessions[0].project_name)
+        self.assertEqual("B260084H", sessions[0].project_code)
+        self.assertFalse(any(issue.code == "multi_project_first_selected" for issue in issues))
+
+    def test_v04_duplicate_reviewer_roles_merge_into_one_reviewer(self) -> None:
+        source = build_v04_workbook(
+            [{
+                "stage": "TDR3",
+                "signoffs": [
+                    {"role": "评审主席", "reviewer": "高正立", "conclusion": "Go with Risk", "opinion": "需检查网络调度时延"},
+                    {"role": "通信专家", "reviewer": "高正立", "conclusion": "Go with Risk", "opinion": "建议补充拥塞场景验证"},
+                    {"role": "功耗专家", "reviewer": "虚拟专家乙", "conclusion": "Go", "opinion": ""},
+                    {"role": "测试专家", "reviewer": "虚拟专家丙", "conclusion": "-", "opinion": ""},
+                ],
+            }]
+        )
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(3, len(sessions[0].signoffs))
+        reviewer = next(item for item in sessions[0].signoffs if item.expert_name == "高正立")
+        self.assertEqual("评审主席／通信专家", reviewer.role)
+        self.assertEqual(2, len(reviewer.opinion_sources))
+        self.assertFalse(any(issue.code == "reviewer_duplicate" for issue in issues))
+        scores = [item for item in build_project_scores(sessions) if item.expert_name == "高正立"]
+        self.assertEqual(1, len(scores))
+        self.assertEqual(1, scores[0].effective_session_count)
+
+    def test_v04_duplicate_reviewer_conflicting_valid_conclusions_only_warns(self) -> None:
+        source = build_v04_workbook(
+            [{
+                "stage": "TDR3",
+                "signoffs": [
+                    {"role": "评审主席", "reviewer": "高正立", "conclusion": "Go", "opinion": ""},
+                    {"role": "通信专家", "reviewer": "高正立", "conclusion": "Redirect", "opinion": ""},
+                    {"role": "功耗专家", "reviewer": "虚拟专家乙", "conclusion": "Go", "opinion": ""},
+                    {"role": "测试专家", "reviewer": "虚拟专家丙", "conclusion": "-", "opinion": ""},
+                ],
+            }]
+        )
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(3, len(sessions[0].signoffs))
+        conflict = next(
+            issue for issue in issues if issue.code == "duplicate_reviewer_conclusion_conflict"
+        )
+        self.assertEqual("warning", conflict.severity)
+        self.assertFalse(any(issue.code == "reviewer_duplicate" for issue in issues))
+
+    def test_v04_duplicate_reviewer_prefers_valid_conclusion_over_dash(self) -> None:
+        source = build_v04_workbook(
+            [{
+                "stage": "TDR3",
+                "signoffs": [
+                    {"role": "评审主席", "reviewer": "高正立", "conclusion": "-", "opinion": ""},
+                    {"role": "通信专家", "reviewer": "高正立", "conclusion": "Go", "opinion": ""},
+                    {"role": "功耗专家", "reviewer": "虚拟专家乙", "conclusion": "Go", "opinion": ""},
+                    {"role": "测试专家", "reviewer": "虚拟专家丙", "conclusion": "-", "opinion": ""},
+                ],
+            }]
+        )
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(3, len(sessions[0].signoffs))
+        reviewer = next(item for item in sessions[0].signoffs if item.expert_name == "高正立")
+        self.assertEqual("Go", reviewer.conclusion)
+        self.assertFalse(any(issue.code == "duplicate_reviewer_conclusion_conflict" for issue in issues))
+        scores = [item for item in build_project_scores(sessions) if item.expert_name == "高正立"]
+        self.assertEqual(25, scores[0].sessions[0].signoff.score)
 
     def test_v04_footer_notes_are_not_parsed_as_problem_rows(self) -> None:
         source = build_v04_workbook([{"stage": "TDR2"}])
@@ -495,6 +629,38 @@ class ExcelReaderTests(unittest.TestCase):
         self.assertEqual(1, len(sessions))
         self.assertFalse([issue for issue in issues if issue.severity == "error"])
 
+    def test_v04_project_stage_field_alias_is_accepted_without_warning(self) -> None:
+        source = build_v04_workbook([{"stage": "TDR3"}])
+        workbook = load_workbook(BytesIO(source))
+        sheet = workbook["TDR3评审报告"]
+        sheet["D5"] = "项目阶段"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+
+        sessions, issues = read_workbook(buffer.getvalue())
+
+        self.assertEqual(1, len(sessions))
+        self.assertEqual("TDR3", sessions[0].stage)
+        self.assertFalse([issue for issue in issues if issue.severity != "info"])
+
+    def test_v04_stage_alias_and_canonical_label_together_are_duplicate(self) -> None:
+        source = build_v04_workbook([{"stage": "TDR3"}])
+        workbook = load_workbook(BytesIO(source))
+        sheet = workbook["TDR3评审报告"]
+        sheet["F5"] = "项目阶段"
+        sheet["G5"] = "TDR3"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+
+        sessions, issues = read_workbook(buffer.getvalue())
+
+        self.assertEqual([], sessions)
+        issue = next(issue for issue in issues if issue.code == "basic_field_duplicate")
+        self.assertIn("评审阶段", issue.message)
+        self.assertEqual("D5、F5", issue.cell_reference)
+
     def test_v04_duplicate_basic_field_blocks_without_guessing(self) -> None:
         source = build_v04_workbook([{"stage": "TDR3"}])
         workbook = load_workbook(BytesIO(source))
@@ -515,7 +681,7 @@ class ExcelReaderTests(unittest.TestCase):
         source = build_v04_workbook([{"stage": "TDR3"}])
         workbook = load_workbook(BytesIO(source))
         sheet = workbook["TDR3评审报告"]
-        sheet["A5"] = "会议时间"
+        sheet["A4"] = "其他名单"
         buffer = BytesIO()
         workbook.save(buffer)
         workbook.close()
@@ -524,7 +690,7 @@ class ExcelReaderTests(unittest.TestCase):
 
         self.assertEqual([], sessions)
         issue = next(issue for issue in issues if issue.code == "basic_field_missing")
-        self.assertIn("TDR会议日期", issue.message)
+        self.assertIn("缺席评审人姓名", issue.message)
 
     def test_v04_empty_field_value_is_not_read_from_a_fixed_coordinate(self) -> None:
         source = build_v04_workbook([{"stage": "TDR3"}])
@@ -599,7 +765,7 @@ class ExcelReaderTests(unittest.TestCase):
         issue = next(issue for issue in issues if issue.code == "stage_invalid")
         self.assertEqual("error", issue.severity)
 
-    def test_v04_problem_number_only_accepts_positive_integer(self) -> None:
+    def test_v04_problem_number_format_does_not_trigger_quality_issue(self) -> None:
         for number in ("0", "TDR1-1", "1.1"):
             with self.subTest(number=number):
                 source = build_v04_workbook([{
@@ -614,7 +780,58 @@ class ExcelReaderTests(unittest.TestCase):
 
                 _, issues = read_workbook(source)
 
-                self.assertTrue(any(issue.code == "problem_number_invalid" for issue in issues))
+                self.assertFalse(any(issue.code.startswith("problem_number_") for issue in issues))
+
+    def test_v04_auxiliary_fields_and_headers_do_not_gate_scoring(self) -> None:
+        source = build_v04_workbook([{
+            "stage": "TDR3",
+            "problems": [{
+                "reviewer": "虚拟专家甲",
+                "description": "需复核弱网边界条件",
+            }],
+        }])
+        workbook = load_workbook(BytesIO(source))
+        sheet = workbook["TDR3评审报告"]
+        sheet["D3"] = ""
+        sheet["E3"] = ""
+        sheet["A5"] = ""
+        sheet["B5"] = ""
+        sheet["A7"] = ""
+        for row_number in range(9, 12):
+            sheet.cell(row=row_number, column=1, value="")
+        for column in (1, 4, 5, 6, 7):
+            sheet.cell(row=24, column=column, value="")
+        buffer = BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+
+        sessions, issues = read_workbook(buffer.getvalue())
+
+        self.assertEqual(1, len(sessions))
+        self.assertEqual("", sessions[0].meeting_conclusion)
+        self.assertIsNone(sessions[0].meeting_date)
+        self.assertEqual("", sessions[0].signoffs[0].role)
+        self.assertEqual(1, len(sessions[0].problems))
+        self.assertEqual(["虚拟专家甲"], sessions[0].problems[0].reviewers)
+        self.assertFalse([issue for issue in issues if issue.severity == "error"])
+        self.assertFalse(any(issue.code.startswith("problem_status_") for issue in issues))
+
+    def test_v04_incomplete_scoring_problem_warns_without_blocking_report(self) -> None:
+        source = build_v04_workbook([{
+            "stage": "TDR3",
+            "problems": [{
+                "reviewer": "",
+                "description": "需复核弱网边界条件",
+                "status": "open",
+            }],
+        }])
+
+        sessions, issues = read_workbook(source)
+
+        self.assertEqual(1, len(sessions))
+        issue = next(issue for issue in issues if issue.code == "problem_reviewer_missing")
+        self.assertEqual("warning", issue.severity)
+        self.assertFalse([item for item in issues if item.severity == "error"])
 
 
 if __name__ == "__main__":

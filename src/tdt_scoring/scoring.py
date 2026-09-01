@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from math import ceil
 from decimal import Decimal, ROUND_HALF_UP
 
 from .models import (
     ExpertProjectScore,
     ExpertSessionScore,
+    OPINION_RULE_VERSION,
     OpinionEvidence,
     ProjectProcessScore,
     ReviewSession,
@@ -17,8 +19,8 @@ from .questionnaire import QUESTION_IDS, QUESTION_SCORES
 
 
 ATTENDANCE_SCORES = {
-    "正常": ("high", 15),
-    "改派（正常）": ("high", 15),
+    "正常": ("high", 13),
+    "改派（正常）": ("high", 13),
     "缺席未改派": ("low", 0),
     "挂会": ("low", 0),
 }
@@ -29,6 +31,13 @@ TECHNICAL_OBJECT_KEYWORDS = (
     "接口",
     "参数",
     "指标",
+    "KPI",
+    "价格",
+    "成本",
+    "市场",
+    "竞品",
+    "用户",
+    "可行性",
     "线损",
     "范围",
     "场景",
@@ -72,6 +81,7 @@ PROFESSIONAL_ACTION_KEYWORDS = (
     "优化",
 )
 SPECIFIC_DETAIL_PATTERNS = (
+    re.compile(r"\d+(?:\.\d+)?\s*(?:%|％|ms|s|dB|℃|元|万|倍)?", re.IGNORECASE),
     re.compile(r"最差|边界|极限|高温|低温|弱网|强干扰|量产|KPI", re.IGNORECASE),
     re.compile(r"数据不足|证据缺口|未覆盖|异常|波动|抵消|导致|影响"),
     re.compile(r"补充.{0,8}(?:数据|验证|测试|证据)"),
@@ -85,6 +95,76 @@ PROFESSIONAL_REASON_TAGS = {
     "其他",
 }
 AUDIT_NOTE_MAX_LENGTH = 100
+NO_OPINION_VALUES = {
+    "",
+    "-",
+    "—",
+    "无",
+    "无意见",
+    "没有意见",
+    "没问题",
+    "无问题",
+    "同意",
+    "赞同",
+    "通过",
+    "go",
+    "gowithrisk",
+    "go with risk",
+    "redirect",
+    "ok",
+}
+VAGUE_ATTENTION_WORDS = (
+    "技术可行性",
+    "用户场景",
+    "应用场景",
+    "竞争对手",
+    "可行性",
+    "可靠性",
+    "兼容性",
+    "安全性",
+    "注意风险",
+    "关注风险",
+    "竞品",
+    "市场",
+    "价格",
+    "成本",
+    "kpi",
+    "指标",
+    "风险",
+    "场景",
+    "质量",
+    "进度",
+    "性能",
+    "功耗",
+    "体验",
+    "需求",
+)
+VAGUE_FILLER_WORDS = (
+    "需要注意",
+    "需注意",
+    "注意",
+    "需要关注",
+    "需关注",
+    "关注",
+    "留意",
+    "重视",
+    "考虑",
+    "一下",
+    "相关",
+    "方面",
+    "情况",
+    "问题",
+    "事项",
+    "的",
+    "和",
+    "及",
+    "以及",
+)
+CONCRETE_CONTENT_PATTERN = re.compile(
+    r"\d|上涨|下降|增加|减少|高于|低于|超出|不足|异常|不一致|未达标|达标|"
+    r"抵消|导致|影响|缺失|冲突|泄漏|时延|超时|断连|失败|偏差|"
+    r"建议|要求|补充|验证|确认|优化|调整|修改|测算|分析|对比|测试"
+)
 
 
 def round_one_decimal(value: float) -> float:
@@ -95,8 +175,52 @@ def _first_keyword(text: str, keywords: tuple[str, ...]) -> str | None:
     return next((keyword for keyword in keywords if keyword.casefold() in text.casefold()), None)
 
 
+def _compact_opinion(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return re.sub(r"[\s，,。.!！?？;；:：、()（）\[\]【】'\"“”‘’]", "", normalized)
+
+
+def _is_reference_only(text: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", text).strip()
+    compact = _compact_opinion(normalized)
+    if re.fullmatch(r"(?:与|同).{1,24}(?:意见|观点|建议|结论)?(?:相同|一致)", compact):
+        return True
+    if re.fullmatch(r"同意.{1,24}(?:意见|观点|建议|结论)", compact):
+        return True
+    if not re.match(r"^(?:参考|参照|详见)", normalized):
+        return False
+    own_supplement = re.search(
+        r"(?:[，,。；;]\s*(?:另|另外|同时|并且|但)?|(?:另|另外|同时|并且|但|本人|我)(?:还|也)?)\s*"
+        r"(?:建议|需要|需|应|存在|发现|判断|要求|补充|验证|确认|优化|调整|修改|测算|分析)",
+        normalized,
+    )
+    return own_supplement is None
+
+
+def _is_vague_attention_only(text: str) -> bool:
+    compact = _compact_opinion(text)
+    if not compact or CONCRETE_CONTENT_PATTERN.search(compact):
+        return False
+    residual = compact
+    for word in sorted(VAGUE_ATTENTION_WORDS + VAGUE_FILLER_WORDS, key=len, reverse=True):
+        residual = residual.replace(word, "")
+    return not residual
+
+
+def _zero_opinion_reason(text: str) -> str | None:
+    compact = _compact_opinion(text)
+    if compact in NO_OPINION_VALUES:
+        return "未给意见"
+    if _is_reference_only(text):
+        return "只引用他人意见"
+    if _is_vague_attention_only(text):
+        return "只有泛化提醒"
+    return None
+
+
 def extract_opinion_evidence(text: str, source_cell: str) -> OpinionEvidence:
     normalized = " ".join(text.split()).strip()
+    zero_reason = _zero_opinion_reason(normalized)
     technical_object = _first_keyword(normalized, TECHNICAL_OBJECT_KEYWORDS)
     if technical_object is None:
         acronym = re.search(r"\b[A-Z][A-Z0-9_-]{1,}\b", normalized)
@@ -112,13 +236,21 @@ def extract_opinion_evidence(text: str, source_cell: str) -> OpinionEvidence:
         technical_object=technical_object,
         professional_action=professional_action,
         specific_detail=specific_detail,
+        zero_reason=zero_reason,
+        rule_version=OPINION_RULE_VERSION,
     )
 
 
 def _opinion_score_level(evidence: OpinionEvidence) -> int:
-    if evidence.has_technical_object and evidence.has_professional_action:
-        return 2 if evidence.has_specific_detail else 1
-    return 0
+    if evidence.zero_reason:
+        return 0
+    if (
+        evidence.has_technical_object
+        and evidence.has_professional_action
+        and evidence.has_specific_detail
+    ):
+        return 2
+    return 1
 
 
 def _best_opinion_evidence(signoff: SignoffRecord) -> OpinionEvidence:
@@ -142,7 +274,7 @@ def _best_opinion_evidence(signoff: SignoffRecord) -> OpinionEvidence:
 
 def score_signoff(session: ReviewSession, signoff: SignoffRecord) -> ExpertSessionScore:
     attendance_level, attendance_score = ATTENDANCE_SCORES.get(
-        signoff.attendance, ("high", 15) if signoff.attendance else ("low", 0)
+        signoff.attendance, ("high", 13) if signoff.attendance else ("low", 0)
     )
     attendance = ScoreItem(
         level=attendance_level,
@@ -156,13 +288,16 @@ def score_signoff(session: ReviewSession, signoff: SignoffRecord) -> ExpertSessi
         signoff_item = ScoreItem("low", 0, "计分时仍未提交有效会签结论")
 
     evidence = _best_opinion_evidence(signoff)
-    if evidence.has_technical_object and evidence.has_professional_action:
-        if evidence.has_specific_detail:
-            opinion = ScoreItem("high", 10, "意见包含技术对象、专业动作和具体细节")
-        else:
-            opinion = ScoreItem("medium", 6, "意见包含技术对象和专业动作，具体细节不足")
+    if evidence.zero_reason:
+        opinion = ScoreItem("low", 0, f"0分排除：{evidence.zero_reason}")
+    elif (
+        evidence.has_technical_object
+        and evidence.has_professional_action
+        and evidence.has_specific_detail
+    ):
+        opinion = ScoreItem("high", 10, "实质意见包含技术对象、专业动作和具体细节")
     else:
-        opinion = ScoreItem("low", 0, "未识别到完整的技术对象和专业动作")
+        opinion = ScoreItem("medium", 6, "已识别本人实质意见，三要素未全部明确")
 
     total = attendance.score + signoff_item.score + opinion.score
     return ExpertSessionScore(
@@ -224,40 +359,33 @@ def build_project_scores(sessions: list[ReviewSession]) -> list[ExpertProjectSco
 def build_annual_scores(
     sessions: list[ReviewSession],
 ) -> list[ExpertProjectScore]:
-    sessions_by_project: dict[str, list[ReviewSession]] = {}
-    for session in sessions:
-        sessions_by_project.setdefault(session.project_code, []).append(session)
-    completed_project_codes = {
-        project_code
-        for project_code, project_sessions in sessions_by_project.items()
-        if any(session.stage == "TDR3" for session in project_sessions)
-    }
-    eligible_sessions = [
-        session for session in sessions if session.project_code in completed_project_codes
-    ]
-    project_scores = build_project_scores(eligible_sessions)
+    project_scores = build_project_scores(sessions)
     grouped: dict[str, list[ExpertProjectScore]] = {}
     for project_score in project_scores:
         grouped.setdefault(project_score.expert_name, []).append(project_score)
 
     expert_names = sorted(grouped)
-    participation_codes = {
-        expert_name: _participation_project_codes(
-            sessions_by_project, completed_project_codes, expert_name
-        )
+    participation_session_ids = {
+        expert_name: _participation_session_ids(sessions, expert_name)
         for expert_name in expert_names
     }
-    problem_codes = {
-        expert_name: _problem_project_codes(
-            sessions_by_project, completed_project_codes, expert_name
-        )
+    problem_session_ids = {
+        expert_name: _problem_session_ids(sessions, expert_name)
         for expert_name in expert_names
+    }
+    service_eligible_names = {
+        name for name, session_ids in participation_session_ids.items()
+        if len(session_ids) >= 3
     }
     participation_scores = _dense_top_two_scores(
-        {name: len(codes) for name, codes in participation_codes.items()}, (6, 3)
+        {name: len(session_ids) for name, session_ids in participation_session_ids.items()},
+        (6, 3),
+        service_eligible_names,
     )
     problem_scores = _dense_top_two_scores(
-        {name: len(codes) for name, codes in problem_codes.items()}, (4, 2)
+        {name: len(session_ids) for name, session_ids in problem_session_ids.items()},
+        (6, 3),
+        service_eligible_names,
     )
 
     results: list[ExpertProjectScore] = []
@@ -297,11 +425,11 @@ def build_annual_scores(
                 project_process_scores=[
                     project.project_process_scores[0] for project in expert_projects
                 ],
-                participation_project_count=len(participation_codes[expert_name]),
-                participation_project_codes=participation_codes[expert_name],
+                participation_session_count=len(participation_session_ids[expert_name]),
+                participation_session_ids=participation_session_ids[expert_name],
                 participation_score=participation_score,
-                problem_project_count=len(problem_codes[expert_name]),
-                problem_project_codes=problem_codes[expert_name],
+                problem_session_count=len(problem_session_ids[expert_name]),
+                problem_session_ids=problem_session_ids[expert_name],
                 problem_score=problem_score,
                 annual_service_score=annual_service_score,
                 objective_score=round_one_decimal(annual_average + annual_service_score),
@@ -317,55 +445,54 @@ def build_annual_scores(
 def _expert_attended(session: ReviewSession, expert_name: str) -> bool:
     return any(
         signoff.expert_name == expert_name
-        and ATTENDANCE_SCORES.get(signoff.attendance, ("low", 0))[1] > 0
+        and ATTENDANCE_SCORES.get(
+            signoff.attendance,
+            ("high", 13) if signoff.attendance else ("low", 0),
+        )[1] > 0
         for signoff in session.signoffs
     )
 
 
-def _participation_project_codes(
-    sessions_by_project: dict[str, list[ReviewSession]],
-    completed_project_codes: set[str],
-    expert_name: str,
+def _participation_session_ids(
+    sessions: list[ReviewSession], expert_name: str
 ) -> list[str]:
-    result: list[str] = []
-    for project_code in sorted(completed_project_codes):
-        project_sessions = sessions_by_project[project_code]
-        stages = {session.stage for session in project_sessions}
-        required_stages = {"TDR1", "TDR3"} if stages == {"TDR1", "TDR2", "TDR3"} else {"TDR3"}
-        attended_stages = {
-            session.stage
-            for session in project_sessions
-            if _expert_attended(session, expert_name)
-        }
-        if required_stages <= attended_stages:
-            result.append(project_code)
-    return result
+    return sorted({
+        session.review_id
+        for session in sessions
+        if _expert_attended(session, expert_name)
+    })
 
 
-def _problem_project_codes(
-    sessions_by_project: dict[str, list[ReviewSession]],
-    completed_project_codes: set[str],
-    expert_name: str,
+def _problem_session_ids(
+    sessions: list[ReviewSession], expert_name: str
 ) -> list[str]:
-    return [
-        project_code
-        for project_code in sorted(completed_project_codes)
+    return sorted({
+        session.review_id
+        for session in sessions
         if any(
             problem.description.strip() and expert_name in problem.reviewers
-            for session in sessions_by_project[project_code]
             for problem in session.problems
         )
-    ]
+    })
 
 
 def _dense_top_two_scores(
-    counts: dict[str, int], score_levels: tuple[int, int]
+    counts: dict[str, int],
+    score_levels: tuple[int, int],
+    eligible_names: set[str] | None = None,
 ) -> dict[str, int]:
-    ranked_counts = sorted({count for count in counts.values() if count > 2}, reverse=True)[:2]
+    eligible = set(counts) if eligible_names is None else eligible_names
+    ranked_counts = sorted(
+        {count for name, count in counts.items() if name in eligible and count > 0},
+        reverse=True,
+    )[:2]
     score_by_count = {
         count: score_levels[index] for index, count in enumerate(ranked_counts)
     }
-    return {name: score_by_count.get(count, 0) for name, count in counts.items()}
+    return {
+        name: score_by_count.get(count, 0) if name in eligible else 0
+        for name, count in counts.items()
+    }
 
 
 def calculate_contribution(answers: dict[str, str]) -> int:
@@ -476,11 +603,11 @@ def finalize_project_score(
         process_average=project_score.process_average,
         effective_session_count=project_score.effective_session_count,
         project_process_scores=project_score.project_process_scores,
-        participation_project_count=project_score.participation_project_count,
-        participation_project_codes=project_score.participation_project_codes,
+        participation_session_count=project_score.participation_session_count,
+        participation_session_ids=project_score.participation_session_ids,
         participation_score=project_score.participation_score,
-        problem_project_count=project_score.problem_project_count,
-        problem_project_codes=project_score.problem_project_codes,
+        problem_session_count=project_score.problem_session_count,
+        problem_session_ids=project_score.problem_session_ids,
         problem_score=project_score.problem_score,
         annual_service_score=project_score.annual_service_score,
         objective_score=project_score.objective_score,

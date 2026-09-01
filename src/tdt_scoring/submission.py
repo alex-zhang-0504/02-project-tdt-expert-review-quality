@@ -21,7 +21,7 @@ from .models import (
 
 
 SCHEMA_VERSION = "dimension-one-submission-v1"
-RULE_VERSION = "annual-v0.4-dimension-one"
+RULE_VERSION = "annual-v0.5-dimension-one"
 PACKAGE_KINDS = {"annual_result", "manager_submission"}
 EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _PAYLOAD_CHUNK_SIZE = 30_000
@@ -249,6 +249,7 @@ def _write_submission_info(
         ("项目经理姓名", payload["manager_name"]),
         ("修订号", payload["revision"]),
         ("规则版本", payload["rule_version"]),
+        ("数据状态", "试算"),
         ("系统版本", payload["product_version"]),
         ("构建标识", payload["build_id"]),
         ("导出时间UTC", payload["exported_at"]),
@@ -288,8 +289,8 @@ def _write_fact_detail(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
     sheet = workbook.create_sheet("02_维度1事实明细")
     sheet.append((
         "评审人", "项目编码", "子任务名称", "阶段", "角色", "代理人",
-        "出勤／15", "出勤依据", "会签／25", "会签依据", "意见／10", "意见依据",
-        "小计／50", "技术对象", "专业动作", "具体细节", "证据位置", "证据原文",
+        "出勤／13", "出勤依据", "会签／25", "会签依据", "意见／10", "意见依据",
+        "小计／48", "技术对象", "专业动作", "具体细节", "证据位置", "证据原文",
     ))
     for expert in analysis.experts:
         for score in expert.sessions:
@@ -325,9 +326,9 @@ def _write_fact_detail(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
 def _write_project_results(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
     sheet = workbook.create_sheet("03_维度1项目结果")
     sheet.append((
-        "评审人", "项目编码", "子任务名称", "有效场次", "项目过程均分／50",
-        "年度过程均分／50", "参与项目数", "参与分／6", "问题项目数", "问题分／4",
-        "服务贡献／10", "客观分数／60",
+        "评审人", "项目编码", "子任务名称", "计分场次", "项目过程均分／48",
+        "年度过程均分／48", "有效参评场次", "参与分／6", "问题贡献场次", "问题分／6",
+        "服务贡献／12", "客观分数／60",
     ))
     for expert in analysis.experts:
         for project in expert.project_process_scores:
@@ -338,13 +339,22 @@ def _write_project_results(workbook: Workbook, analysis: WorkbookAnalysis) -> No
                 project.session_count,
                 project.process_average,
                 expert.process_average,
-                expert.participation_project_count,
+                expert.participation_session_count,
                 expert.participation_score,
-                expert.problem_project_count,
+                expert.problem_session_count,
                 expert.problem_score,
                 expert.annual_service_score,
                 expert.objective_score,
             ))
+    counts = [expert.participation_session_count for expert in analysis.experts]
+    sheet.append(())
+    sheet.append((
+        "有效参评场次分布",
+        f"少于3场：{sum(count < 3 for count in counts)}人",
+        f"3—5场：{sum(3 <= count <= 5 for count in counts)}人",
+        f"6—10场：{sum(6 <= count <= 10 for count in counts)}人",
+        f"超过10场：{sum(count > 10 for count in counts)}人",
+    ))
     _format_sheet(sheet, widths=(18, 18, 30, 12, 20, 20, 16, 14, 16, 14, 18, 18))
 
 

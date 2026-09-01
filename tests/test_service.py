@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from tdt_scoring.service import ScoringService
@@ -11,6 +14,28 @@ from tests.workbook_factory import build_v04_workbook, build_workbook
 
 
 class ServiceTests(unittest.TestCase):
+    def test_import_collects_deduplicated_opinion_samples_in_local_pool(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sample_path = Path(temporary_directory) / "opinion-samples.jsonl"
+            service = ScoringService(opinion_sample_pool=sample_path)
+            workbook = build_v04_workbook(
+                [{"stage": "TDR3", "opinion": "建议补充高温场景验证"}],
+                project="虚拟项目-P001",
+            )
+
+            service.import_local_files([(workbook, "虚拟报告.xlsx")])
+            service.import_local_files([(workbook, "虚拟报告.xlsx")])
+
+            samples = [
+                json.loads(line)
+                for line in sample_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(1, len(samples))
+            self.assertEqual("v0.4-opinion-exclusion-20260901", samples[0]["rule_version"])
+            self.assertEqual(10, samples[0]["ai_score"])
+            self.assertEqual("待复核", samples[0]["review_status"])
+            self.assertEqual("虚拟报告.xlsx", samples[0]["source_name"])
+
     @patch("tdt_scoring.service.FeishuDocumentSource.export_xlsx")
     def test_feishu_import_uses_only_internal_stage_field(
         self, export_xlsx
@@ -175,6 +200,152 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual("cross_report_stage_duplicate", duplicate.code)
         self.assertEqual("error", duplicate.severity)
+
+    def test_similar_reviewer_names_block_with_all_source_cells_until_confirmed(self) -> None:
+        service = ScoringService()
+        analysis = service.import_local_files(
+            [
+                (
+                    build_v04_workbook(
+                        [{
+                            "stage": "TDR3",
+                            "signoffs": [
+                                {"reviewer": "陈名木", "conclusion": "Go"},
+                                {"reviewer": "王志强", "conclusion": "Go"},
+                                {"reviewer": "李天宇", "conclusion": "Go"},
+                            ],
+                        }],
+                        project="项目甲-P001",
+                    ),
+                    "P001.xlsx",
+                ),
+                (
+                    build_v04_workbook(
+                        [{
+                            "stage": "TDR3",
+                            "signoffs": [
+                                {"reviewer": "程名木", "conclusion": "Go"},
+                                {"reviewer": "赵鹏飞", "conclusion": "Go"},
+                                {"reviewer": "周海涛", "conclusion": "Go"},
+                            ],
+                        }],
+                        project="项目乙-P002",
+                    ),
+                    "P002.xlsx",
+                ),
+                (
+                    build_v04_workbook(
+                        [{
+                            "stage": "TDR3",
+                            "signoffs": [
+                                {"reviewer": "程明木", "conclusion": "Go"},
+                                {"reviewer": "孙文博", "conclusion": "Go"},
+                                {"reviewer": "吴建国", "conclusion": "Go"},
+                            ],
+                        }],
+                        project="项目丙-P003",
+                    ),
+                    "P003.xlsx",
+                ),
+            ]
+        )
+
+        issue = next(
+            issue
+            for issue in analysis.issues
+            if issue.code == "reviewer_name_similarity"
+        )
+        self.assertEqual("error", issue.severity)
+        self.assertTrue(issue.requires_confirmation)
+        self.assertFalse(issue.confirmed_by_user)
+        self.assertIn("陈名木／程名木／程明木", issue.message)
+        self.assertEqual(
+            [
+                "P001.xlsx／TDR3评审报告!B9（陈名木）",
+                "P002.xlsx／TDR3评审报告!B9（程名木）",
+                "P003.xlsx／TDR3评审报告!B9（程明木）",
+            ],
+            issue.related_locations,
+        )
+        self.assertTrue(
+            all(
+                any(
+                    report_issue.confirmation_key == issue.confirmation_key
+                    for report_issue in report.issues
+                )
+                for report in analysis.reports
+            )
+        )
+
+        confirmed = service.confirm_reviewer_names_distinct(
+            analysis.analysis_id,
+            issue.confirmation_key,
+        )
+        confirmed_issue = next(
+            item
+            for item in confirmed.issues
+            if item.code == "reviewer_name_similarity"
+        )
+        self.assertEqual("info", confirmed_issue.severity)
+        self.assertTrue(confirmed_issue.confirmed_by_user)
+        self.assertTrue(confirmed_issue.confirmed_at)
+        self.assertTrue(
+            all(
+                all(
+                    report_issue.severity == "info"
+                    for report_issue in report.issues
+                    if report_issue.confirmation_key == issue.confirmation_key
+                )
+                for report in confirmed.reports
+            )
+        )
+        self.assertEqual(
+            {"陈名木", "程名木", "程明木"},
+            {
+                expert.expert_name
+                for expert in confirmed.experts
+                if expert.expert_name in {"陈名木", "程名木", "程明木"}
+            },
+        )
+
+    def test_different_given_name_pinyin_does_not_trigger_similarity_confirmation(self) -> None:
+        analysis = ScoringService().import_local_files(
+            [
+                (
+                    build_v04_workbook(
+                        [{
+                            "stage": "TDR3",
+                            "signoffs": [
+                                {"reviewer": "陈名木", "conclusion": "Go"},
+                                {"reviewer": "王志强", "conclusion": "Go"},
+                                {"reviewer": "李天宇", "conclusion": "Go"},
+                            ],
+                        }],
+                        project="项目甲-P001",
+                    ),
+                    "P001.xlsx",
+                ),
+                (
+                    build_v04_workbook(
+                        [{
+                            "stage": "TDR3",
+                            "signoffs": [
+                                {"reviewer": "程亮木", "conclusion": "Go"},
+                                {"reviewer": "赵鹏飞", "conclusion": "Go"},
+                                {"reviewer": "周海涛", "conclusion": "Go"},
+                            ],
+                        }],
+                        project="项目乙-P002",
+                    ),
+                    "P002.xlsx",
+                ),
+            ]
+        )
+
+        self.assertFalse(
+            any(issue.code == "reviewer_name_similarity" for issue in analysis.issues)
+        )
+
     def test_import_and_finalize_are_backend_owned(self) -> None:
         workbook = build_workbook(
             [
@@ -197,7 +368,7 @@ class ServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(24, completed.contribution_score)
-        self.assertEqual(64.0, completed.total_score)
+        self.assertEqual(68.0, completed.total_score)
         self.assertEqual("B", completed.grade)
         self.assertEqual("已完成", completed.status)
         self.assertIsNone(completed.outstanding_contribution_reason)

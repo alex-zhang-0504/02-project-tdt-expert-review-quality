@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Callable
@@ -13,6 +14,7 @@ from .models import (
     ValidationIssue,
     WorkbookAnalysis,
 )
+from .opinion_samples import collect_opinion_samples
 from .progress import ProgressEvent
 from .scoring import (
     apply_annual_grade_ranking,
@@ -23,12 +25,13 @@ from .scoring import (
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import LocalExcelSource
 from .submission import load_dimension_one_workbook
-from .validation import validate_score_bounds
+from .validation import validate_reviewer_name_similarity, validate_score_bounds
 
 
 class ScoringService:
-    def __init__(self) -> None:
+    def __init__(self, opinion_sample_pool: Path | None = None) -> None:
         self._analyses: dict[str, WorkbookAnalysis] = {}
+        self._opinion_sample_pool = opinion_sample_pool
 
     def import_local_bytes(
         self,
@@ -227,6 +230,31 @@ class ScoringService:
             return self._analyses[analysis_id]
         except KeyError as exc:
             raise KeyError("评分分析不存在或本地服务已重启，请重新导入评审表") from exc
+
+    def confirm_reviewer_names_distinct(
+        self,
+        analysis_id: str,
+        confirmation_key: str,
+    ) -> WorkbookAnalysis:
+        analysis = self.get_analysis(analysis_id)
+        matches = [
+            issue
+            for issue in analysis.issues
+            if issue.code == "reviewer_name_similarity"
+            and issue.confirmation_key == confirmation_key
+            and issue.requires_confirmation
+        ]
+        if not matches:
+            raise KeyError("未找到需要确认的疑似评审人姓名组")
+        confirmed_at = datetime.now(timezone.utc).isoformat()
+        for issue in matches:
+            issue.severity = "info"
+            issue.confirmed_by_user = True
+            issue.confirmed_at = confirmed_at
+        if not any(issue.severity == "error" for issue in analysis.issues):
+            analysis.experts = build_annual_scores(analysis.sessions)
+            analysis.issues.extend(validate_score_bounds(analysis.experts))
+        return analysis
 
     def merge_dimension_one_submissions(
         self,
@@ -576,11 +604,36 @@ class ScoringService:
                     issues=report_issues,
                 )
             )
+        similarity_issues = validate_reviewer_name_similarity(sessions)
+        for issue in similarity_issues:
+            for report in reports:
+                location_prefix = f"{report.source_name}／"
+                if any(
+                    location.startswith(location_prefix)
+                    for location in issue.related_locations
+                ):
+                    report.issues.append(issue)
+        issues.extend(similarity_issues)
         experts = build_annual_scores(sessions)
         issues.extend(validate_score_bounds(experts))
+        if self._opinion_sample_pool is not None:
+            try:
+                collect_opinion_samples(sessions, experts, self._opinion_sample_pool)
+            except OSError as exc:
+                issues.append(
+                    ValidationIssue(
+                        "opinion_sample_pool_write_failed",
+                        f"评审意见样本池写入失败：{exc}",
+                        "info",
+                        source_name=source_name,
+                    )
+                )
         if batch_summary is not None:
             failed_report_count = sum(
-                any(issue.severity == "error" for issue in report.issues)
+                any(
+                    issue.severity == "error" and not issue.requires_confirmation
+                    for issue in report.issues
+                )
                 for report in reports
             )
             batch_summary.failed_count = failed_report_count
@@ -634,19 +687,20 @@ class ScoringService:
             "project_name",
             "project_code",
             "project_identity_invalid",
+            "multi_project_first_selected",
             "project_manager",
             "stage",
             "stage_invalid",
-            "meeting_date",
-            "meeting_conclusion_missing",
-            "meeting_conclusion_invalid",
         }:
             return "session_identity"
         if code in {
             "effective_signoff_minimum",
-            "role_missing",
             "reviewer_missing",
             "reviewer_duplicate",
+            "duplicate_reviewer_merged",
+            "duplicate_reviewer_conclusion_conflict",
+            "duplicate_reviewer_proxy_conflict",
+            "reviewer_name_similarity",
             "proxy_missing",
         }:
             return "reviewer_roster"

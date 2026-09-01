@@ -27,10 +27,10 @@ class VirtualTrainingWorkbookTests(unittest.TestCase):
         self.assertEqual(33, sum(len(session.signoffs) for session in sessions))
         self.assertEqual(6, sum(len(session.problems) for session in sessions))
         self.assertEqual(11, len(scores))
-        self.assertEqual([50, 50, 40], [item.total for item in scores["高腾飞"].sessions])
-        self.assertEqual(46.7, scores["高腾飞"].process_average)
-        self.assertEqual([0, 0, 40], [item.total for item in scores["高大宇"].sessions])
-        self.assertEqual(13.3, scores["高大宇"].process_average)
+        self.assertEqual([48, 48, 38], [item.total for item in scores["高腾飞"].sessions])
+        self.assertEqual(44.7, scores["高腾飞"].process_average)
+        self.assertEqual([0, 0, 38], [item.total for item in scores["高大宇"].sessions])
+        self.assertEqual(12.7, scores["高大宇"].process_average)
 
     def test_training_workbook_only_changes_three_target_worksheets(self) -> None:
         with ZipFile(TEMPLATE) as template, ZipFile(TRAINING_WORKBOOK) as training:

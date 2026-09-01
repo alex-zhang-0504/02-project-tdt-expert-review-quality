@@ -7,6 +7,7 @@ from typing import Literal
 
 Severity = Literal["error", "warning", "info"]
 Level = Literal["high", "medium", "low"]
+OPINION_RULE_VERSION = "v0.4-opinion-exclusion-20260901"
 
 
 @dataclass(slots=True)
@@ -19,6 +20,11 @@ class ValidationIssue:
     row_number: int | None = None
     cell_reference: str | None = None
     source_name: str | None = None
+    requires_confirmation: bool = False
+    confirmation_key: str | None = None
+    confirmed_by_user: bool = False
+    confirmed_at: str | None = None
+    related_locations: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -84,8 +90,7 @@ class ReviewSession:
 
     @property
     def review_id(self) -> str:
-        meeting_date = self.meeting_date.isoformat() if self.meeting_date else "date-missing"
-        return f"{self.project_code}-{self.stage}-{meeting_date}"
+        return f"{self.project_code}-{self.stage}"
 
 
 @dataclass(slots=True)
@@ -102,6 +107,8 @@ class OpinionEvidence:
     technical_object: str | None
     professional_action: str | None
     specific_detail: str | None
+    zero_reason: str | None = None
+    rule_version: str = OPINION_RULE_VERSION
     source_texts: list[str] = field(default_factory=list)
     source_cells: list[str] = field(default_factory=list)
 
@@ -144,11 +151,11 @@ class ExpertProjectScore:
     process_average: float
     effective_session_count: int
     project_process_scores: list[ProjectProcessScore] = field(default_factory=list)
-    participation_project_count: int = 0
-    participation_project_codes: list[str] = field(default_factory=list)
+    participation_session_count: int = 0
+    participation_session_ids: list[str] = field(default_factory=list)
     participation_score: int = 0
-    problem_project_count: int = 0
-    problem_project_codes: list[str] = field(default_factory=list)
+    problem_session_count: int = 0
+    problem_session_ids: list[str] = field(default_factory=list)
     problem_score: int = 0
     annual_service_score: int = 0
     objective_score: float = 0

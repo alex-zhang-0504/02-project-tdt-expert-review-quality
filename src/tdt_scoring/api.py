@@ -17,7 +17,9 @@ from pydantic import BaseModel, Field
 from . import PRODUCT_VERSION, RELEASE_CHANNEL, __version__
 from .build_info import BUILD_ID, PROJECT_ID
 from .questionnaire import questionnaire_payload
+from .opinion_samples import DEFAULT_OPINION_SAMPLE_POOL
 from .progress import ImportJobStore
+from .search import expert_name_search_terms
 from .scoring import (
     calculate_contribution,
     normalize_outstanding_contribution_reason,
@@ -31,7 +33,7 @@ from .submission import EXCEL_MEDIA_TYPE, build_dimension_one_workbook
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 SERVICE_INSTANCE_ID = uuid4().hex
-service = ScoringService()
+service = ScoringService(opinion_sample_pool=DEFAULT_OPINION_SAMPLE_POOL)
 import_jobs = ImportJobStore()
 import_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tdrx-import")
 _feishu_device_code: str | None = None
@@ -66,6 +68,11 @@ class ContributionRequest(BaseModel):
     outstanding_contribution_reason: str = ""
 
 
+class ConfirmReviewerNamesRequest(BaseModel):
+    analysis_id: str = Field(min_length=1)
+    confirmation_key: str = Field(min_length=1)
+
+
 class DimensionOneExportRequest(BaseModel):
     analysis_id: str = Field(min_length=1)
     package_kind: Literal["annual_result", "manager_submission"]
@@ -76,7 +83,20 @@ class DimensionOneExportRequest(BaseModel):
 
 
 def _encoded(value: object) -> object:
-    return jsonable_encoder(asdict(value))
+    encoded = jsonable_encoder(asdict(value))
+    if not isinstance(encoded, dict):
+        return encoded
+    _add_expert_search_terms(encoded)
+    for expert in encoded.get("experts", []):
+        if isinstance(expert, dict):
+            _add_expert_search_terms(expert)
+    return encoded
+
+
+def _add_expert_search_terms(payload: dict[str, object]) -> None:
+    expert_name = payload.get("expert_name")
+    if isinstance(expert_name, str) and expert_name:
+        payload.update(expert_name_search_terms(expert_name))
 
 
 def _require_feishu_authorization() -> None:
@@ -336,6 +356,21 @@ def export_dimension_one(payload: DimensionOneExportRequest) -> StreamingRespons
     )
 
 
+@app.post("/api/analysis/confirm-reviewer-names-distinct")
+def confirm_reviewer_names_distinct(
+    payload: ConfirmReviewerNamesRequest,
+) -> object:
+    try:
+        return _encoded(
+            service.confirm_reviewer_names_distinct(
+                payload.analysis_id,
+                payload.confirmation_key,
+            )
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+
+
 @app.post("/api/import/dimension-one-submissions")
 async def import_dimension_one_submissions(
     files: list[UploadFile] = File(...),
@@ -380,9 +415,10 @@ def finalize(payload: FinalizeRequest) -> object:
         encoded_result = _encoded(result)
         if not isinstance(encoded_result, dict):
             raise TypeError("评分结果编码失败")
-        encoded_result["experts"] = jsonable_encoder(
-            [asdict(expert) for expert in service.get_analysis(payload.analysis_id).experts]
-        )
+        encoded_result["experts"] = [
+            _encoded(expert)
+            for expert in service.get_analysis(payload.analysis_id).experts
+        ]
         return encoded_result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc

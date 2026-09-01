@@ -16,7 +16,6 @@ from .models import OpinionSource, ProblemRecord, ReviewSession, SignoffRecord, 
 from .validation import (
     PROBLEM_NUMBER_PATTERN,
     VALID_CONCLUSIONS,
-    validate_problem_number_conflicts,
     validate_session,
     validate_stage_conflicts,
 )
@@ -55,7 +54,7 @@ V04_BASIC_FIELD_ALIASES = {
     "project_identity": ("技术项目名和编码",),
     "absent_reviewers": ("缺席评审人姓名", "缺席人姓名和角色"),
     "meeting_date": ("TDR会议日期",),
-    "stage": ("评审阶段",),
+    "stage": ("评审阶段", "项目阶段"),
     "meeting_conclusion": ("评审结论",),
 }
 V04_BASIC_FIELD_NAMES = {
@@ -65,6 +64,7 @@ V04_BASIC_FIELD_NAMES = {
     "stage": "评审阶段",
     "meeting_conclusion": "评审结论",
 }
+V04_REQUIRED_BASIC_FIELD_KEYS = {"project_identity", "absent_reviewers", "stage"}
 V04_SIGNOFF_HEADER_ALIASES = {
     "role": ("评审角色",),
     "reviewer": ("评审人姓名", "评审人"),
@@ -77,6 +77,7 @@ V04_SIGNOFF_HEADER_NAMES = {
     "conclusion": "会签结果",
     "opinion": "评审意见",
 }
+V04_REQUIRED_SIGNOFF_HEADER_KEYS = {"reviewer", "conclusion", "opinion"}
 V04_PROBLEM_HEADER_ALIASES = {
     "number": ("序号",),
     "reviewers": ("评审人",),
@@ -95,6 +96,7 @@ V04_PROBLEM_HEADER_NAMES = {
     "progress": "反馈/修改说明",
     "status": "问题状态",
 }
+V04_REQUIRED_PROBLEM_HEADER_KEYS = {"reviewers", "description"}
 V04_PROJECT_CODE_PATTERN = re.compile(r"^(?=.*\d)[A-Za-z0-9]+(?:[._/][A-Za-z0-9]+)*$")
 
 
@@ -277,6 +279,22 @@ def parse_v04_project(value: object) -> tuple[str, str]:
     if not project_name or not V04_PROJECT_CODE_PATTERN.fullmatch(project_code):
         return project_name, ""
     return project_name, project_code
+
+
+def split_v04_project_items(value: object) -> list[str]:
+    numbered = split_numbered_items(value)
+    if numbered:
+        return numbered
+    lines = [
+        normalize_text(line).rstrip("；;").rstrip()
+        for line in str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
+    lines = [line for line in lines if line]
+    if len(lines) < 2:
+        return []
+    if all(parse_v04_project(line)[1] for line in lines):
+        return lines
+    return []
 
 
 def parse_date(value: object, *, epoch: datetime = CALENDAR_WINDOWS_1900) -> date | None:
@@ -605,7 +623,8 @@ def _parse_v04_signoffs(
 ) -> list[SignoffRecord]:
     signoffs: list[SignoffRecord] = []
     for row_number in range(header_row + 1, end_row):
-        role = normalize_text(ws.cell(row_number, columns["role"]).value)
+        role_column = columns.get("role")
+        role = normalize_text(ws.cell(row_number, role_column).value) if role_column else ""
         reviewer_value = ws.cell(row_number, columns["reviewer"]).value
         reviewer = normalize_text(reviewer_value)
         conclusion_raw = normalize_text(ws.cell(row_number, columns["conclusion"]).value)
@@ -649,6 +668,117 @@ def _parse_v04_signoffs(
     return signoffs
 
 
+def _merge_v04_duplicate_signoffs(
+    signoffs: list[SignoffRecord],
+    *,
+    sheet_name: str,
+    source_name: str,
+) -> tuple[list[SignoffRecord], list[ValidationIssue]]:
+    merged: list[SignoffRecord] = []
+    by_expert: dict[str, SignoffRecord] = {}
+    issues: list[ValidationIssue] = []
+    for signoff in signoffs:
+        if not signoff.expert_name or signoff.expert_name not in by_expert:
+            merged.append(signoff)
+            if signoff.expert_name:
+                by_expert[signoff.expert_name] = signoff
+            continue
+
+        primary = by_expert[signoff.expert_name]
+        roles = [role for role in primary.role.split("／") if role]
+        if signoff.role and signoff.role not in roles:
+            roles.append(signoff.role)
+        primary.role = "／".join(roles)
+
+        for source in signoff.opinion_sources:
+            raw_texts = source.raw_texts or [source.text]
+            for reference in source.cell_references:
+                for raw_text in raw_texts:
+                    _add_opinion_source(
+                        primary.opinion_sources,
+                        source.text,
+                        reference,
+                        raw_text,
+                    )
+        bases = [value for value in (primary.basis, signoff.basis) if value]
+        primary.basis = "\n".join(dict.fromkeys(bases))
+
+        primary_valid = primary.conclusion in VALID_CONCLUSIONS
+        duplicate_valid = signoff.conclusion in VALID_CONCLUSIONS
+        if primary_valid and duplicate_valid and primary.conclusion != signoff.conclusion:
+            conclusion_cells = "、".join(
+                dict.fromkeys(
+                    filter(
+                        None,
+                        (
+                            primary.cell_references.get("conclusion"),
+                            signoff.cell_references.get("conclusion"),
+                        ),
+                    )
+                )
+            )
+            issues.append(
+                ValidationIssue(
+                    "duplicate_reviewer_conclusion_conflict",
+                    (
+                        f"评审人“{signoff.expert_name}”因多个角色重复列出，但有效会签结论"
+                        f"“{primary.conclusion}／{signoff.conclusion}”不一致；"
+                        "已合并为一名评审人并只计一次，请核实源表"
+                    ),
+                    "warning",
+                    sheet_name=sheet_name,
+                    expert_name=signoff.expert_name,
+                    row_number=primary.row_number,
+                    cell_reference=conclusion_cells,
+                    source_name=source_name,
+                )
+            )
+        elif duplicate_valid and not primary_valid:
+            primary.conclusion_raw = signoff.conclusion_raw
+            primary.conclusion = signoff.conclusion
+            primary.overdue = signoff.overdue
+            primary.cell_references["conclusion"] = signoff.cell_references.get(
+                "conclusion", primary.cell_references.get("conclusion", "")
+            )
+        elif not primary.conclusion_raw and signoff.conclusion_raw:
+            primary.conclusion_raw = signoff.conclusion_raw
+            primary.conclusion = signoff.conclusion
+            primary.overdue = signoff.overdue
+
+        proxy_names = {
+            name for name in (primary.proxy_name, signoff.proxy_name) if name
+        }
+        if len(proxy_names) == 1:
+            primary.proxy_name = next(iter(proxy_names))
+        elif len(proxy_names) > 1:
+            issues.append(
+                ValidationIssue(
+                    "duplicate_reviewer_proxy_conflict",
+                    f"评审人“{signoff.expert_name}”的重复行填写了不同代理人，请核实源表",
+                    "warning",
+                    sheet_name=sheet_name,
+                    expert_name=signoff.expert_name,
+                    row_number=primary.row_number,
+                    cell_reference=primary.cell_references.get("reviewer"),
+                    source_name=source_name,
+                )
+            )
+
+        issues.append(
+            ValidationIssue(
+                "duplicate_reviewer_merged",
+                f"评审人“{signoff.expert_name}”因多个角色重复列出，已合并为一名评审人并只计一次",
+                "info",
+                sheet_name=sheet_name,
+                expert_name=signoff.expert_name,
+                row_number=primary.row_number,
+                cell_reference=primary.cell_references.get("reviewer"),
+                source_name=source_name,
+            )
+        )
+    return merged, issues
+
+
 def _parse_v04_problems(
     ws: Worksheet,
     header_row: int,
@@ -660,14 +790,20 @@ def _parse_v04_problems(
     issues: list[ValidationIssue] = []
     for row_number in range(header_row + 1, ws.max_row + 1):
         values = {
-            key: normalize_text(ws.cell(row_number, column).value)
-            for key, column in columns.items()
+            key: (
+                normalize_text(ws.cell(row_number, columns[key]).value)
+                if key in columns
+                else ""
+            )
+            for key in V04_PROBLEM_HEADER_NAMES
         }
         if values["number"].startswith("备注说明"):
             break
         if values["number"].startswith("↓") or values["reviewers"].startswith("填写"):
             continue
         if not any(values.values()):
+            continue
+        if not any(values[key] for key in ("reviewers", "description")):
             continue
         if values["number"] and not any(
             values[key]
@@ -911,9 +1047,9 @@ def _parse_v04_sheet(
     )
     for key, name in V04_BASIC_FIELD_NAMES.items():
         cells = field_cells[key]
-        if not cells:
+        if not cells and key in V04_REQUIRED_BASIC_FIELD_KEYS:
             add_issue("basic_field_missing", f"基础信息区缺少字段“{name}”")
-        elif len(cells) > 1:
+        elif len(cells) > 1 and key in V04_REQUIRED_BASIC_FIELD_KEYS:
             references = "、".join(_cell_reference(*cell) for cell in cells)
             add_issue(
                 "basic_field_duplicate",
@@ -927,6 +1063,8 @@ def _parse_v04_sheet(
     field_values: dict[str, object] = {}
     field_references: dict[str, str] = {}
     for key, cells in field_cells.items():
+        if len(cells) != 1:
+            continue
         value, reference = _read_right_hand_value(ws, cells[0], all_field_cells)
         field_values[key] = value
         field_references[key] = reference
@@ -949,6 +1087,7 @@ def _parse_v04_sheet(
         row_number: int | None,
         matches: dict[str, list[int]],
         names: dict[str, str],
+        required_keys: set[str],
     ) -> dict[str, int]:
         columns: dict[str, int] = {}
         if row_number is None:
@@ -956,13 +1095,13 @@ def _parse_v04_sheet(
             return columns
         for key, name in names.items():
             matched_columns = matches[key]
-            if not matched_columns:
+            if not matched_columns and key in required_keys:
                 add_issue(
                     f"{kind}_header_missing",
                     f"{kind}区表头缺少“{name}”",
                     cell_reference=f"A{row_number}",
                 )
-            elif len(matched_columns) > 1:
+            elif len(matched_columns) > 1 and key in required_keys:
                 references = "、".join(
                     _cell_reference(row_number, column) for column in matched_columns
                 )
@@ -971,15 +1110,23 @@ def _parse_v04_sheet(
                     f"{kind}区表头“{name}”重复，系统不会自行选择",
                     cell_reference=references,
                 )
-            else:
+            elif len(matched_columns) == 1:
                 columns[key] = matched_columns[0]
         return columns
 
     signoff_columns = validate_header(
-        "signoff", signoff_header, signoff_matches, V04_SIGNOFF_HEADER_NAMES
+        "signoff",
+        signoff_header,
+        signoff_matches,
+        V04_SIGNOFF_HEADER_NAMES,
+        V04_REQUIRED_SIGNOFF_HEADER_KEYS,
     )
     problem_columns = validate_header(
-        "problem", problem_header, problem_matches, V04_PROBLEM_HEADER_NAMES
+        "problem",
+        problem_header,
+        problem_matches,
+        V04_PROBLEM_HEADER_NAMES,
+        V04_REQUIRED_PROBLEM_HEADER_KEYS,
     )
     if issues:
         return None, issues
@@ -992,6 +1139,12 @@ def _parse_v04_sheet(
         problem_section_row,
         signoff_columns,
     )
+    signoffs, duplicate_signoff_issues = _merge_v04_duplicate_signoffs(
+        signoffs,
+        sheet_name=ws.title,
+        source_name=source_name,
+    )
+    issues.extend(duplicate_signoff_issues)
     problems, problem_issues = _parse_v04_problems(
         ws,
         problem_header,
@@ -1010,15 +1163,29 @@ def _parse_v04_sheet(
     issues.extend(people_issues)
     _attach_problem_opinions(signoffs, problems)
     raw_project_identity = normalize_text(field_values["project_identity"])
+    project_items = split_v04_project_items(field_values["project_identity"])
+    selected_project_identity = project_items[0] if project_items else raw_project_identity
+    if project_items:
+        issues.append(
+            ValidationIssue(
+                "multi_project_first_selected",
+                (
+                    f"“技术项目名和编码”包含{len(project_items)}个结构化项目条目；"
+                    "本次只形成一个评审场次，并以第一项作为项目归属"
+                ),
+                "info",
+                sheet_name=ws.title,
+                cell_reference=field_references["project_identity"],
+                source_name=source_name,
+            )
+        )
     raw_stage = normalize_text(field_values["stage"])
-    raw_meeting_date = field_values["meeting_date"]
-    meeting_conclusion = canonical_meeting_conclusion(field_values["meeting_conclusion"])
+    raw_meeting_date = field_values.get("meeting_date")
+    meeting_conclusion = canonical_meeting_conclusion(field_values.get("meeting_conclusion"))
     meeting_date = parse_date(raw_meeting_date, epoch=ws.parent.epoch)
     has_business_facts = bool(
         raw_project_identity
         or raw_stage
-        or normalize_text(raw_meeting_date)
-        or meeting_conclusion
         or problems
         or sum(bool(signoff.expert_name) for signoff in signoffs) >= 3
     )
@@ -1027,9 +1194,8 @@ def _parse_v04_sheet(
 
     required_values = {
         "project_identity": raw_project_identity,
-        "meeting_date": normalize_text(raw_meeting_date),
+        "absent_reviewers": normalize_text(field_values["absent_reviewers"]),
         "stage": raw_stage,
-        "meeting_conclusion": meeting_conclusion,
     }
     for key, value in required_values.items():
         if not value:
@@ -1039,20 +1205,13 @@ def _parse_v04_sheet(
                 cell_reference=field_references[key],
             )
 
-    project_name, project_code = parse_v04_project(raw_project_identity)
+    project_name, project_code = parse_v04_project(selected_project_identity)
     if raw_project_identity and not project_code:
         add_issue(
             "project_identity_invalid",
             "“技术项目名和编码”必须按“完整项目名称-项目编码”填写，且项目编码置于末尾",
             cell_reference=field_references["project_identity"],
         )
-    if raw_meeting_date and meeting_date is None:
-        add_issue(
-            "meeting_date",
-            "TDR会议日期缺失或格式无法识别",
-            cell_reference=field_references["meeting_date"],
-        )
-
     stage = raw_stage
     recorded_reviewer_names = {
         signoff.expert_name
@@ -1198,7 +1357,6 @@ def read_workbook(
 
     issues = structure_issues + [issue for session in sessions for issue in session.issues]
     issues.extend(validate_stage_conflicts(sessions))
-    issues.extend(validate_problem_number_conflicts(sessions))
     if not sessions:
         issues.append(
             ValidationIssue(
