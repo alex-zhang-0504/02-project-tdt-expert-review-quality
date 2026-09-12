@@ -7,7 +7,7 @@ from typing import Literal
 
 Severity = Literal["error", "warning", "info"]
 Level = Literal["high", "medium", "low"]
-OPINION_RULE_VERSION = "v0.4-opinion-exclusion-20260901"
+OPINION_RULE_VERSION = "countermeasure-v0.6"
 
 
 @dataclass(slots=True)
@@ -94,89 +94,42 @@ class ReviewSession:
 
 
 @dataclass(slots=True)
-class ScoreItem:
-    level: Level
-    score: int
-    reason: str
+class OpinionFact:
+    opinion_id: str
+    text: str
+    cells: list[str]
+    raw_texts: list[str]
+    ai_status: str = "pending"
+    excerpt: str = ""
+    reason: str = ""
+    rule_version: str = ""
+    included: bool | None = None
+    audit: list[dict] = field(default_factory=list)
 
 
 @dataclass(slots=True)
-class OpinionEvidence:
-    source_text: str
-    source_cell: str
-    technical_object: str | None
-    professional_action: str | None
-    specific_detail: str | None
-    zero_reason: str | None = None
-    rule_version: str = OPINION_RULE_VERSION
-    source_texts: list[str] = field(default_factory=list)
-    source_cells: list[str] = field(default_factory=list)
-
-    @property
-    def has_technical_object(self) -> bool:
-        return self.technical_object is not None
-
-    @property
-    def has_professional_action(self) -> bool:
-        return self.professional_action is not None
-
-    @property
-    def has_specific_detail(self) -> bool:
-        return self.specific_detail is not None
-
-
-@dataclass(slots=True)
-class ExpertSessionScore:
+class SessionFact:
     review_id: str
-    sheet_name: str
     project_code: str
     project_name: str
     stage: str
-    expert_name: str
+    sheet_name: str
+    source_name: str
+    attendance: str
+    attended: bool | None
+    signoff: str
+    signed: bool
     proxy_name: str | None
-    role: str
-    attendance: ScoreItem
-    signoff: ScoreItem
-    opinion: ScoreItem
-    opinion_evidence: OpinionEvidence
-    total: int
+    opinions: list[OpinionFact]
+    cells: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
-class ExpertProjectScore:
+class ExpertFacts:
     expert_name: str
-    project_code: str
-    project_name: str
-    sessions: list[ExpertSessionScore]
-    process_average: float
-    effective_session_count: int
-    project_process_scores: list[ProjectProcessScore] = field(default_factory=list)
-    participation_session_count: int = 0
-    participation_session_ids: list[str] = field(default_factory=list)
-    participation_score: int = 0
-    problem_session_count: int = 0
-    problem_session_ids: list[str] = field(default_factory=list)
-    problem_score: int = 0
-    annual_service_score: int = 0
-    objective_score: float = 0
-    expected_session_count: int = 0
-    proxy_session_count: int = 0
-    proxy_rate: float = 0
-    contribution_score: int | None = None
-    professional_reason_tags: list[str] = field(default_factory=list)
-    professional_reason_note: str | None = None
-    outstanding_contribution_reason: str | None = None
-    total_score: float | None = None
-    grade: str | None = None
-    status: str = "待问卷作答"
-
-
-@dataclass(slots=True)
-class ProjectProcessScore:
-    project_code: str
-    project_name: str
-    session_count: int
-    process_average: float
+    sessions: list[SessionFact]
+    stages: dict[str, dict]
+    overall: dict
 
 
 @dataclass(slots=True)
@@ -196,10 +149,13 @@ class WorkbookAnalysis:
     source_type: str
     source_name: str
     sessions: list[ReviewSession]
-    experts: list[ExpertProjectScore]
+    experts: list[ExpertFacts]
     issues: list[ValidationIssue]
     reports: list[ReportAnalysis] = field(default_factory=list)
     batch_summary: BatchImportSummary | None = None
+    rule_version: str = "facts-v0.6"
+    ai_message: str = ""
+    subjective_reviews: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

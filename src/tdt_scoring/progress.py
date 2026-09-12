@@ -19,7 +19,7 @@ CHECKPOINTS: tuple[tuple[str, str], ...] = (
     ("attendance_signoff", "检查出勤与会签"),
     ("opinions_problems", "检查意见与问题"),
     ("session_uniqueness", "检查场次唯一性"),
-    ("score_bounds", "检查评分边界"),
+    ("fact_bounds", "检查统计事实"),
 )
 CHECKPOINT_LABELS = dict(CHECKPOINTS)
 

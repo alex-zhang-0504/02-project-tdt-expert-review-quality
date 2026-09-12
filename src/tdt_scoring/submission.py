@@ -10,6 +10,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from .scoring import decision_payload
+
 from .models import (
     OpinionSource,
     ProblemRecord,
@@ -20,8 +22,8 @@ from .models import (
 )
 
 
-SCHEMA_VERSION = "dimension-one-submission-v1"
-RULE_VERSION = "annual-v0.5-dimension-one"
+SCHEMA_VERSION = "four-dimension-facts-v0.6"
+RULE_VERSION = "facts-v0.6"
 PACKAGE_KINDS = {"annual_result", "manager_submission"}
 EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _PAYLOAD_CHUNK_SIZE = 30_000
@@ -46,6 +48,7 @@ class DimensionOnePackage:
     sessions: list[ReviewSession]
     issues: list[ValidationIssue]
     payload_hash: str
+    decisions: dict
 
     @property
     def project_codes(self) -> list[str]:
@@ -105,6 +108,7 @@ def build_dimension_one_workbook(
         "source_name": analysis.source_name,
         "sessions": [asdict(session) for session in analysis.sessions],
         "issues": [asdict(issue) for issue in analysis.issues],
+        "decisions": decision_payload(analysis.experts),
     }
     payload_json = json.dumps(
         payload,
@@ -117,9 +121,9 @@ def build_dimension_one_workbook(
 
     workbook = Workbook()
     workbook.remove(workbook.active)
-    workbook.properties.title = "TDT维度1年度评分提交表"
+    workbook.properties.title = "V0.6四维事实统计表"
     workbook.properties.subject = SCHEMA_VERSION
-    workbook.properties.creator = "TDT评审人打分系统"
+    workbook.properties.creator = "V0.6四维事实统计版"
 
     _write_submission_info(
         workbook,
@@ -129,9 +133,8 @@ def build_dimension_one_workbook(
     )
     _write_project_list(workbook, analysis)
     _write_fact_detail(workbook, analysis)
-    _write_project_results(workbook, analysis)
+    _write_statistics(workbook, analysis)
     _write_issues(workbook, analysis)
-    _write_dimension_two_placeholder(workbook)
     _write_payload(workbook, payload_json, payload_hash, payload)
 
     output = BytesIO()
@@ -195,6 +198,7 @@ def load_dimension_one_workbook(content: bytes, filename: str) -> DimensionOnePa
         sessions=sessions,
         issues=issues,
         payload_hash=actual_hash,
+        decisions=_validated_decisions(sessions, payload.get("decisions", {})),
     )
 
 
@@ -243,7 +247,7 @@ def _write_submission_info(
     sheet = workbook.create_sheet("00_提交信息")
     rows = [
         ("字段", "内容"),
-        ("文件用途", "项目经理维度1提交表" if payload["package_kind"] == "manager_submission" else "集中评分维度1年度结果"),
+        ("文件用途", "项目经理维度1提交表" if payload["package_kind"] == "manager_submission" else "集中统计维度1年度结果"),
         ("年度批次", payload["batch_id"]),
         ("项目经理编号", payload["manager_id"]),
         ("项目经理姓名", payload["manager_name"]),
@@ -258,7 +262,7 @@ def _write_submission_info(
         ("场次数", len(analysis.sessions)),
         ("评审人数", len(analysis.experts)),
         ("载荷校验值", payload_hash),
-        ("使用说明", "本文件由系统生成，请勿手工修改。最终汇总会重新计算维度1年度分数。"),
+        ("使用说明", "本文件由系统生成，请勿手工修改。最终汇总会重新计算维度1事实统计。"),
     ]
     for row in rows:
         sheet.append(row)
@@ -286,80 +290,61 @@ def _write_project_list(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
 
 
 def _write_fact_detail(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
-    sheet = workbook.create_sheet("02_维度1事实明细")
-    sheet.append((
-        "评审人", "项目编码", "子任务名称", "阶段", "角色", "代理人",
-        "出勤／13", "出勤依据", "会签／25", "会签依据", "意见／10", "意见依据",
-        "小计／48", "技术对象", "专业动作", "具体细节", "证据位置", "证据原文",
-    ))
+    sheet = workbook.create_sheet("02_场次事实")
+    sheet.append(("评审人", "项目编码", "子任务名称", "阶段", "出勤记录", "代理人", "会签原文", "源报告", "工作表", "单元格"))
+    opinions = workbook.create_sheet("03_意见证据")
+    opinions.append(("评审人", "项目编码", "子任务名称", "阶段", "意见ID", "意见原文", "AI状态", "对策片段", "理由", "是否计入", "疑似待确认", "识别版本", "人工记录", "源报告", "工作表", "单元格", "原始文本"))
     for expert in analysis.experts:
-        for score in expert.sessions:
-            evidence = score.opinion_evidence
-            cells = evidence.source_cells or ([evidence.source_cell] if evidence.source_cell else [])
-            texts = evidence.source_texts or ([evidence.source_text] if evidence.source_text else [])
-            sheet.append((
-                expert.expert_name,
-                score.project_code,
-                score.project_name,
-                score.stage,
-                score.role,
-                score.proxy_name or "",
-                score.attendance.score,
-                score.attendance.reason,
-                score.signoff.score,
-                score.signoff.reason,
-                score.opinion.score,
-                score.opinion.reason,
-                score.total,
-                evidence.technical_object or "",
-                evidence.professional_action or "",
-                evidence.specific_detail or "",
-                "；".join(f"{score.sheet_name}!{cell}" for cell in cells),
-                " ｜ ".join(texts),
-            ))
-    _format_sheet(
-        sheet,
-        widths=(18, 18, 30, 10, 16, 18, 12, 28, 12, 28, 12, 28, 12, 20, 20, 24, 28, 56),
-    )
+        for fact in expert.sessions:
+            sheet.append((expert.expert_name, fact.project_code, fact.project_name, fact.stage,
+                          fact.attendance, fact.proxy_name or "", fact.signoff, fact.source_name,
+                          fact.sheet_name, json.dumps(fact.cells, ensure_ascii=False)))
+            for opinion in fact.opinions:
+                included = opinion.ai_status in {"yes", "suspected"} and opinion.included is not False
+                opinions.append((expert.expert_name, fact.project_code, fact.project_name, fact.stage,
+                    opinion.opinion_id, opinion.text, opinion.ai_status, opinion.excerpt, opinion.reason,
+                    "待AI识别" if opinion.ai_status == "pending" else "是" if included else "否",
+                    "疑似待确认" if opinion.ai_status == "suspected" and opinion.included is None else "",
+                    opinion.rule_version, json.dumps(opinion.audit, ensure_ascii=False),
+                    fact.source_name, fact.sheet_name, "、".join(opinion.cells), "\n".join(opinion.raw_texts)))
+    _format_sheet(sheet, widths=(18, 18, 32, 12, 18, 16, 20, 36, 24, 40))
+    _format_sheet(opinions, widths=(18, 18, 32, 12, 28, 60, 18, 48, 40, 16, 18, 24, 40, 36, 24, 30, 60))
 
 
-def _write_project_results(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
-    sheet = workbook.create_sheet("03_维度1项目结果")
-    sheet.append((
-        "评审人", "项目编码", "子任务名称", "计分场次", "项目过程均分／48",
-        "年度过程均分／48", "有效参评场次", "参与分／6", "问题贡献场次", "问题分／6",
-        "服务贡献／12", "客观分数／60",
-    ))
-    for expert in analysis.experts:
-        for project in expert.project_process_scores:
-            sheet.append((
-                expert.expert_name,
-                project.project_code,
-                project.project_name,
-                project.session_count,
-                project.process_average,
-                expert.process_average,
-                expert.participation_session_count,
-                expert.participation_score,
-                expert.problem_session_count,
-                expert.problem_score,
-                expert.annual_service_score,
-                expert.objective_score,
-            ))
-    counts = [expert.participation_session_count for expert in analysis.experts]
-    sheet.append(())
-    sheet.append((
-        "有效参评场次分布",
-        f"少于3场：{sum(count < 3 for count in counts)}人",
-        f"3—5场：{sum(3 <= count <= 5 for count in counts)}人",
-        f"6—10场：{sum(6 <= count <= 10 for count in counts)}人",
-        f"超过10场：{sum(count > 10 for count in counts)}人",
-    ))
-    _format_sheet(sheet, widths=(18, 18, 30, 12, 20, 20, 16, 14, 16, 14, 18, 18))
+def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
+    keys = ("attendance_rate", "signoff_rate", "opinion_rate", "solution_rate")
+    labels = ("出勤率", "会签率", "意见提出率", "含对策意见率")
+    for title, stages in (("04_分阶段统计", ("TDR1", "TDR2", "TDR3")), ("05_全部阶段汇总", ("全部阶段",))):
+        sheet = workbook.create_sheet(title)
+        sheet.append(["评审人"] + [stage + " " + label for stage in stages for label in labels] + ["评审参与度（有效参评场次）", "代理率"])
+        for expert in analysis.experts:
+            stats = [expert.overall if stage == "全部阶段" else expert.stages[stage] for stage in stages]
+            sheet.append([expert.expert_name] + [
+                None if value[key] is None else value[key] / 100 for value in stats for key in keys
+            ] + [None if expert.overall["unknown"] else expert.overall["attended"],
+                 None if expert.overall["proxy_rate"] is None else expert.overall["proxy_rate"] / 100])
+            from openpyxl.comments import Comment
+            for index, value in enumerate(stats):
+                formulas = [
+                    f"实参场次÷应参场次×100％＝{value['attended']}÷{value['expected']}×100％；未知出勤{value['unknown']}场",
+                    f"已填会签场次÷应参场次×100％＝{value['signed']}÷{value['expected']}×100％",
+                    f"意见总条数÷实参场次×100％＝{value['opinions']}÷{value['attended']}×100％",
+                    f"含对策意见÷意见总条数×100％＝{value['solutions']}÷{value['opinions']}×100％；待识别{value['pending']}条，疑似{value['suspected']}条",
+                ]
+                for offset, formula in enumerate(formulas):
+                    sheet.cell(sheet.max_row, 2 + index * 4 + offset).comment = Comment(formula, "V0.6")
+            sheet.cell(sheet.max_row, sheet.max_column).comment = Comment(
+                f"代理场次÷应参场次×100％＝{expert.overall['proxy']}÷{expert.overall['expected']}×100％", "V0.6")
+            sheet.cell(sheet.max_row, sheet.max_column - 1).comment = Comment(
+                "全部阶段有效参评场次，按项目编码＋阶段去重，代理归原评审人；参与度分由第四模块在完整批次统一计算。", "V0.7")
+        _format_sheet(sheet, widths=tuple([18] + [22] * (len(stages) * 4 + 2)))
+        for row in sheet.iter_rows(min_row=2, min_col=2):
+            for cell in row:
+                cell.number_format = "0" if cell.column == sheet.max_column - 1 else "0.##%"
 
 
 def _write_issues(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
-    sheet = workbook.create_sheet("04_异常清单")
+    sheet = workbook.create_sheet("06_异常清单")
     sheet.append(("级别", "代码", "源报告", "Sheet", "单元格", "评审人", "说明"))
     for issue in analysis.issues:
         sheet.append((
@@ -372,13 +357,6 @@ def _write_issues(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
             issue.message,
         ))
     _format_sheet(sheet, widths=(12, 28, 42, 22, 14, 18, 72))
-
-
-def _write_dimension_two_placeholder(workbook: Workbook) -> None:
-    sheet = workbook.create_sheet("05_维度2问卷")
-    sheet.append(("状态", "说明"))
-    sheet.append(("暂未开放", "本轮只完成维度1。维度2将在规则专项确认后接入同一提交表。"))
-    _format_sheet(sheet, header_rows=1, widths=(18, 72))
 
 
 def _write_payload(
@@ -415,6 +393,8 @@ def _format_sheet(
     sheet.auto_filter.ref = sheet.dimensions
     for row_index, row in enumerate(sheet.iter_rows(), start=1):
         for column_index, cell in enumerate(row, start=1):
+            if cell.data_type == "f":
+                cell.data_type = "s"
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             cell.border = Border(
                 right=_RULE if column_index == 1 else _LINE,
@@ -428,3 +408,35 @@ def _format_sheet(
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     sheet.sheet_view.showGridLines = False
+def _validated_decisions(sessions, decisions) -> dict:
+    from .scoring import build_facts
+    from .countermeasures import validate_predictions
+    if not isinstance(decisions, dict):
+        raise ValueError("意见识别载荷无效")
+    facts = {o.opinion_id: o for e in build_facts(sessions) for s in e.sessions for o in s.opinions}
+    if set(decisions) != set(facts):
+        raise ValueError("提交表意见身份与原始事实不一致")
+    for oid, item in decisions.items():
+        if not isinstance(item, dict) or (item.get("included") is not None and type(item["included"]) is not bool):
+            raise ValueError("人工复核载荷无效")
+        if item.get("text") != facts[oid].text or not isinstance(item.get("audit", []), list):
+            raise ValueError("提交表意见证据不一致")
+        audit = item.get("audit", [])
+        if any(not isinstance(a, dict) or not isinstance(a.get("at"), str)
+               or type(a.get("to")) is not bool
+               or (a.get("from") is not None and type(a["from"]) is not bool) for a in audit):
+            raise ValueError("人工复核记录无效")
+        status = item.get("ai_status")
+        if status != "suspected" and audit:
+            raise ValueError("非疑似意见不能含人工复核记录")
+        if status == "pending":
+            if item.get("included") is not None:
+                raise ValueError("未识别意见不能人工计入")
+        else:
+            validate_predictions([facts[oid]], [{"id": oid, "status": status,
+                "excerpt": item.get("excerpt", ""), "reason": item.get("reason", "")}])
+            if status != "suspected" and item.get("included") is not None:
+                raise ValueError("非疑似意见不能修改计入选择")
+        if status != "pending" and item.get("rule_version") != "countermeasure-v0.6":
+            raise ValueError("对策识别规则版本不一致")
+    return decisions

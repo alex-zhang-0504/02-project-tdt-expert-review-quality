@@ -14,28 +14,6 @@ from tests.workbook_factory import build_v04_workbook, build_workbook
 
 
 class ServiceTests(unittest.TestCase):
-    def test_import_collects_deduplicated_opinion_samples_in_local_pool(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            sample_path = Path(temporary_directory) / "opinion-samples.jsonl"
-            service = ScoringService(opinion_sample_pool=sample_path)
-            workbook = build_v04_workbook(
-                [{"stage": "TDR3", "opinion": "建议补充高温场景验证"}],
-                project="虚拟项目-P001",
-            )
-
-            service.import_local_files([(workbook, "虚拟报告.xlsx")])
-            service.import_local_files([(workbook, "虚拟报告.xlsx")])
-
-            samples = [
-                json.loads(line)
-                for line in sample_path.read_text(encoding="utf-8").splitlines()
-            ]
-            self.assertEqual(1, len(samples))
-            self.assertEqual("v0.4-opinion-exclusion-20260901", samples[0]["rule_version"])
-            self.assertEqual(10, samples[0]["ai_score"])
-            self.assertEqual("待复核", samples[0]["review_status"])
-            self.assertEqual("虚拟报告.xlsx", samples[0]["source_name"])
-
     @patch("tdt_scoring.service.FeishuDocumentSource.export_xlsx")
     def test_feishu_import_uses_only_internal_stage_field(
         self, export_xlsx
@@ -345,90 +323,6 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(
             any(issue.code == "reviewer_name_similarity" for issue in analysis.issues)
         )
-
-    def test_import_and_finalize_are_backend_owned(self) -> None:
-        workbook = build_workbook(
-            [
-                {"stage": "TDR1", "attendance": "正常", "conclusion": "Go"},
-                {"stage": "TDR2", "attendance": "正常", "conclusion": "Go"},
-                {"stage": "TDR3", "attendance": "正常", "conclusion": "Go"},
-            ]
-        )
-        service = ScoringService()
-        analysis = service.import_local_bytes(workbook, "virtual.xlsx")
-        completed = service.finalize_expert(
-            analysis.analysis_id,
-            "VIRTUAL-001",
-            "虚拟专家甲",
-            {
-                "fulfillment_collaboration": "high",
-                "professional_judgement_guidance": "medium",
-                "outstanding_contribution": "low",
-            },
-        )
-
-        self.assertEqual(24, completed.contribution_score)
-        self.assertEqual(68.0, completed.total_score)
-        self.assertEqual("B", completed.grade)
-        self.assertEqual("已完成", completed.status)
-        self.assertIsNone(completed.outstanding_contribution_reason)
-
-    def test_validation_errors_block_final_scoring(self) -> None:
-        workbook = build_workbook(
-            [{"stage": "TDR1", "attendance": "未知状态", "conclusion": "Go"}]
-        )
-        service = ScoringService()
-        analysis = service.import_local_bytes(workbook, "invalid.xlsx")
-
-        with self.assertRaisesRegex(ValueError, "仍有错误"):
-            service.finalize_expert(
-                analysis.analysis_id,
-                "VIRTUAL-001",
-                "虚拟专家甲",
-                {
-                    "fulfillment_collaboration": "high",
-                    "professional_judgement_guidance": "high",
-                    "outstanding_contribution": "high",
-                },
-            )
-
-    def test_bonus_case_is_required_before_result_registration(self) -> None:
-        service = ScoringService()
-        analysis = service.import_local_bytes(
-            build_workbook(
-                [{"stage": "TDR3", "attendance": "正常", "conclusion": "Go"}]
-            ),
-            "virtual.xlsx",
-        )
-        answers = {
-            "fulfillment_collaboration": "high",
-            "professional_judgement_guidance": "high",
-            "outstanding_contribution": "high",
-        }
-
-        with self.assertRaisesRegex(ValueError, "必须填写.*加分原因"):
-            service.finalize_expert(
-                analysis.analysis_id,
-                "VIRTUAL-001",
-                "虚拟专家甲",
-                answers,
-                outstanding_contribution_reason="",
-            )
-        self.assertEqual("待问卷作答", analysis.experts[0].status)
-
-        completed = service.finalize_expert(
-            analysis.analysis_id,
-            "VIRTUAL-001",
-            "虚拟专家甲",
-            answers,
-            outstanding_contribution_reason="避免关键物料在量产阶段出现批量失效。",
-        )
-        self.assertEqual(
-            "避免关键物料在量产阶段出现批量失效。",
-            completed.outstanding_contribution_reason,
-        )
-        self.assertEqual("已完成", analysis.experts[0].status)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,660 +1,177 @@
-from __future__ import annotations
-
+from dataclasses import asdict
+from io import BytesIO
 import json
 import unittest
-from pathlib import Path
 
+from openpyxl import load_workbook
+from tdt_scoring.api import app, _encoded
+from tdt_scoring.countermeasures import validate_predictions
 from tdt_scoring.excel_reader import read_workbook
-from tdt_scoring.models import ExpertProjectScore
-from tdt_scoring.scoring import (
-    apply_annual_grade_ranking,
-    build_annual_scores,
-    build_project_scores,
-    _dense_top_two_scores,
-    calculate_contribution,
-    finalize_project_score,
-)
-
-from tests.workbook_factory import build_v04_workbook, build_workbook
+from tdt_scoring.scoring import build_facts, refresh, decision_payload
+from tdt_scoring.service import ScoringService
+from tdt_scoring.submission import build_dimension_one_workbook, load_dimension_one_workbook
+from tests.workbook_factory import build_workbook, build_v04_workbook
 
 
-FIXTURE = Path(__file__).parent / "fixtures" / "virtual-expert-three-sessions.json"
+def fixture(stage="TDR1", opinion="1. 请确认温升数据\n2. 建议优化散热结构", **kwargs):
+    return build_v04_workbook([{"stage": stage, "opinion": opinion, **kwargs}])
 
 
-class ScoringTests(unittest.TestCase):
-    def test_annual_process_score_weights_projects_not_sessions(self) -> None:
-        detailed = "需确认NTRA线损范围。最差场景下可能抵消性能提升，建议补充边界数据。"
-        project_a, _ = read_workbook(
-            build_v04_workbook(
-                [
-                    {"stage": "TDR1", "opinion": detailed},
-                    {"stage": "TDR2", "opinion": detailed},
-                    {"stage": "TDR3", "opinion": detailed},
-                ],
-                project="项目甲-P001",
-            )
-        )
-        project_b, _ = read_workbook(
-            build_v04_workbook(
-                [
-                    {
-                        "stage": "TDR3",
-                        "absent_reviewers": "虚拟专家甲",
-                        "conclusion": "-",
-                        "opinion": "",
-                    }
-                ],
-                project="项目乙-P002",
-            )
-        )
+def simulated_classifier(opinions):
+    return [{"id": o.opinion_id, "status": "suspected", "excerpt": o.text,
+             "reason": "交互测试模拟结果，不代表真实AI准确率"} for o in opinions]
 
-        annual = next(
-            item
-            for item in build_annual_scores(project_a + project_b)
-            if item.expert_name == "虚拟专家甲"
-        )
 
-        self.assertEqual(24.0, annual.process_average)
-        self.assertEqual(4, annual.effective_session_count)
-        self.assertEqual([48.0, 0.0], [item.process_average for item in annual.project_process_scores])
+def target(experts):
+    return next(e for e in experts if e.expert_name == "虚拟专家甲")
 
-    def test_v04_signoff_and_opinion_are_scored_independently(self) -> None:
-        workbook = build_v04_workbook(
-            [
-                {
-                    "stage": "TDR2",
-                    "signoffs": [
-                        {"role": "射频", "reviewer": "虚拟专家甲", "conclusion": "Go", "opinion": ""},
-                        {"role": "天线", "reviewer": "虚拟专家乙", "conclusion": "Go", "opinion": "需关注NTRA线损风险"},
-                        {"role": "测试", "reviewer": "虚拟专家丙", "conclusion": "Redirect", "opinion": "需确认NTRA线损范围。最差场景下可能抵消性能提升并影响量产价值KPI，建议补充边界数据。"},
-                    ],
-                }
-            ]
-        )
-        sessions, _ = read_workbook(workbook)
-        scores = {score.expert_name: score for score in build_project_scores(sessions)}
 
-        self.assertEqual((25, 0, 38), (scores["虚拟专家甲"].sessions[0].signoff.score, scores["虚拟专家甲"].sessions[0].opinion.score, scores["虚拟专家甲"].sessions[0].total))
-        self.assertEqual((25, 6, 44), (scores["虚拟专家乙"].sessions[0].signoff.score, scores["虚拟专家乙"].sessions[0].opinion.score, scores["虚拟专家乙"].sessions[0].total))
-        self.assertEqual((25, 10, 48), (scores["虚拟专家丙"].sessions[0].signoff.score, scores["虚拟专家丙"].sessions[0].opinion.score, scores["虚拟专家丙"].sessions[0].total))
-        self.assertTrue(scores["虚拟专家丙"].sessions[0].opinion_evidence.has_technical_object)
-        self.assertTrue(scores["虚拟专家丙"].sessions[0].opinion_evidence.has_professional_action)
-        self.assertTrue(scores["虚拟专家丙"].sessions[0].opinion_evidence.has_specific_detail)
+class FactStatisticsTests(unittest.TestCase):
+    def test_old_submission_version_is_rejected(self):
+        from unittest.mock import patch
+        analysis = ScoringService().import_local_bytes(fixture(), "source.xlsx")
+        with patch("tdt_scoring.submission.SCHEMA_VERSION", "dimension-one-v0.5"):
+            content = build_dimension_one_workbook(analysis, package_kind="manager_submission",
+                batch_id="虚拟年度", manager_id="PM01", manager_name="虚拟项目经理",
+                revision=1, product_version="v0.5", build_id="test")
+        with self.assertRaisesRegex(ValueError, "版本不受支持"):
+            load_dimension_one_workbook(content, "old.xlsx")
 
-    def test_annual_proxy_facts_only_report_count_and_rate(self) -> None:
-        signoffs_with_proxy = [
-            {"role": "射频", "reviewer": "虚拟专家甲（虚拟专家丁）", "conclusion": "Go"},
-            {"role": "天线", "reviewer": "虚拟专家乙", "conclusion": "Go"},
-            {"role": "测试", "reviewer": "虚拟专家丙", "conclusion": "Go"},
-        ]
-        direct_signoffs = [
-            {"role": "射频", "reviewer": "虚拟专家甲", "conclusion": "Go"},
-            {"role": "天线", "reviewer": "虚拟专家乙", "conclusion": "Go"},
-            {"role": "测试", "reviewer": "虚拟专家丙", "conclusion": "Go"},
-        ]
-        workbook = build_v04_workbook(
-            [
-                {"stage": "TDR1", "signoffs": signoffs_with_proxy},
-                {"stage": "TDR2", "signoffs": signoffs_with_proxy},
-                {"stage": "TDR3", "signoffs": direct_signoffs},
-            ],
-            project="虚拟项目-P001",
-        )
+    def test_invalid_ai_identity_type_is_rejected(self):
+        expert = target(build_facts(read_workbook(fixture())[0]))
+        with self.assertRaises(ValueError):
+            validate_predictions(expert.sessions[0].opinions,
+                [{"id": [], "status": "yes", "excerpt": "", "reason": "无效结构"}])
 
-        annual = {
-            item.expert_name: item
-            for item in build_annual_scores(read_workbook(workbook)[0])
-        }["虚拟专家甲"]
+    def test_invalid_audit_and_boolean_payload_are_rejected(self):
+        from copy import deepcopy
+        from tdt_scoring.submission import _validated_decisions
+        service = ScoringService(classifier=simulated_classifier)
+        analysis = service.import_local_bytes(fixture(), "source.xlsx")
+        service.identify_solutions(analysis.analysis_id)
+        original = decision_payload(analysis.experts)
+        oid = next(iter(original))
+        for invalid in ({"included": 1}, {"audit": ["bad"]}, {"audit": [{"at": "now", "to": "false"}]}):
+            with self.subTest(invalid=invalid):
+                decisions = deepcopy(original)
+                decisions[oid].update(invalid)
+                with self.assertRaises(ValueError):
+                    _validated_decisions(analysis.sessions, decisions)
 
-        self.assertEqual(3, annual.expected_session_count)
-        self.assertEqual(2, annual.proxy_session_count)
-        self.assertEqual(66.7, annual.proxy_rate)
-
-    def test_partial_and_proxy_partial_attendance_count_as_participated_sessions(self) -> None:
-        workbook = build_v04_workbook(
-            [
-                {
-                    "stage": "TDR1",
-                    "signoffs": [
-                        {"reviewer": "虚拟专家甲", "attendance": "部分参加", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家乙", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家丙", "conclusion": "Go"},
-                    ],
-                },
-                {
-                    "stage": "TDR2",
-                    "signoffs": [
-                        {"reviewer": "虚拟专家甲（虚拟专家丁）", "attendance": "改派（部分）", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家乙", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家丙", "conclusion": "Go"},
-                    ],
-                },
-                {"stage": "TDR3"},
-            ]
-        )
-
-        annual = next(
-            item for item in build_annual_scores(read_workbook(workbook)[0])
-            if item.expert_name == "虚拟专家甲"
-        )
-
-        self.assertEqual(3, annual.participation_session_count)
-        self.assertEqual(6, annual.participation_score)
-    def test_complete_risk_opinion_scores_high(self) -> None:
-        workbook = build_workbook(
-            [
-                {
-                    "stage": "TDR1",
-                    "attendance": "正常",
-                    "conclusion": "Go with Risk",
-                    "basis": "需确认NTRA线损范围。最差场景下可能抵消性能提升并影响量产价值KPI，建议补充边界数据。",
-                    "problem": "yes",
-                    "action": "有改善措施",
-                    "verification": "有验证方式和通过条件",
-                }
-            ]
-        )
-        sessions, _ = read_workbook(workbook)
-        score = build_project_scores(sessions)[0].sessions[0]
-
-        self.assertEqual(48, score.total)
-        self.assertEqual(10, score.opinion.score)
-
-    def test_partial_risk_opinion_scores_medium(self) -> None:
-        workbook = build_workbook(
-            [
-                {
-                    "stage": "TDR1",
-                    "attendance": "正常",
-                    "conclusion": "Redirect",
-                    "basis": "需关注NTRA线损风险",
-                    "problem": "yes",
-                    "action": "有改善措施",
-                    "verification": "",
-                }
-            ]
-        )
-        sessions, _ = read_workbook(workbook)
-        score = build_project_scores(sessions)[0].sessions[0]
-
-        self.assertEqual(44, score.total)
-        self.assertEqual(6, score.opinion.score)
-
-    def test_reference_only_opinion_scores_zero_without_inheriting_other_opinion(self) -> None:
-        workbook = build_v04_workbook(
-            [{
-                "stage": "TDR2",
-                "signoffs": [
-                    {
-                        "reviewer": "虚拟专家甲",
-                        "conclusion": "Go",
-                        "opinion": "与虚拟专家乙意见相同",
-                    },
-                    {
-                        "reviewer": "虚拟专家乙",
-                        "conclusion": "Go",
-                        "opinion": "需确认接口时序，建议补充高温场景验证。",
-                    },
-                    {"reviewer": "虚拟专家丙", "conclusion": "Go", "opinion": ""},
-                ],
-            }]
-        )
-
-        scores = {
-            item.expert_name: item.sessions[0]
-            for item in build_project_scores(read_workbook(workbook)[0])
-        }
-
-        self.assertEqual(0, scores["虚拟专家甲"].opinion.score)
-        self.assertEqual("只引用他人意见", scores["虚拟专家甲"].opinion_evidence.zero_reason)
-        self.assertEqual(10, scores["虚拟专家乙"].opinion.score)
-
-    def test_vague_attention_only_opinion_scores_zero(self) -> None:
-        workbook = build_v04_workbook(
-            [{"stage": "TDR2", "opinion": "注意风险、KPI、市场、价格、竞品、用户场景、技术可行性"}]
-        )
-
-        score = next(
-            item for item in build_project_scores(read_workbook(workbook)[0])
-            if item.expert_name == "虚拟专家甲"
-        ).sessions[0]
-
-        self.assertEqual(0, score.opinion.score)
-        self.assertEqual("只有泛化提醒", score.opinion_evidence.zero_reason)
-
-    def test_nonexcluded_substantive_opinion_scores_at_least_six(self) -> None:
-        workbook = build_v04_workbook(
-            [{"stage": "TDR2", "opinion": "建议补充验证"}]
-        )
-
-        score = next(
-            item for item in build_project_scores(read_workbook(workbook)[0])
-            if item.expert_name == "虚拟专家甲"
-        ).sessions[0]
-
-        self.assertEqual(6, score.opinion.score)
-        self.assertIsNone(score.opinion_evidence.zero_reason)
-
-    def test_reference_with_own_specific_supplement_is_scored(self) -> None:
-        workbook = build_v04_workbook(
-            [{"stage": "TDR2", "opinion": "参考虚拟专家乙意见；另建议补充高温场景验证"}]
-        )
-
-        score = next(
-            item for item in build_project_scores(read_workbook(workbook)[0])
-            if item.expert_name == "虚拟专家甲"
-        ).sessions[0]
-
-        self.assertEqual(10, score.opinion.score)
-        self.assertIsNone(score.opinion_evidence.zero_reason)
-
-    def test_generic_keyword_with_concrete_detail_is_not_excluded(self) -> None:
-        workbook = build_v04_workbook(
-            [{"stage": "TDR2", "opinion": "关注价格上涨20％对量产成本的影响，建议补充成本边界测算"}]
-        )
-
-        score = next(
-            item for item in build_project_scores(read_workbook(workbook)[0])
-            if item.expert_name == "虚拟专家甲"
-        ).sessions[0]
-
-        self.assertEqual(10, score.opinion.score)
-        self.assertIsNone(score.opinion_evidence.zero_reason)
-
-    def test_questionnaire_and_total_match_fixture(self) -> None:
-        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        workbook = build_workbook(
-            [
-                {"stage": "TDR1", "attendance": "正常", "conclusion": "Go"},
-                {"stage": "TDR2", "attendance": "缺席未改派", "conclusion": "Go"},
-                {"stage": "TDR3", "attendance": "正常", "conclusion": "Go（逾期）"},
-            ]
-        )
-        sessions, _ = read_workbook(workbook)
-        project_score = build_project_scores(sessions)[0]
-        completed = finalize_project_score(
-            project_score, fixture["contribution_answers"]
-        )
-
-        self.assertEqual(fixture["expected_process_average"], project_score.process_average)
-        self.assertEqual(
-            fixture["expected_contribution_score"],
-            calculate_contribution(fixture["contribution_answers"]),
-        )
-        self.assertEqual(fixture["expected_total_score"], completed.total_score)
-        self.assertEqual(fixture["expected_grade"], completed.grade)
-
-    def test_questionnaire_requires_all_three_answers(self) -> None:
-        with self.assertRaisesRegex(ValueError, "尚未作答"):
-            calculate_contribution({"fulfillment_collaboration": "high"})
-
-    def test_bonus_contribution_levels_require_a_case_within_100_chars(self) -> None:
-        workbook = build_workbook(
-            [{"stage": "TDR1", "attendance": "正常", "conclusion": "Go"}]
-        )
-        sessions, _ = read_workbook(workbook)
-        project_score = build_project_scores(sessions)[0]
-        answers = {
-            "fulfillment_collaboration": "high",
-            "professional_judgement_guidance": "high",
-            "outstanding_contribution": "high",
-        }
-
-        with self.assertRaisesRegex(ValueError, "必须填写.*加分原因"):
-            finalize_project_score(project_score, answers, outstanding_contribution_reason="   ")
-        with self.assertRaisesRegex(ValueError, "加分原因不能超过100字"):
-            finalize_project_score(
-                project_score,
-                answers,
-                outstanding_contribution_reason="案" * 101,
-            )
-
-        completed = finalize_project_score(
-            project_score,
-            answers,
-            outstanding_contribution_reason="  协助项目组定位热失控根因并推动验证闭环。  ",
-        )
-        self.assertEqual(
-            "协助项目组定位热失控根因并推动验证闭环。",
-            completed.outstanding_contribution_reason,
-        )
-
-    def test_general_opinion_and_middle_dimension_two_reach_seventy_points(self) -> None:
-        workbook = build_workbook(
-            [
-                {
-                    "stage": "TDR1",
-                    "attendance": "部分参加",
-                    "conclusion": "Redirect（逾期）",
-                    "basis": "需关注NTRA线损风险",
-                    "problem": "yes",
-                    "action": "有改善措施",
-                    "verification": "",
-                }
-            ]
-        )
-        sessions, _ = read_workbook(workbook)
-        project_score = build_project_scores(sessions)[0]
-        completed = finalize_project_score(
-            project_score,
-            {
-                "fulfillment_collaboration": "medium",
-                "professional_judgement_guidance": "medium",
-                "outstanding_contribution": "low",
-            },
-        )
-
-        self.assertEqual(44, project_score.process_average)
-        self.assertEqual(20, completed.contribution_score)
-        self.assertEqual(64, completed.total_score)
-        self.assertEqual("待排名", completed.grade)
-
-    def test_professional_zero_requires_reason_tags_and_note(self) -> None:
-        project_score = build_project_scores(
-            read_workbook(
-                build_workbook([{"stage": "TDR1", "attendance": "正常", "conclusion": "Go"}])
-            )[0]
-        )[0]
-        answers = {
-            "fulfillment_collaboration": "high",
-            "professional_judgement_guidance": "low",
-            "outstanding_contribution": "low",
-        }
-
-        with self.assertRaisesRegex(ValueError, "至少选择一个0分原因"):
-            finalize_project_score(project_score, answers)
-        with self.assertRaisesRegex(ValueError, "0分原因和导致影响"):
-            finalize_project_score(
-                project_score,
-                answers,
-                professional_reason_tags=["严重技术误判"],
-            )
-        completed = finalize_project_score(
-            project_score,
-            answers,
-            professional_reason_tags=["严重技术误判", "重大风险遗漏"],
-            professional_reason_note="TDR3遗漏关键失效风险，导致节点未通过。",
-        )
-        self.assertEqual(["严重技术误判", "重大风险遗漏"], completed.professional_reason_tags)
-        self.assertEqual("TDR3遗漏关键失效风险，导致节点未通过。", completed.professional_reason_note)
-
-    def test_annual_grade_ranking_uses_fifteen_seventy_fifteen_bands(self) -> None:
-        experts = [
-            ExpertProjectScore(
-                expert_name=f"专家{index:02d}",
-                project_code="年度汇总",
-                project_name="年度汇总",
-                sessions=[],
-                process_average=0,
-                effective_session_count=0,
-                contribution_score=0,
-                total_score=float(101 - index),
-                status="已完成",
-            )
-            for index in range(1, 21)
-        ]
-
-        apply_annual_grade_ranking(experts)
-
-        grades = [expert.grade for expert in experts]
-        self.assertEqual("S", grades[0])
-        self.assertEqual(["A", "A"], grades[1:3])
-        self.assertEqual(["B"] * 14, grades[3:17])
-        self.assertEqual(["C"] * 3, grades[17:])
-
-    def test_annual_grade_ranking_waits_for_every_expert_and_keeps_boundary_ties(self) -> None:
-        experts = [
-            ExpertProjectScore(
-                expert_name=f"专家{index}",
-                project_code="年度汇总",
-                project_name="年度汇总",
-                sessions=[],
-                process_average=0,
-                effective_session_count=0,
-                contribution_score=0 if score is not None else None,
-                total_score=score,
-                status="已完成" if score is not None else "待问卷作答",
-            )
-            for index, score in enumerate((95.0, 95.0, 80.0, None), start=1)
-        ]
-
-        apply_annual_grade_ranking(experts)
-        self.assertEqual(["待排名", "待排名", "待排名", None], [item.grade for item in experts])
-
-        experts[-1].contribution_score = 0
-        experts[-1].total_score = 70.0
-        experts[-1].status = "已完成"
-        apply_annual_grade_ranking(experts)
-        self.assertEqual(["A", "A", "B", "C"], [item.grade for item in experts])
-
-    def test_annual_grade_ranking_does_not_publish_s_before_both_dimensions_finish_for_all(self) -> None:
-        experts = [
-            ExpertProjectScore(
-                expert_name="专家甲",
-                project_code="年度汇总",
-                project_name="年度汇总",
-                sessions=[],
-                process_average=60,
-                effective_session_count=1,
-                objective_score=60,
-                contribution_score=40,
-                total_score=100,
-                status="已完成",
-            ),
-            ExpertProjectScore(
-                expert_name="专家乙",
-                project_code="年度汇总",
-                project_name="年度汇总",
-                sessions=[],
-                process_average=50,
-                effective_session_count=1,
-                objective_score=50,
-                contribution_score=None,
-                total_score=None,
-                status="待问卷作答",
-            ),
-        ]
-
-        apply_annual_grade_ranking(experts)
-
-        self.assertEqual("待排名", experts[0].grade)
-        self.assertIsNone(experts[1].grade)
-
-    def test_service_ranking_uses_two_distinct_positive_counts_with_shared_eligibility(self) -> None:
-        counts = {"甲": 8, "乙": 8, "丙": 6, "丁": 5, "戊": 2}
-        eligible = {"甲", "乙", "丙", "丁"}
-
-        self.assertEqual(
-            {"甲": 6, "乙": 6, "丙": 3, "丁": 0, "戊": 0},
-            _dense_top_two_scores(counts, (6, 3), eligible),
-        )
-        self.assertEqual(
-            {"甲": 6, "乙": 6, "丙": 3, "丁": 0, "戊": 0},
-            _dense_top_two_scores(counts, (6, 3), eligible),
-        )
-
-    def test_service_contribution_counts_sessions_and_deduplicates_problems_within_each_session(self) -> None:
+    def test_12_sessions_24_opinions_is_200_percent(self):
         sessions = []
-        for index in range(1, 4):
-            workbook = build_v04_workbook(
-                [
-                    {
-                        "stage": "TDR3",
-                        "opinion": "接口时序存在风险，建议补充高温场景验证。",
-                        "problems": [
-                            {"number": "1", "reviewer": "虚拟专家甲", "description": "问题一", "status": "open"},
-                            {"number": "2", "reviewer": "虚拟专家甲", "description": "问题二", "status": "closed"},
-                        ],
-                    }
-                ],
-                project=f"项目{index}-P00{index}",
-            )
-            sessions.extend(read_workbook(workbook)[0])
+        for project in range(4):
+            content = build_v04_workbook(
+                [{"stage": stage, "opinion": "1. 意见甲\n2. 意见乙"} for stage in ("TDR1", "TDR2", "TDR3")],
+                project=f"虚拟项目-B26{project:04d}")
+            sessions.extend(read_workbook(content)[0])
+        expert = next(e for e in build_facts(sessions) if e.expert_name == "虚拟专家甲")
+        self.assertEqual((12, 24, 200), (expert.overall["attended"], expert.overall["opinions"], expert.overall["opinion_rate"]))
+        self.assertTrue(all(x["opinion_rate"] == 200 for x in expert.stages.values()))
 
-        annual = next(
-            item for item in build_annual_scores(sessions) if item.expert_name == "虚拟专家甲"
-        )
+    def test_three_sessions_nine_opinions_is_300_percent(self):
+        content = build_v04_workbook([{"stage": s, "opinion": "1. 甲\n2. 乙\n3. 丙"} for s in ("TDR1", "TDR2", "TDR3")])
+        expert = target(build_facts(read_workbook(content)[0]))
+        self.assertEqual(300, expert.overall["opinion_rate"])
 
-        self.assertEqual(3, annual.participation_session_count)
-        self.assertEqual(3, annual.problem_session_count)
-        self.assertEqual(6, annual.participation_score)
-        self.assertEqual(6, annual.problem_score)
-        self.assertEqual(12, annual.annual_service_score)
-        self.assertEqual(60.0, annual.objective_score)
-        completed = finalize_project_score(
-            annual,
-            {
-                "fulfillment_collaboration": "high",
-                "professional_judgement_guidance": "high",
-                "outstanding_contribution": "high",
-            },
-            outstanding_contribution_reason="识别关键风险并推动项目完成验证闭环。",
-        )
-        self.assertEqual(100.0, completed.total_score)
+    def test_overall_recomputes_fraction_not_average_percentages(self):
+        sessions = []
+        for index, (stage, attendance) in enumerate((("TDR1", "正常"), ("TDR2", "正常"), ("TDR2", "缺席未改派"), ("TDR2", "缺席未改派"))):
+            content = build_workbook([{"stage": stage, "project": f"虚拟项目（P{index}）",
+                                      "attendance": attendance, "conclusion": "Go"}])
+            sessions.extend(read_workbook(content)[0])
+        expert = build_facts(sessions)[0]
+        self.assertEqual(100, expert.stages["TDR1"]["attendance_rate"])
+        self.assertEqual(33.33, expert.stages["TDR2"]["attendance_rate"])
+        self.assertEqual(50, expert.overall["attendance_rate"])
 
-    def test_participation_counts_each_attended_session_and_uses_three_session_gate(self) -> None:
-        workbook = build_v04_workbook(
-            [
-                {
-                    "stage": "TDR1",
-                    "absent_reviewers": "虚拟专家乙",
-                    "signoffs": [
-                        {"reviewer": "虚拟专家甲", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家乙", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家丙", "conclusion": "-"},
-                    ],
-                },
-                {
-                    "stage": "TDR2",
-                    "signoffs": [
-                        {"reviewer": "虚拟专家甲", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家乙", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家丙", "conclusion": "-"},
-                    ],
-                },
-                {
-                    "stage": "TDR3",
-                    "signoffs": [
-                        {"reviewer": "虚拟专家甲", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家乙", "conclusion": "Go"},
-                        {"reviewer": "虚拟专家丙", "conclusion": "-"},
-                    ],
-                },
-            ]
-        )
+    def test_signoff_uses_record_not_conclusion_enum_or_timestamp(self):
+        for conclusion, expected in [("", 0), ("-", 0), ("TBD", 100), ("Go（逾期）", 100)]:
+            with self.subTest(conclusion=conclusion):
+                expert = target(build_facts(read_workbook(fixture(conclusion=conclusion))[0]))
+                self.assertEqual(expected, expert.overall["signoff_rate"])
 
-        annual = {item.expert_name: item for item in build_annual_scores(read_workbook(workbook)[0])}
+    def test_proxy_stays_with_original_and_has_independent_rate(self):
+        content = build_workbook([{"stage": "TDR1", "attendance": "改派（正常）",
+            "reviewer": "虚拟专家甲（虚拟代理乙）", "conclusion": "Go", "basis": "建议调整参数"}])
+        expert = target(build_facts(read_workbook(content)[0]))
+        self.assertEqual("虚拟专家甲", expert.expert_name)
+        self.assertEqual(100, expert.overall["proxy_rate"])
+        self.assertEqual(100, expert.overall["attendance_rate"])
+        self.assertEqual(1, expert.overall["opinions"])
 
-        self.assertEqual(3, annual["虚拟专家甲"].participation_session_count)
-        self.assertEqual(3, annual["虚拟专家乙"].participation_session_count)
-        self.assertEqual(6, annual["虚拟专家甲"].participation_score)
-        self.assertEqual(6, annual["虚拟专家乙"].participation_score)
+    def test_no_stage_and_unknown_attendance_are_not_zero_rates(self):
+        content = build_workbook([{"stage": "TDR1", "attendance": "", "conclusion": "-"}])
+        expert = target(build_facts(read_workbook(content)[0]))
+        self.assertIsNone(expert.overall["attendance_rate"])
+        self.assertEqual(0, expert.stages["TDR3"]["expected"])
+        self.assertIsNone(expert.stages["TDR3"]["attendance_rate"])
+        self.assertIsNone(expert.overall["solution_rate"])
 
-    def test_project_without_tdr3_is_scored_from_current_available_sessions(self) -> None:
-        workbook = build_v04_workbook(
-            [
-                {"stage": "TDR1", "opinion": "接口时序存在风险，建议补充高温场景验证。"},
-                {"stage": "TDR2", "opinion": "需确认边界条件，建议补充弱网测试。"},
-            ],
-            project="开发中项目-P009",
-        )
+    def test_identical_opinions_in_different_sessions_are_not_deduped(self):
+        content = build_v04_workbook([{"stage": s, "opinion": "建议调整参数"} for s in ("TDR1", "TDR2")])
+        expert = target(build_facts(read_workbook(content)[0]))
+        self.assertEqual(2, expert.overall["opinions"])
+        self.assertEqual(2, len({o.opinion_id for s in expert.sessions for o in s.opinions}))
 
-        annual = next(
-            item for item in build_annual_scores(read_workbook(workbook)[0])
-            if item.expert_name == "虚拟专家甲"
-        )
+    def test_missing_ai_does_not_silently_classify(self):
+        service = ScoringService()
+        analysis = service.import_local_bytes(fixture(), "test.xlsx")
+        self.assertEqual("pending", target(analysis.experts).sessions[0].opinions[0].ai_status)
+        with self.assertRaisesRegex(ValueError, "尚未配置"):
+            service.identify_solutions(analysis.analysis_id)
+        self.assertIsNone(target(analysis.experts).overall["solution_rate"])
 
-        self.assertEqual(2, annual.effective_session_count)
-        self.assertEqual(2, annual.participation_session_count)
-        self.assertEqual(48.0, annual.process_average)
-        self.assertEqual(0, annual.annual_service_score)
+    def test_suspected_default_included_manual_exclusion_is_audited(self):
+        service = ScoringService(classifier=simulated_classifier)
+        analysis = service.import_local_bytes(fixture(), "test.xlsx")
+        service.identify_solutions(analysis.analysis_id)
+        expert = target(analysis.experts)
+        self.assertEqual(100, expert.overall["solution_rate"])
+        opinion = expert.sessions[0].opinions[0]
+        service.select_solution(analysis.analysis_id, opinion.opinion_id, False)
+        self.assertEqual(50, expert.overall["solution_rate"])
+        self.assertEqual(200, expert.overall["opinion_rate"])
+        self.assertEqual(False, opinion.audit[-1]["to"])
+        service.select_solution(analysis.analysis_id, opinion.opinion_id, True)
+        self.assertEqual(100, expert.overall["solution_rate"])
+        self.assertEqual(2, len(opinion.audit))
 
-    def test_v04_c_column_problem_can_supply_and_deduplicate_opinion(self) -> None:
-        detailed = "需确认NTRA线损范围。最差场景下可能抵消性能提升，建议补充边界数据。"
-        workbook = build_v04_workbook(
-            [{
-                "stage": "TDR2",
-                "opinion": f"1．{detailed}",
-                "problems": [{
-                    "number": "1",
-                    "reviewer": "虚拟专家甲",
-                    "description": detailed,
-                    "status": "open",
-                }],
-            }]
-        )
+    def test_untrusted_ai_missing_ids_and_invented_evidence_rejected(self):
+        service = ScoringService()
+        analysis = service.import_local_bytes(fixture(), "test.xlsx")
+        opinions = target(analysis.experts).sessions[0].opinions
+        with self.assertRaises(ValueError):
+            validate_predictions(opinions, [])
+        with self.assertRaises(ValueError):
+            validate_predictions(opinions, [{"id": o.opinion_id, "status": "yes", "excerpt": "原文不存在", "reason": "test"} for o in opinions])
 
-        sessions, _ = read_workbook(workbook)
-        score = next(
-            item for item in build_project_scores(sessions)
-            if item.expert_name == "虚拟专家甲"
-        ).sessions[0]
+    def test_no_old_scores_in_api_or_payload(self):
+        analysis = ScoringService().import_local_bytes(fixture(), "test.xlsx")
+        encoded = json.dumps(_encoded(analysis))
+        for field in ("objective_score", "process_average", "annual_service_score", "total_score", "grade"):
+            self.assertNotIn(field, encoded)
+        paths = set(app.openapi()["paths"])
+        self.assertNotIn("/api/score/finalize", paths)
 
-        self.assertEqual(10, score.opinion.score)
-        self.assertEqual(1, len(sessions[0].signoffs[0].opinion_sources))
-        self.assertEqual(["D9", "C26"], score.opinion_evidence.source_cells)
+    def test_manual_decisions_roundtrip_and_recompute_on_merge(self):
+        service = ScoringService(classifier=simulated_classifier)
+        analysis = service.import_local_bytes(fixture(), "test.xlsx")
+        service.identify_solutions(analysis.analysis_id)
+        service.select_solution(analysis.analysis_id, target(analysis.experts).sessions[0].opinions[0].opinion_id, False)
+        content = build_dimension_one_workbook(analysis, package_kind="manager_submission", batch_id="2026",
+            manager_id="PM01", manager_name="虚拟项目经理", product_version="v0.6", build_id="test")
+        merged = service.merge_dimension_one_submissions([(content, "submit.xlsx")], expected_manager_count=1)
+        self.assertEqual(50, target(merged.experts).overall["solution_rate"])
+        self.assertEqual(200, target(merged.experts).overall["opinion_rate"])
+        self.assertEqual(1, len(target(merged.experts).sessions[0].opinions[0].audit))
+        wb = load_workbook(BytesIO(content))
+        self.assertEqual(2, next(row[3] for row in wb["04_分阶段统计"].iter_rows(min_row=2, values_only=True) if row[0] == "虚拟专家甲"))
+        self.assertIsNotNone(wb["04_分阶段统计"]["D2"].comment)
 
-    def test_v04_c_column_only_opinion_is_scored(self) -> None:
-        detailed = "需确认NTRA线损范围。最差场景下可能抵消性能提升，建议补充边界数据。"
-        workbook = build_v04_workbook(
-            [{
-                "stage": "TDR2",
-                "problems": [{
-                    "number": "1",
-                    "reviewer": "虚拟专家甲",
-                    "description": detailed,
-                    "status": "open",
-                }],
-            }]
-        )
-
-        sessions, _ = read_workbook(workbook)
-        score = next(
-            item for item in build_project_scores(sessions)
-            if item.expert_name == "虚拟专家甲"
-        ).sessions[0]
-
-        self.assertEqual(10, score.opinion.score)
-        self.assertEqual(["C26"], score.opinion_evidence.source_cells)
-
-    def test_v04_distinct_opinions_do_not_merge_elements_across_candidates(self) -> None:
-        workbook = build_v04_workbook(
-            [{
-                "stage": "TDR2",
-                "opinion": "NTRA线损范围\n建议补充验证",
-            }]
-        )
-
-        sessions, _ = read_workbook(workbook)
-        score = next(
-            item for item in build_project_scores(sessions)
-            if item.expert_name == "虚拟专家甲"
-        ).sessions[0]
-
-        self.assertEqual(6, score.opinion.score)
-        self.assertEqual(2, len(sessions[0].signoffs[0].opinion_sources))
-
-    def test_one_workbook_three_sheets_equals_three_single_sheet_workbooks(self) -> None:
-        rows = [
-            {"stage": "TDR1", "opinion": "需关注NTRA线损风险"},
-            {"stage": "TDR2", "opinion": "需确认NTRA线损范围，建议补充边界数据"},
-            {"stage": "TDR3", "opinion": "需确认NTRA线损范围。最差场景可能影响量产，建议补充边界数据。"},
-        ]
-        combined_sessions = read_workbook(
-            build_v04_workbook(rows, project="虚拟项目-P001")
-        )[0]
-        separate_sessions = []
-        for row in rows:
-            separate_sessions.extend(
-                read_workbook(
-                    build_v04_workbook([row], project="虚拟项目-P001")
-                )[0]
-            )
-
-        combined = build_annual_scores(combined_sessions)
-        separate = build_annual_scores(separate_sessions)
-
-        self.assertEqual(combined, separate)
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_pending_cannot_be_manually_included(self):
+        service = ScoringService()
+        analysis = service.import_local_bytes(fixture(), "test.xlsx")
+        oid = target(analysis.experts).sessions[0].opinions[0].opinion_id
+        with self.assertRaises(ValueError):
+            service.select_solution(analysis.analysis_id, oid, True)

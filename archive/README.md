@@ -9,4 +9,4 @@
 | `2026-08-04_TDR评审专家考核办法_汇报版_2026-08-04.md` | 2026-08-07 | 基于 V0.1 制作的管理层汇报材料，规则已变，不再维护 |
 | `tdt-review-quality-two-table-template-v0.1.xlsx` | 2026-08-04 | 基于《办法》V0.1 的五项评分、主席附加分、折算公式构建，规则已整体作废；V0.2 由AI系统承接评分，不再需要独立打分表格 |
 
-现有系统实现基线见 `docs/tdr-expert-review-quality-assessment-by-project-v0.2.md` 与 `docs/tdrx-review-and-score-data-spec-by-project-v0.2.md`；待确认的年度方案见对应 `by-year-v0.3` 文件。
+本目录仅保留历史资料。旧版V0.2—V0.5规则文档已清理，当前文档入口见[项目文档索引](../README.md#当前文档索引) 。

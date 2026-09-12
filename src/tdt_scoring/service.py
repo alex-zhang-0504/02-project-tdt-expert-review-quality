@@ -9,29 +9,24 @@ from uuid import uuid4
 from .excel_reader import read_workbook
 from .models import (
     BatchImportSummary,
-    ExpertProjectScore,
     ReportAnalysis,
     ValidationIssue,
     WorkbookAnalysis,
 )
-from .opinion_samples import collect_opinion_samples
 from .progress import ProgressEvent
-from .scoring import (
-    apply_annual_grade_ranking,
-    build_annual_scores,
-    build_project_scores,
-    finalize_project_score,
-)
+from .scoring import build_facts, refresh, decision_payload
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import LocalExcelSource
 from .submission import load_dimension_one_workbook
-from .validation import validate_reviewer_name_similarity, validate_score_bounds
+from .validation import validate_reviewer_name_similarity
 
 
 class ScoringService:
-    def __init__(self, opinion_sample_pool: Path | None = None) -> None:
+    def __init__(self, classifier=None) -> None:
         self._analyses: dict[str, WorkbookAnalysis] = {}
-        self._opinion_sample_pool = opinion_sample_pool
+        self.classifier = classifier
+        from threading import RLock
+        self._fact_lock = RLock()
 
     def import_local_bytes(
         self,
@@ -229,7 +224,7 @@ class ScoringService:
         try:
             return self._analyses[analysis_id]
         except KeyError as exc:
-            raise KeyError("评分分析不存在或本地服务已重启，请重新导入评审表") from exc
+            raise KeyError("统计分析不存在或本地服务已重启，请重新导入评审表") from exc
 
     def confirm_reviewer_names_distinct(
         self,
@@ -252,8 +247,7 @@ class ScoringService:
             issue.confirmed_by_user = True
             issue.confirmed_at = confirmed_at
         if not any(issue.severity == "error" for issue in analysis.issues):
-            analysis.experts = build_annual_scores(analysis.sessions)
-            analysis.issues.extend(validate_score_bounds(analysis.experts))
+            analysis.experts = build_facts(analysis.sessions, decision_payload(analysis.experts))
         return analysis
 
     def merge_dimension_one_submissions(
@@ -379,9 +373,8 @@ class ScoringService:
             )
 
         has_errors = any(issue.severity == "error" for issue in issues)
-        experts = [] if has_errors else build_annual_scores(sessions)
-        if not has_errors:
-            issues.extend(validate_score_bounds(experts))
+        decisions = {key: value for package in packages for key, value in package.decisions.items()}
+        experts = [] if has_errors else build_facts(sessions, decisions)
         batch_id = next(iter(batch_ids)) if len(batch_ids) == 1 else "批次不一致"
         analysis = WorkbookAnalysis(
             analysis_id=uuid4().hex,
@@ -395,48 +388,43 @@ class ScoringService:
         self._analyses[analysis.analysis_id] = analysis
         return analysis
 
-    def finalize_expert(
-        self,
-        analysis_id: str,
-        project_code: str,
-        expert_name: str,
-        answers: dict[str, str],
-        professional_reason_tags: list[str] | None = None,
-        professional_reason_note: str = "",
-        outstanding_contribution_reason: str = "",
-    ) -> ExpertProjectScore:
-        analysis = self.get_analysis(analysis_id)
-        if any(issue.severity == "error" for issue in analysis.issues):
-            raise ValueError("评审表仍有错误，请返回读取模块修正后重新导入")
-        target = next(
-            (
-                expert
-                for expert in analysis.experts
-                if expert.project_code == project_code and expert.expert_name == expert_name
-            ),
-            None,
-        )
-        if not target:
-            raise KeyError("未找到对应的专家项目记录")
-        completed = finalize_project_score(
-            target,
-            answers,
-            professional_reason_tags,
-            professional_reason_note,
-            outstanding_contribution_reason,
-        )
-        analysis.experts = [
-            completed
-            if expert.project_code == project_code and expert.expert_name == expert_name
-            else expert
-            for expert in analysis.experts
-        ]
-        apply_annual_grade_ranking(analysis.experts)
-        return next(
-            expert
-            for expert in analysis.experts
-            if expert.project_code == project_code and expert.expert_name == expert_name
-        )
+    def select_solution(self, analysis_id: str, opinion_id: str, included: bool) -> WorkbookAnalysis:
+        with self._fact_lock:
+            analysis = self.get_analysis(analysis_id)
+            if any(i.severity == "error" for i in analysis.issues):
+                raise ValueError("请先处理报告中的阻断问题")
+            opinion = next((o for e in analysis.experts for s in e.sessions for o in s.opinions if o.opinion_id == opinion_id), None)
+            if opinion is None:
+                raise KeyError("未找到对应意见")
+            if opinion.ai_status != "suspected":
+                raise ValueError("仅疑似待确认的意见允许选择计入与否")
+            if opinion.included is not included:
+                opinion.audit.append({"at": datetime.now(timezone.utc).isoformat(), "from": opinion.included, "to": included})
+                opinion.included = included
+            refresh(analysis.experts)
+            return analysis
+
+    def identify_solutions(self, analysis_id: str) -> WorkbookAnalysis:
+        with self._fact_lock:
+            analysis = self.get_analysis(analysis_id)
+            if any(i.severity == "error" for i in analysis.issues):
+                raise ValueError("请先处理报告中的阻断问题")
+            pending = [o for e in analysis.experts for s in e.sessions for o in s.opinions if o.ai_status == "pending"]
+            if not pending:
+                return analysis
+            if self.classifier is None:
+                raise ValueError("尚未配置AI识别服务，意见保持待AI识别；请完成模型接入")
+            from .countermeasures import validate_predictions
+            predictions = validate_predictions(pending, self.classifier(pending))
+            for opinion in pending:
+                result = predictions[opinion.opinion_id]
+                opinion.ai_status = result["status"]
+                opinion.excerpt = result["excerpt"]
+                opinion.reason = result["reason"]
+                opinion.rule_version = result["rule_version"]
+            refresh(analysis.experts)
+            analysis.ai_message = "AI识别完成，疑似项默认计入，可在详情中确认"
+            return analysis
 
     def _analyze_many(
         self,
@@ -561,34 +549,34 @@ class ScoringService:
                 )
                 if duplicate_issues:
                     progress_open = False
-            score_started = perf_counter()
+            facts_started = perf_counter()
             if progress and progress_open:
-                progress(ProgressEvent(report_name, "score_bounds", "started"))
-            report_experts = build_project_scores(report_sessions)
-            score_issues = validate_score_bounds(report_experts)
-            for issue in score_issues:
+                progress(ProgressEvent(report_name, "fact_bounds", "started"))
+            report_experts = build_facts(report_sessions)
+            fact_issues = []
+            for issue in fact_issues:
                 issue.source_name = report_name
-            report_issues.extend(score_issues)
+            report_issues.extend(fact_issues)
             if progress and progress_open:
-                score_checkpoint_issues = [
+                fact_checkpoint_issues = [
                     issue
                     for issue in report_issues
-                    if self._issue_checkpoint(issue.code) == "score_bounds"
+                    if self._issue_checkpoint(issue.code) == "fact_bounds"
                 ]
-                score_errors = [
-                    issue for issue in score_checkpoint_issues if issue.severity == "error"
+                fact_errors = [
+                    issue for issue in fact_checkpoint_issues if issue.severity == "error"
                 ]
-                score_warnings = [
-                    issue for issue in score_checkpoint_issues if issue.severity == "warning"
+                fact_warnings = [
+                    issue for issue in fact_checkpoint_issues if issue.severity == "warning"
                 ]
                 progress(
                     ProgressEvent(
                         report_name,
-                        "score_bounds",
-                        "error" if score_errors else "warning" if score_warnings else "completed",
-                        (perf_counter() - score_started) * 1000,
-                        (score_errors or score_warnings)[0].message
-                        if (score_errors or score_warnings)
+                        "fact_bounds",
+                        "error" if fact_errors else "warning" if fact_warnings else "completed",
+                        (perf_counter() - facts_started) * 1000,
+                        (fact_errors or fact_warnings)[0].message
+                        if (fact_errors or fact_warnings)
                         else "",
                     )
                 )
@@ -614,20 +602,7 @@ class ScoringService:
                 ):
                     report.issues.append(issue)
         issues.extend(similarity_issues)
-        experts = build_annual_scores(sessions)
-        issues.extend(validate_score_bounds(experts))
-        if self._opinion_sample_pool is not None:
-            try:
-                collect_opinion_samples(sessions, experts, self._opinion_sample_pool)
-            except OSError as exc:
-                issues.append(
-                    ValidationIssue(
-                        "opinion_sample_pool_write_failed",
-                        f"评审意见样本池写入失败：{exc}",
-                        "info",
-                        source_name=source_name,
-                    )
-                )
+        experts = build_facts(sessions)
         if batch_summary is not None:
             failed_report_count = sum(
                 any(
@@ -712,4 +687,4 @@ class ScoringService:
             return "opinions_problems"
         if code in {"stage_conflict", "cross_report_stage_duplicate"}:
             return "session_uniqueness"
-        return "score_bounds"
+        return "fact_bounds"

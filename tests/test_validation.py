@@ -3,8 +3,6 @@ from __future__ import annotations
 import unittest
 
 from tdt_scoring.excel_reader import read_workbook
-from tdt_scoring.models import ExpertProjectScore, ExpertSessionScore, OpinionEvidence, ScoreItem
-from tdt_scoring.validation import validate_score_bounds
 
 from tests.workbook_factory import build_workbook
 
@@ -15,12 +13,10 @@ class ValidationTests(unittest.TestCase):
             [{"stage": "TDR1", "attendance": "在线", "conclusion": ""}]
         )
         _, issues = read_workbook(workbook)
-        codes = {issue.code for issue in issues if issue.severity == "error"}
+        codes = {issue.code for issue in issues}
 
         self.assertIn("attendance_invalid", codes)
-        signoff_issue = next(issue for issue in issues if issue.code == "signoff_missing")
-        self.assertEqual("warning", signoff_issue.severity)
-        self.assertEqual("D13", signoff_issue.cell_reference)
+        self.assertNotIn("signoff_missing", codes)
 
     def test_proxy_attendance_requires_proxy_suffix(self) -> None:
         workbook = build_workbook(
@@ -137,40 +133,6 @@ class ValidationTests(unittest.TestCase):
         _, issues = read_workbook(workbook)
 
         self.assertFalse(any(issue.code == "problem_number_conflict" for issue in issues))
-
-    def test_score_bounds_are_explicitly_validated(self) -> None:
-        score_item = ScoreItem("high", 13, "测试")
-        session_score = ExpertSessionScore(
-            review_id="VIRTUAL-001-TDR1-2026-08-01",
-            sheet_name="TDR1",
-            project_code="VIRTUAL-001",
-            project_name="虚拟项目",
-            stage="TDR1",
-            expert_name="虚拟专家甲",
-            proxy_name=None,
-            role="评审主席",
-            attendance=score_item,
-            signoff=score_item,
-            opinion=ScoreItem("high", 11, "越界测试"),
-            opinion_evidence=OpinionEvidence("", "", None, None, None),
-            total=49,
-        )
-        project_score = ExpertProjectScore(
-            expert_name="虚拟专家甲",
-            project_code="VIRTUAL-001",
-            project_name="虚拟项目",
-            sessions=[session_score],
-            process_average=49,
-            effective_session_count=1,
-        )
-
-        codes = {issue.code for issue in validate_score_bounds([project_score])}
-
-        self.assertEqual(
-            {"session_score_out_of_range", "project_score_out_of_range"},
-            codes,
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

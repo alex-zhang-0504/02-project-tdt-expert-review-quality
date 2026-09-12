@@ -40,7 +40,6 @@ PROBLEM_HEADERS = (
 PROJECT_CODE_PATTERN = re.compile(r"[（(]([^（）()]*)[）)]")
 PROXY_PATTERN = re.compile(r"^(.*?)[（(]\s*(?:代理\s*[:：]?\s*)?(.*?)[）)]\s*$")
 ABSENT_ROLE_PATTERN = re.compile(r"^(.*?)[（(][^（）()]+[）)]$")
-RECORDED_NO_CONCLUSION_MARKERS = {"-", "－", "—", "–"}
 NUMBERED_ITEM_TOKEN = r"(?:[0-9０-９]+|[A-Za-zＡ-Ｚａ-ｚ]|[一二三四五六七八九十]+)"
 NUMBERED_ITEM_PATTERN = re.compile(
     rf"(?m)(?:^[ \t]*|(?<=[；;\n])[ \t]*)(?:{NUMBERED_ITEM_TOKEN}[、．.）):：]|"
@@ -1217,17 +1216,13 @@ def _parse_v04_sheet(
         signoff.expert_name
         for signoff in signoffs
         if signoff.expert_name
-        and (
-            signoff.conclusion in VALID_CONCLUSIONS
-            or signoff.conclusion_raw in RECORDED_NO_CONCLUSION_MARKERS
-        )
     }
     if len(recorded_reviewer_names) < 3:
         add_issue(
             "effective_signoff_minimum",
             (
-                f"正式TDR Sheet仅发现{len(recorded_reviewer_names)}名不同评审人的已记录会签结果；"
-                "至少需要3名，允许值为Go／Go with Risk／Redirect／-"
+                f"正式TDR Sheet仅发现{len(recorded_reviewer_names)}名不同评审人；"
+                "至少需要3名，未会签不影响应参名单"
             ),
             cell_reference=(
                 f"A{signoff_header}:{get_column_letter(max(signoff_columns.values()))}{signoff_header}"

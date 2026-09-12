@@ -66,10 +66,11 @@ class DimensionOneSubmissionTests(unittest.TestCase):
             [
                 "00_提交信息",
                 "01_项目清单",
-                "02_维度1事实明细",
-                "03_维度1项目结果",
-                "04_异常清单",
-                "05_维度2问卷",
+                "02_场次事实",
+                "03_意见证据",
+                "04_分阶段统计",
+                "05_全部阶段汇总",
+                "06_异常清单",
                 "_manifest",
                 "_payload",
             ],
@@ -78,14 +79,12 @@ class DimensionOneSubmissionTests(unittest.TestCase):
         self.assertEqual("veryHidden", workbook["_manifest"].sheet_state)
         self.assertEqual("veryHidden", workbook["_payload"].sheet_state)
         self.assertEqual(SCHEMA_VERSION, workbook.properties.subject)
-        self.assertEqual("annual-v0.5-dimension-one", RULE_VERSION)
+        self.assertEqual("facts-v0.6", RULE_VERSION)
         self.assertEqual(RULE_VERSION, package.rule_version)
         self.assertEqual("试算", workbook["00_提交信息"]["B8"].value)
-        headers = [cell.value for cell in workbook["03_维度1项目结果"][1]]
-        self.assertIn("计分场次", headers)
-        self.assertIn("有效参评场次", headers)
-        self.assertIn("问题贡献场次", headers)
-        self.assertIn("服务贡献／12", headers)
+        headers = [cell.value for cell in workbook["04_分阶段统计"][1]]
+        self.assertIn("TDR1 意见提出率", headers)
+        self.assertIn("代理率", headers)
         self.assertEqual("PM01", package.manager_id)
         self.assertEqual(["B260001"], package.project_codes)
 
@@ -107,7 +106,7 @@ class DimensionOneSubmissionTests(unittest.TestCase):
         self.assertEqual(3, len(merged.experts))
         self.assertEqual(
             ["B260001-TDR3", "B260002-TDR3"],
-            merged.experts[0].participation_session_ids,
+            [s.review_id for s in merged.experts[0].sessions],
         )
 
     def test_sixteen_manager_submissions_recompute_one_annual_cohort(self) -> None:
@@ -138,7 +137,7 @@ class DimensionOneSubmissionTests(unittest.TestCase):
         self.assertFalse(any(issue.severity == "error" for issue in merged.issues))
         self.assertEqual(16, len({session.project_code for session in merged.sessions}))
         self.assertEqual(3, len(merged.experts))
-        self.assertEqual(16, len(merged.experts[0].participation_session_ids))
+        self.assertEqual(16, len([s.review_id for s in merged.experts[0].sessions]))
 
     def test_duplicate_project_across_managers_blocks_scores(self) -> None:
         analysis = self._analysis("虚拟大TDT-子任务甲-B260001", "B260001.xlsx")

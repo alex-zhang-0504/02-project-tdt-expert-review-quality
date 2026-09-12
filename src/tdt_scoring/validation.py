@@ -5,7 +5,7 @@ import re
 
 from pypinyin import Style, lazy_pinyin
 
-from .models import ExpertProjectScore, ReviewSession, ValidationIssue
+from .models import ReviewSession, ValidationIssue
 
 
 VALID_ATTENDANCE = {
@@ -210,30 +210,15 @@ def validate_session(session: ReviewSession) -> list[ValidationIssue]:
         else:
             seen_signoff_names.add(signoff.expert_name)
         if not signoff.attendance:
-            issues.append(ValidationIssue("attendance_missing", "参会状况为空", "error", **common, cell_reference=attendance_reference))
+            issues.append(ValidationIssue("attendance_missing", "参会状况为空，出勤相关比率暂不计算", "warning", **common, cell_reference=attendance_reference))
         elif signoff.attendance not in VALID_ATTENDANCE:
             issues.append(
                 ValidationIssue(
                     "attendance_invalid",
-                    f"参会状况“{signoff.attendance}”不在允许枚举中",
-                    "error",
-                    **common,
-                    cell_reference=attendance_reference,
-                )
-            )
-        if not signoff.conclusion_raw:
-            issues.append(ValidationIssue("signoff_missing", "未记录会签结果，按0分记录", "warning", **common, cell_reference=conclusion_reference))
-        elif (
-            signoff.conclusion_raw not in {"-", "－", "—", "–"}
-            and signoff.conclusion not in VALID_CONCLUSIONS
-        ):
-            issues.append(
-                ValidationIssue(
-                    "signoff_invalid",
-                    f"会签结果“{signoff.conclusion_raw}”无法识别，按0分记录",
+                    f"参会状况“{signoff.attendance}”无法判定，出勤相关比率暂不计算",
                     "warning",
                     **common,
-                    cell_reference=conclusion_reference,
+                    cell_reference=attendance_reference,
                 )
             )
         if signoff.attendance.startswith("改派") and not signoff.proxy_name:
@@ -270,57 +255,4 @@ def validate_stage_conflicts(sessions: list[ReviewSession]) -> list[ValidationIs
             )
         else:
             seen[key] = session.sheet_name
-    return issues
-
-
-def validate_score_bounds(experts: list[ExpertProjectScore]) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
-    for expert in experts:
-        for session in expert.sessions:
-            if not 0 <= session.total <= 48:
-                issues.append(
-                    ValidationIssue(
-                        "session_score_out_of_range",
-                        f"评审人“{expert.expert_name}”的场次过程分{session.total}超出0至48",
-                        "error",
-                        session.sheet_name,
-                        expert.expert_name,
-                    )
-                )
-        if expert.effective_session_count != len(expert.sessions):
-            issues.append(
-                ValidationIssue(
-                    "session_count_mismatch",
-                    f"评审人“{expert.expert_name}”的计分场次与评分明细数量不一致",
-                    "error",
-                    expert_name=expert.expert_name,
-                )
-            )
-        if not 0 <= expert.process_average <= 48:
-            issues.append(
-                ValidationIssue(
-                    "project_score_out_of_range",
-                    f"评审人“{expert.expert_name}”的评审过程表现均分{expert.process_average}超出0至48",
-                    "error",
-                    expert_name=expert.expert_name,
-                )
-            )
-        if not 0 <= expert.annual_service_score <= 12:
-            issues.append(
-                ValidationIssue(
-                    "service_score_out_of_range",
-                    f"评审人“{expert.expert_name}”的年度服务贡献分{expert.annual_service_score}超出0至12",
-                    "error",
-                    expert_name=expert.expert_name,
-                )
-            )
-        if not 0 <= expert.objective_score <= 60:
-            issues.append(
-                ValidationIssue(
-                    "objective_score_out_of_range",
-                    f"评审人“{expert.expert_name}”的客观分数{expert.objective_score}超出0至60",
-                    "error",
-                    expert_name=expert.expert_name,
-                )
-            )
     return issues

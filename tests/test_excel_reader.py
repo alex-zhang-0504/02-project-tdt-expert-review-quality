@@ -13,7 +13,7 @@ from tdt_scoring.excel_reader import (
     read_workbook,
     split_numbered_items,
 )
-from tdt_scoring.scoring import build_project_scores
+from tdt_scoring.scoring import build_facts
 
 from tests.workbook_factory import build_v04_workbook, build_workbook
 
@@ -47,11 +47,11 @@ class ExcelReaderTests(unittest.TestCase):
             ]
         )
         sessions, _ = read_workbook(workbook)
-        score = build_project_scores(sessions)[0]
+        score = build_facts(sessions)[0]
 
-        self.assertEqual([38, 25, 38], [item.total for item in score.sessions])
-        self.assertEqual(3, score.effective_session_count)
-        self.assertEqual(33.7, score.process_average)
+        self.assertEqual([True, False, True], [item.attended for item in score.sessions])
+        self.assertEqual(3, score.overall["expected"])
+        self.assertEqual(66.67, score.overall["attendance_rate"])
 
     def test_project_and_proxy_parsing_use_last_parentheses(self) -> None:
         self.assertEqual(
@@ -116,14 +116,14 @@ class ExcelReaderTests(unittest.TestCase):
         )
 
         sessions, issues = read_workbook(source)
-        scores = {score.expert_name: score for score in build_project_scores(sessions)}
+        scores = {score.expert_name: score for score in build_facts(sessions)}
 
         self.assertEqual(1, len(sessions))
-        self.assertEqual(0, scores["虚拟专家甲"].sessions[0].signoff.score)
+        self.assertFalse(scores["虚拟专家甲"].sessions[0].signed)
         self.assertFalse(any(issue.code == "signoff_not_provided" for issue in issues))
         self.assertFalse(any(issue.code == "effective_signoff_minimum" for issue in issues))
 
-    def test_v04_fewer_than_three_recorded_reviewers_blocks_sheet(self) -> None:
+    def test_v06_blank_signoff_still_counts_in_expected_roster(self) -> None:
         source = build_v04_workbook(
             [
                 {
@@ -139,10 +139,9 @@ class ExcelReaderTests(unittest.TestCase):
 
         sessions, issues = read_workbook(source)
 
-        self.assertEqual([], sessions)
-        issue = next(issue for issue in issues if issue.code == "effective_signoff_minimum")
-        self.assertEqual("error", issue.severity)
-        self.assertIn("仅发现2名", issue.message)
+        self.assertEqual(1, len(sessions))
+        self.assertEqual(3, len(sessions[0].signoffs))
+        self.assertFalse(any(issue.severity == "error" for issue in issues))
 
     def test_v04_a1_is_ignored_and_project_field_accepts_dash_variants(self) -> None:
         source = build_v04_workbook(
@@ -246,9 +245,9 @@ class ExcelReaderTests(unittest.TestCase):
         self.assertEqual("评审主席／通信专家", reviewer.role)
         self.assertEqual(2, len(reviewer.opinion_sources))
         self.assertFalse(any(issue.code == "reviewer_duplicate" for issue in issues))
-        scores = [item for item in build_project_scores(sessions) if item.expert_name == "高正立"]
+        scores = [item for item in build_facts(sessions) if item.expert_name == "高正立"]
         self.assertEqual(1, len(scores))
-        self.assertEqual(1, scores[0].effective_session_count)
+        self.assertEqual(1, scores[0].overall["expected"])
 
     def test_v04_duplicate_reviewer_conflicting_valid_conclusions_only_warns(self) -> None:
         source = build_v04_workbook(
@@ -291,8 +290,8 @@ class ExcelReaderTests(unittest.TestCase):
         reviewer = next(item for item in sessions[0].signoffs if item.expert_name == "高正立")
         self.assertEqual("Go", reviewer.conclusion)
         self.assertFalse(any(issue.code == "duplicate_reviewer_conclusion_conflict" for issue in issues))
-        scores = [item for item in build_project_scores(sessions) if item.expert_name == "高正立"]
-        self.assertEqual(25, scores[0].sessions[0].signoff.score)
+        scores = [item for item in build_facts(sessions) if item.expert_name == "高正立"]
+        self.assertTrue(scores[0].sessions[0].signed)
 
     def test_v04_footer_notes_are_not_parsed_as_problem_rows(self) -> None:
         source = build_v04_workbook([{"stage": "TDR2"}])

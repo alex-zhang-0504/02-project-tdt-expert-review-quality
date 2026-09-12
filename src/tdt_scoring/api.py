@@ -16,56 +16,37 @@ from pydantic import BaseModel, Field
 
 from . import PRODUCT_VERSION, RELEASE_CHANNEL, __version__
 from .build_info import BUILD_ID, PROJECT_ID
-from .questionnaire import questionnaire_payload
-from .opinion_samples import DEFAULT_OPINION_SAMPLE_POOL
 from .progress import ImportJobStore
 from .search import expert_name_search_terms
-from .scoring import (
-    calculate_contribution,
-    normalize_outstanding_contribution_reason,
-    normalize_professional_audit,
-)
 from .service import ScoringService
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import MAX_WORKBOOK_BYTES
 from .submission import EXCEL_MEDIA_TYPE, build_dimension_one_workbook
+from .subjective import DIMENSIONS, ReviewInput, save_review, build_workbook as build_subjective_workbook
+from .score_statistics import build_statistics, build_statistics_workbook
 
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 SERVICE_INSTANCE_ID = uuid4().hex
-service = ScoringService(opinion_sample_pool=DEFAULT_OPINION_SAMPLE_POOL)
+service = ScoringService()
 import_jobs = ImportJobStore()
 import_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tdrx-import")
 _feishu_device_code: str | None = None
 
 app = FastAPI(
-    title="TDT评审专家打分系统",
+    title="V0.6四维事实统计版",
     version=__version__,
     docs_url="/api/docs",
     redoc_url=None,
 )
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
+from .experiment import create_experiment_router
+app.include_router(create_experiment_router(service))
+
 
 class FeishuImportRequest(BaseModel):
     url: str = Field(min_length=1)
-
-
-class FinalizeRequest(BaseModel):
-    analysis_id: str = Field(min_length=1)
-    project_code: str = Field(min_length=1)
-    expert_name: str = Field(min_length=1)
-    answers: dict[str, str]
-    professional_reason_tags: list[str] = Field(default_factory=list)
-    professional_reason_note: str = ""
-    outstanding_contribution_reason: str = ""
-
-
-class ContributionRequest(BaseModel):
-    answers: dict[str, str]
-    professional_reason_tags: list[str] = Field(default_factory=list)
-    professional_reason_note: str = ""
-    outstanding_contribution_reason: str = ""
 
 
 class ConfirmReviewerNamesRequest(BaseModel):
@@ -187,9 +168,58 @@ def health() -> dict[str, str]:
     }
 
 
-@app.get("/api/questionnaire")
-def questionnaire() -> dict[str, object]:
-    return {"questions": questionnaire_payload()}
+@app.get("/api/subjective/catalog")
+def subjective_catalog() -> object:
+    return [{"id": d["id"], "title": d["title"], "options": [
+        {k: v for k, v in option.items() if k != "score"} for option in d["options"]]} for d in DIMENSIONS]
+
+
+@app.get("/api/statistics/scores")
+def score_statistics(analysis_id: str = Query(min_length=1), scope_confirmed: bool = False) -> object:
+    try:
+        with service._fact_lock:
+            return build_statistics(service.get_analysis(analysis_id), scope_confirmed)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/statistics/scores/export")
+def export_score_statistics(analysis_id: str = Query(min_length=1), scope_confirmed: bool = False) -> StreamingResponse:
+    try:
+        with service._fact_lock:
+            content = build_statistics_workbook(service.get_analysis(analysis_id), scope_confirmed)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StreamingResponse(BytesIO(content), media_type=EXCEL_MEDIA_TYPE,
+        headers={"Content-Disposition": "attachment; filename=score-statistics.xlsx", "Cache-Control": "no-store"})
+
+
+@app.post("/api/subjective/review")
+def subjective_review(payload: ReviewInput) -> object:
+    try:
+        with service._fact_lock:
+            return save_review(service.get_analysis(payload.analysis_id), payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/subjective/export")
+def export_subjective(analysis_id: str = Query(min_length=1)) -> StreamingResponse:
+    try:
+        with service._fact_lock:
+            content = build_subjective_workbook(service.get_analysis(analysis_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StreamingResponse(BytesIO(content), media_type=EXCEL_MEDIA_TYPE,
+        headers={"Content-Disposition": "attachment; filename=subjective-assessment.xlsx", "Cache-Control": "no-store"})
 
 
 @app.get("/api/feishu/auth/status")
@@ -342,9 +372,9 @@ def export_dimension_one(payload: DimensionOneExportRequest) -> StreamingRespons
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if payload.package_kind == "manager_submission":
-        filename = f"年度评分提交_{payload.batch_id}_{payload.manager_id}_R{payload.revision:02d}.xlsx"
+        filename = f"四维事实提交_{payload.batch_id}_{payload.manager_id}_R{payload.revision:02d}.xlsx"
     else:
-        filename = f"维度1年度结果_{payload.batch_id}.xlsx"
+        filename = f"四维事实结果_{payload.batch_id}.xlsx"
     disposition = (
         'attachment; filename="dimension-one.xlsx"; '
         f"filename*=UTF-8''{quote(filename)}"
@@ -400,49 +430,32 @@ async def import_dimension_one_submissions(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/score/finalize")
-def finalize(payload: FinalizeRequest) -> object:
+
+class SolutionSelectionRequest(BaseModel):
+    analysis_id: str = Field(min_length=1)
+    opinion_id: str = Field(min_length=1)
+    included: bool
+
+
+class IdentifySolutionsRequest(BaseModel):
+    analysis_id: str = Field(min_length=1)
+
+
+@app.post("/api/facts/solution-selection")
+def select_solution(payload: SolutionSelectionRequest) -> object:
     try:
-        result = service.finalize_expert(
-            payload.analysis_id,
-            payload.project_code,
-            payload.expert_name,
-            payload.answers,
-            payload.professional_reason_tags,
-            payload.professional_reason_note,
-            payload.outstanding_contribution_reason,
-        )
-        encoded_result = _encoded(result)
-        if not isinstance(encoded_result, dict):
-            raise TypeError("评分结果编码失败")
-        encoded_result["experts"] = [
-            _encoded(expert)
-            for expert in service.get_analysis(payload.analysis_id).experts
-        ]
-        return encoded_result
+        return _encoded(service.select_solution(payload.analysis_id, payload.opinion_id, payload.included))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/score/contribution")
-def contribution(payload: ContributionRequest) -> dict[str, object]:
+@app.post("/api/facts/identify-solutions")
+def identify_solutions(payload: IdentifySolutionsRequest) -> object:
     try:
-        normalized_tags, normalized_note = normalize_professional_audit(
-            payload.answers,
-            payload.professional_reason_tags,
-            payload.professional_reason_note,
-        )
-        normalized_outstanding_reason = normalize_outstanding_contribution_reason(
-            payload.answers, payload.outstanding_contribution_reason
-        )
-        return {
-            "contribution_score": calculate_contribution(payload.answers),
-            "max_score": 40,
-            "professional_reason_tags": normalized_tags,
-            "professional_reason_note": normalized_note,
-            "outstanding_contribution_reason": normalized_outstanding_reason,
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _encoded(service.identify_solutions(payload.analysis_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

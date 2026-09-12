@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TDT评审人打分</title>
+    <title>V0.6四维事实统计版</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css?build=__BUILD_ID__" />
   </head>
@@ -14,53 +14,46 @@
           <div class="topbar">
             <div>
               <p class="eyebrow">TDT EXPERT REVIEW</p>
-              <h1>评审人打分</h1>
+              <h1>V0.6四维事实统计版</h1>
             </div>
             <span class="project-summary" id="project-summary">尚未读取评审表</span>
             <div class="spacer"></div>
             <div class="status-pill" id="service-status" role="status" aria-live="polite">检查服务中</div>
           </div>
           <div class="toolrow">
-            <nav class="module-tabs" aria-label="打分流程">
+            <nav class="module-tabs" aria-label="统计流程">
               <button class="module-tab" data-step="1" aria-label="读取评审表" disabled><span class="module-label-full">读取评审表</span><span class="module-label-short">读取</span></button>
               <button class="module-tab" data-step="2" aria-label="评审过程表现"><span class="module-label-full">评审过程表现</span><span class="module-label-short">过程</span></button>
-              <button class="module-tab" data-step="3" aria-label="专业价值贡献"><span class="module-label-full">专业价值贡献</span><span class="module-label-short">价值</span></button>
-              <button class="module-tab" data-step="4" aria-label="总考核分数"><span class="module-label-full">总考核分数</span><span class="module-label-short">总分</span></button>
+              <button class="module-tab" data-step="3" aria-label="专业价值贡献" disabled><span class="module-label-full">专业价值贡献</span><span class="module-label-short">价值</span></button>
+              <button class="module-tab" data-step="4" aria-label="分数统计" disabled><span class="module-label-full">分数统计</span><span class="module-label-short">分数</span></button>
             </nav>
           </div>
         </div>
       </header>
 
       <main class="main-content">
-        <div class="expert-rail-slot">
-          <aside class="expert-rail" aria-label="评审人列表">
-            <p class="expert-rail-title">评审人列表</p>
-            <div class="expert-slider" id="expert-list"><span class="expert-placeholder">读取评审表后显示评审人</span></div>
-          </aside>
-        </div>
-
         <div class="panel-stack">
           <section class="panel mode-panel" id="mode-panel">
             <div class="panel-heading">
               <div>
-                <p class="section-index">年度评分方式</p>
+                <p class="section-index">四维事实方式</p>
                 <h2>选择维度一数据处理方式</h2>
                 <p>两种方式共用同一套TDRX解析、校验、年度重算和结果大表。</p>
               </div>
             </div>
             <div class="mode-grid">
               <article class="mode-card is-available">
-                <div class="mode-card-meta"><span>方案 1</span><span>集中评分</span></div>
+                <div class="mode-card-meta"><span>方案 1</span><span>集中统计</span></div>
                 <h3>一次性导入全部项目</h3>
                 <p>由一人统一读取全部TDRX报告，完成维度一检查、年度汇总和结果导出。</p>
                 <ul><li>本地Excel或飞书归档文件夹</li><li>直接生成完整年度维度一结果</li></ul>
-                <button class="primary-button" id="choose-central" type="button">开始集中评分</button>
+                <button class="primary-button" id="choose-central" type="button">开始集中统计</button>
               </article>
               <article class="mode-card is-available">
                 <div class="mode-card-meta"><span>方案 2</span><span>分散提交／统一汇总</span></div>
                 <h3>多位项目经理分别处理</h3>
                 <p>每位项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。</p>
-                <ul><li>维度一提交与汇总已开放</li><li class="is-planned">维度二暂未开放</li></ul>
+                <ul><li>维度一提交与汇总已开放</li><li>专业价值贡献独立填写与导出</li></ul>
                 <div class="mode-actions">
                   <button class="primary-button" id="choose-manager" type="button">生成个人提交表</button>
                   <button class="secondary-button" id="choose-merge" type="button">汇总提交表</button>
@@ -83,7 +76,7 @@
                 <input id="submission-files" type="file" multiple accept=".xlsx" />
                 <span class="upload-icon">↑</span>
                 <strong>选择或拖入全部项目经理提交表</strong>
-                <small id="submission-file-name">只接受由本系统生成的“年度评分提交”Excel</small>
+                <small id="submission-file-name">只接受由本系统生成的“四维事实提交”Excel</small>
               </label>
               <div class="identity-grid merge-counts">
                 <label class="field"><span>预计项目经理人数</span><input id="expected-manager-count" type="number" min="1" value="16" /></label>
@@ -97,15 +90,15 @@
           <section class="panel is-hidden" id="import-panel">
             <div class="panel-heading">
               <div>
-                <p class="section-index" id="import-mode-label">方案 1 · 集中评分 · 步骤 1</p>
+                <p class="section-index" id="import-mode-label">方案 1 · 集中统计 · 步骤 1</p>
                 <h2>读取TDRX评审表</h2>
-                <p>两种来源进入同一套解析、校验与计分流程。</p>
+                <p>两种来源进入同一套解析、校验与统计流程。</p>
               </div>
               <button class="ghost-button back-to-mode" type="button">返回方案选择</button>
             </div>
 
             <div class="manager-meta is-hidden" id="manager-meta">
-              <label class="field"><span>年度批次编号</span><input id="manager-batch-id" type="text" placeholder="例如：2025年度评分" /></label>
+              <label class="field"><span>年度批次编号</span><input id="manager-batch-id" type="text" placeholder="例如：2025四维事实" /></label>
               <label class="field"><span>项目经理编号</span><input id="manager-id" type="text" placeholder="使用年度内唯一编号" /></label>
               <label class="field"><span>项目经理姓名</span><input id="manager-name" type="text" placeholder="须与TDRX中的技术项目经理一致" /></label>
               <label class="field"><span>修订号</span><input id="manager-revision" type="number" min="1" value="1" /></label>
@@ -154,7 +147,7 @@
               <div class="issue-list" id="issue-summary"></div>
               <label class="warning-confirm is-hidden" id="warning-confirm">
                 <input id="warning-acknowledged" type="checkbox" />
-                <span>我已阅读并确认上述检查提醒，继续进入评分。</span>
+                <span>我已阅读并确认上述检查提醒，继续进入统计。</span>
               </label>
               <button class="primary-button" id="continue-analysis" type="button" disabled>进入评审过程表现</button>
             </section>
@@ -165,7 +158,7 @@
               <div>
                 <p class="section-index">步骤 2</p>
                 <div class="analysis-title-line">
-                  <h2>维度一：评审过程表现</h2>
+                  <h2>评审过程表现</h2>
                   <p id="analysis-summary"></p>
                 </div>
               </div>
@@ -173,62 +166,91 @@
             </div>
             <div class="dimension-one-controls">
               <label class="field control-search"><span>搜索评审人</span><input id="dimension-one-search" type="search" placeholder="姓名／全拼／首字母" /></label>
-              <label class="field control-project"><span>项目筛选</span><select id="dimension-one-project"><option value="">全部项目</option></select></label>
-              <label class="field control-stage"><span>阶段筛选</span><select id="dimension-one-stage"><option value="">全部阶段</option><option value="TDR1">TDR1</option><option value="TDR2">TDR2</option><option value="TDR3">TDR3</option></select></label>
+              <label class="field control-stage"><span>统计视图</span><select id="dimension-one-stage"><option value="">分阶段</option><option value="overall">全部阶段汇总</option><option value="TDR1">仅TDR1</option><option value="TDR2">仅TDR2</option><option value="TDR3">仅TDR3</option></select></label>
               <div class="dimension-one-export">
-                <label class="field central-batch-field"><span>年度批次编号</span><input id="central-batch-id" type="text" placeholder="例如：2025年度评分" /></label>
+                <label class="field central-batch-field"><span>年度批次编号</span><input id="central-batch-id" type="text" placeholder="例如：2025四维事实" /></label>
                 <button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled>导出维度一结果</button>
               </div>
             </div>
+            <div class="facts-ai-tools"><button class="secondary-button" id="identify-solutions" data-service-action="true" type="button">识别待处理对策</button><span id="facts-ai-status" role="status"></span></div>
             <div class="dimension-one-table-wrap" id="dimension-one-table-wrap"></div>
             <div class="expert-detail is-hidden" id="expert-detail"></div>
+            <div class="subjective-next"><button class="primary-button" id="open-subjective" type="button">填写专业价值贡献 →</button></div>
           </section>
 
-          <section class="panel is-hidden" id="questionnaire-panel">
+          <section class="panel is-hidden" id="subjective-panel">
             <div class="panel-heading">
-              <div>
-                <p class="section-index">步骤 3</p>
-                <h2>维度二：专业价值贡献</h2>
-                <p>考核内容为专业价值贡献。回顾专家在本批次中全部已完成项目，每题只选择一个最符合的选项，系统不预选。</p>
-              </div>
-              <div class="selected-expert" id="selected-expert"></div>
+              <div><p class="section-index">步骤 3 · 维度二</p><h2>专业价值贡献</h2></div>
+              <button class="secondary-button" id="export-subjective" type="button">导出专业价值贡献</button>
             </div>
-            <div class="standalone-identity is-hidden" id="standalone-identity">
-              <div>
-                 <strong>独立进行主观分数问卷</strong>
-                <p>没有导入评审表也可以先评分。此时只生成专业价值贡献分，不计算项目总分。</p>
+            <ul class="subjective-guide" aria-label="评分指导">
+              <li>参考客观事实，由评价人自主选档。</li>
+              <li>低档或突出贡献加分，须写明事实并关联项目。</li>
+              <li>证据不足先待评价，不默认打分。</li>
+              <li>不因结论严厉扣分，按当时证据评价。</li>
+            </ul>
+            <p class="subjective-storage">评价仅保留在本次分析中，离开前请单独导出；导出文件用于留档，暂不支持回载或多人合并。</p>
+            <div class="subjective-layout">
+              <aside class="subjective-rail" aria-label="选择评审人">
+                <label class="field"><span>搜索评审人</span><input id="subjective-search" type="search" placeholder="姓名／全拼／首字母" /></label>
+                <p id="subjective-progress" class="muted"></p>
+                <div id="subjective-experts"></div>
+              </aside>
+              <div class="subjective-content">
+                <div id="subjective-editor"></div>
+                <p id="subjective-message" role="status" aria-live="polite"></p>
               </div>
-              <div class="identity-grid">
-                <label class="field"><span>项目编码</span><input id="standalone-project-code" type="text" /></label>
-                <label class="field"><span>项目名称（选填）</span><input id="standalone-project-name" type="text" /></label>
-                <label class="field"><span>评审人姓名</span><input id="standalone-expert-name" type="text" /></label>
-              </div>
-              <button class="secondary-button" id="start-standalone-questionnaire" type="button">开始独立问卷</button>
             </div>
-            <div class="evidence-strip is-hidden" id="evidence-strip"></div>
-            <form id="questionnaire"></form>
-            <button class="primary-button is-hidden" id="calculate-total" data-service-action="true" disabled>提交</button>
+            <div class="subjective-next"><button class="primary-button" id="open-score-statistics" type="button">查看分数统计 →</button></div>
           </section>
-
-          <section class="panel is-hidden" id="result-panel">
-            <div class="panel-heading">
-              <div>
-                <p class="section-index">步骤 4</p>
-                <h2>总考核分数</h2>
-                <p>汇总展示全部评审人；全体评审人的客观分数和主观分数均完成后，统一生成年度等级。</p>
-              </div>
-            </div>
-            <div class="score-result" id="score-result"></div>
+          <section class="panel is-hidden" id="score-statistics-panel">
+            <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><h2>分数统计</h2>
+              <p>过程表现40分＋专业价值60分＋超额意见奖励，最高100分；阶段基础分按4∶2∶4加权。</p></div>
+              <div class="heading-actions"><button class="secondary-button" id="refresh-score-statistics" type="button">刷新统计</button>
+                <button class="primary-button" id="export-score-statistics" type="button" disabled>导出分数统计</button></div></div>
+            <label class="warning-confirm"><input id="score-scope-confirmed" type="checkbox" />
+              <span>我已确认本批次包含应纳入的报告，未发生阶段无需补齐。</span></label>
+            <p class="muted">尚待验证专业差异、对策识别与样本量；当前结果仅供试算。</p>
+            <div id="score-statistics-message" role="status"></div>
+            <div class="score-statistics-table-wrap" id="score-statistics-table"></div>
+            <div id="score-statistics-details"></div>
           </section>
         </div>
       </main>
     </div>
-    <div class="evidence-backdrop is-hidden" id="evidence-backdrop"></div>
-    <aside class="evidence-drawer is-hidden" id="evidence-drawer" aria-labelledby="evidence-drawer-title">
-      <div class="evidence-drawer-heading"><div><p class="section-index">计分依据</p><h3 id="evidence-drawer-title">维度一事实</h3></div><button class="ghost-button" id="close-evidence" type="button">关闭</button></div>
+    <dialog class="evidence-drawer" id="evidence-drawer" aria-labelledby="evidence-drawer-title">
+      <div class="evidence-drawer-heading"><div><p class="section-index">参评意见明细</p><h3 id="evidence-drawer-title">四维统计详情</h3></div><button class="ghost-button" id="close-evidence" type="button">关闭</button></div>
       <div id="evidence-drawer-content"></div>
-    </aside>
+    </dialog>
+    <dialog id="formula-dialog" aria-labelledby="formula-title">
+      <div class="formula-heading"><h3 id="formula-title"></h3><button class="ghost-button" id="close-formula" type="button">关闭</button></div>
+      <div id="formula-body"></div>
+    </dialog>
+    <dialog id="experiment-dialog" aria-labelledby="experiment-title">
+      <div class="formula-heading"><h3 id="experiment-title">个人实验设置</h3><button class="ghost-button" id="close-experiment" type="button">关闭</button></div>
+      <p class="muted">仅供本人试验，不改变部门规则，不写回主表或导出。需要允许向DeepSeek发送所选意见；文本本身仍可能含敏感信息。</p>
+      <label class="field"><span>服务地址（固定官方地址）</span><input value="https://api.deepseek.com" readonly /></label>
+      <label class="field"><span>模型</span><select id="experiment-model"><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option></select></label>
+      <label class="field"><span>API Key</span><input id="experiment-key" type="password" autocomplete="off" spellcheck="false" placeholder="自行输入，不会回显或写入项目文件" /></label>
+      <p class="muted">默认关闭。保存只暂存于本地后端内存，有效期1小时，服务退出后失效；刷新页面需重新配置。测试及识别会产生API调用费用。</p>
+      <div class="solution-actions">
+        <button class="primary-button" id="save-experiment" type="button">开启本次实验</button>
+        <button class="secondary-button" id="test-experiment" type="button" disabled>测试连接（虚拟文本）</button>
+        <button class="secondary-button" id="disable-experiment" type="button" disabled>关闭并清除密钥</button>
+      </div>
+      <p id="experiment-status" role="status">实验未开启。</p>
+      <button class="secondary-button" id="preview-experiment" type="button" disabled>预览本批次前10条意见</button>
+      <section id="experiment-preview"></section>
+      <label class="warning-confirm is-hidden" id="experiment-consent"><input id="experiment-confirmed" type="checkbox" /><span>我已核对上方文本，确认允许发送到DeepSeek。</span></label>
+      <button class="primary-button is-hidden" id="run-experiment" type="button" disabled>发送预览意见并试验</button>
+      <section id="experiment-results" aria-live="polite"></section>
+    </dialog>
     <div class="copyright-mark" aria-hidden="true">Designed by Siyuan for TRD</div>
+    <div id="subjective-tooltip" role="tooltip" hidden></div>
+    <script src="/static/facts.js?build=__BUILD_ID__" defer></script>
+    <script src="/static/subjective.js?build=__BUILD_ID__" defer></script>
+    <script src="/static/score-statistics.js?build=__BUILD_ID__" defer></script>
     <script src="/static/app.js?build=__BUILD_ID__" defer></script>
+    <script src="/static/experiment.js?build=__BUILD_ID__" defer></script>
   </body>
 </html>

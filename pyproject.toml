@@ -1,6 +1,6 @@
 [project]
 name = "tdt-expert-review-scoring"
-version = "0.1.0"
+version = "0.6.0"
 description = "TDT review expert scoring system"
 requires-python = ">=3.12"
 dependencies = [

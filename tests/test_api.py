@@ -10,12 +10,8 @@ from unittest.mock import patch
 
 from tdt_scoring.api import (
     ConfirmReviewerNamesRequest,
-    ContributionRequest,
-    FinalizeRequest,
     app,
-    contribution,
     confirm_reviewer_names_distinct,
-    finalize,
     health,
     FeishuImportRequest,
     import_local_batch,
@@ -36,19 +32,19 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(PROJECT_ID, result["project_id"])
         self.assertEqual(BUILD_ID, result["build_id"])
         self.assertTrue(result["service_instance_id"])
-        self.assertEqual("v0.1", PRODUCT_VERSION)
+        self.assertEqual("v0.6", PRODUCT_VERSION)
         self.assertEqual("trial", RELEASE_CHANNEL)
         self.assertEqual(PRODUCT_VERSION, result["version"])
         self.assertEqual(RELEASE_CHANNEL, result["release_channel"])
         self.assertEqual(__version__, app.version)
 
     def test_removed_local_path_and_demo_mode_are_not_exposed(self) -> None:
-        paths = {route.path for route in app.routes}
+        paths = set(app.openapi()["paths"])
 
         self.assertNotIn("/api/import/path", paths)
 
     def test_multiple_file_import_route_is_exposed(self) -> None:
-        paths = {route.path for route in app.routes}
+        paths = set(app.openapi()["paths"])
 
         self.assertIn("/api/import/local-batch", paths)
         self.assertIn("/api/import/local-batch/start", paths)
@@ -167,65 +163,6 @@ class ApiTests(unittest.TestCase):
         self.assertIn(f"/static/app.js?build={BUILD_ID}", html)
         self.assertNotIn("__BUILD_ID__", html)
         self.assertEqual("no-store", response.headers["cache-control"])
-
-    def test_contribution_can_be_scored_without_process_analysis(self) -> None:
-        result = contribution(
-            ContributionRequest(
-                answers={
-                    "fulfillment_collaboration": "medium",
-                    "professional_judgement_guidance": "medium",
-                    "outstanding_contribution": "high",
-                },
-                outstanding_contribution_reason="识别关键风险并推动项目完成验证闭环。",
-            )
-        )
-
-        self.assertEqual(30, result["contribution_score"])
-        self.assertEqual(
-            "识别关键风险并推动项目完成验证闭环。",
-            result["outstanding_contribution_reason"],
-        )
-
-    def test_contribution_api_rejects_bonus_level_without_case(self) -> None:
-        with self.assertRaises(HTTPException) as context:
-            contribution(
-                ContributionRequest(
-                    answers={
-                        "fulfillment_collaboration": "high",
-                        "professional_judgement_guidance": "medium",
-                        "outstanding_contribution": "high",
-                    },
-                    outstanding_contribution_reason=" ",
-                )
-            )
-        self.assertEqual(400, context.exception.status_code)
-        self.assertIn("必须填写", context.exception.detail)
-
-    def test_finalize_returns_the_refreshed_annual_expert_cohort(self) -> None:
-        analysis = service.import_local_bytes(
-            build_v04_workbook([{"stage": "TDR3"}]),
-            "ranking-api.xlsx",
-        )
-        result = None
-        for expert in analysis.experts:
-            result = finalize(
-                FinalizeRequest(
-                    analysis_id=analysis.analysis_id,
-                    project_code=expert.project_code,
-                    expert_name=expert.expert_name,
-                    answers={
-                        "fulfillment_collaboration": "high",
-                        "professional_judgement_guidance": "medium",
-                        "outstanding_contribution": "low",
-                    },
-                )
-            )
-
-        self.assertIsNotNone(result)
-        self.assertEqual(3, len(result["experts"]))
-        self.assertTrue(all(expert["status"] == "已完成" for expert in result["experts"]))
-        self.assertNotIn("待排名", [expert["grade"] for expert in result["experts"]])
-
 
 if __name__ == "__main__":
     unittest.main()
