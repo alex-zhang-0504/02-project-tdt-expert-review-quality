@@ -248,63 +248,7 @@ class FeishuDocumentSource:
         on_candidates: Callable[[list[str]], None] | None = None,
         on_progress: Callable[[ProgressEvent], None] | None = None,
     ) -> FeishuFolderExport:
-        validated_url = FeishuDocumentSource.validate_folder_url(url)
-        folder_token = FeishuDocumentSource._folder_token(validated_url)
-        items = FeishuDocumentSource._list_folder_items(folder_token)
-        excluded_names: list[str] = []
-        candidates: list[tuple[str, str | None, str | None]] = []
-        seen_tokens: dict[str, str] = {}
-
-        candidate_durations: list[float] = []
-        for item in items:
-            candidate_started = perf_counter()
-            name = str(item.get("name") or "未命名飞书资源").strip() or "未命名飞书资源"
-            item_type = str(item.get("type") or "").casefold()
-            token = ""
-            candidate_error: str | None = None
-            if item_type == "sheet":
-                token = str(item.get("token") or "").strip()
-                if not token:
-                    candidate_error = "电子表格条目缺少spreadsheet token"
-            elif item_type == "shortcut":
-                shortcut = item.get("shortcut_info")
-                target_type = ""
-                if isinstance(shortcut, dict):
-                    target_type = str(shortcut.get("target_type") or "").casefold()
-                    if target_type == "sheet":
-                        token = str(shortcut.get("target_token") or "").strip()
-                    elif target_type:
-                        excluded_names.append(name)
-                        continue
-                if not token:
-                    token = FeishuDocumentSource._spreadsheet_token_from_url(
-                        str(item.get("url") or "")
-                    )
-                if not token:
-                    candidate_error = "快捷方式无法确认其电子表格目标"
-            else:
-                excluded_names.append(name)
-                continue
-
-            if token and token in seen_tokens:
-                candidate_error = f"与“{seen_tokens[token]}”重复指向同一飞书工作簿"
-                token = ""
-            elif token:
-                seen_tokens[token] = name
-            candidates.append((name, token or None, candidate_error))
-            candidate_durations.append((perf_counter() - candidate_started) * 1000)
-
-        name_counts: dict[str, int] = {}
-        unique_candidates: list[tuple[str, str | None, str | None]] = []
-        for name, token, candidate_error in candidates:
-            name_counts[name] = name_counts.get(name, 0) + 1
-            display_name = (
-                name
-                if name_counts[name] == 1
-                else f"{name}（同名第{name_counts[name]}份）"
-            )
-            unique_candidates.append((display_name, token, candidate_error))
-        candidates = unique_candidates
+        items, candidates, candidate_durations, excluded_names = FeishuDocumentSource.folder_candidates(url)
 
         if on_candidates:
             on_candidates([name for name, _, _ in candidates])
@@ -367,6 +311,68 @@ class FeishuDocumentSource:
             excluded_names=excluded_names,
             workbooks=workbooks,
         )
+
+    @staticmethod
+    def folder_candidates(url: str):
+        validated_url = FeishuDocumentSource.validate_folder_url(url)
+        folder_token = FeishuDocumentSource._folder_token(validated_url)
+        items = FeishuDocumentSource._list_folder_items(folder_token)
+        excluded_names: list[str] = []
+        candidates: list[tuple[str, str | None, str | None]] = []
+        seen_tokens: dict[str, str] = {}
+
+        candidate_durations: list[float] = []
+        for item in items:
+            candidate_started = perf_counter()
+            name = str(item.get("name") or "未命名飞书资源").strip() or "未命名飞书资源"
+            item_type = str(item.get("type") or "").casefold()
+            token = ""
+            candidate_error: str | None = None
+            if item_type == "sheet":
+                token = str(item.get("token") or "").strip()
+                if not token:
+                    candidate_error = "电子表格条目缺少spreadsheet token"
+            elif item_type == "shortcut":
+                shortcut = item.get("shortcut_info")
+                target_type = ""
+                if isinstance(shortcut, dict):
+                    target_type = str(shortcut.get("target_type") or "").casefold()
+                    if target_type == "sheet":
+                        token = str(shortcut.get("target_token") or "").strip()
+                    elif target_type:
+                        excluded_names.append(name)
+                        continue
+                if not token:
+                    token = FeishuDocumentSource._spreadsheet_token_from_url(
+                        str(item.get("url") or "")
+                    )
+                if not token:
+                    candidate_error = "快捷方式无法确认其电子表格目标"
+            else:
+                excluded_names.append(name)
+                continue
+
+            if token and token in seen_tokens:
+                candidate_error = f"与“{seen_tokens[token]}”重复指向同一飞书工作簿"
+                token = ""
+            elif token:
+                seen_tokens[token] = name
+            candidates.append((name, token or None, candidate_error))
+            candidate_durations.append((perf_counter() - candidate_started) * 1000)
+
+        name_counts: dict[str, int] = {}
+        unique_candidates: list[tuple[str, str | None, str | None]] = []
+        for name, token, candidate_error in candidates:
+            name_counts[name] = name_counts.get(name, 0) + 1
+            display_name = (
+                name
+                if name_counts[name] == 1
+                else f"{name}（同名第{name_counts[name]}份）"
+            )
+            unique_candidates.append((display_name, token, candidate_error))
+        candidates = unique_candidates
+
+        return items, candidates, candidate_durations, excluded_names
 
     @staticmethod
     def _list_folder_items(folder_token: str) -> list[dict[str, object]]:

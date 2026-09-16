@@ -7,27 +7,27 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from pydantic import BaseModel, ConfigDict, Field
 
 
-RULE_VERSION = "subjective-v0.7"
+RULE_VERSION = "subjective-v0.8"
 DIMENSIONS = [
     {"id": "preparation", "title": "项目理解与评审准备", "options": [
-        {"id": "high", "title": "抓住重点", "score": 8, "description": "理解项目目标、方案与关键约束，能结合材料抓住评审重点。"},
-        {"id": "medium", "title": "准备到位", "score": 5, "description": "了解项目基本情况，能围绕本专业完成评审。"},
+        {"id": "high", "title": "抓住重点", "score": 10, "description": "理解项目目标、方案与关键约束，能结合材料抓住评审重点。"},
+        {"id": "medium", "title": "准备到位", "score": 7, "description": "了解项目基本情况，能围绕本专业完成评审。"},
         {"id": "low", "title": "准备不足", "score": 0, "description": "明显未了解必要材料，反复偏离议题或影响有效评审。"}]},
     {"id": "judgment", "title": "风险识别与专业判断", "options": [
-        {"id": "high", "title": "判断深入", "score": 13, "description": "识别关键风险，说明依据、影响及优先级，判断有助于评审决策。"},
-        {"id": "medium", "title": "判断合理", "score": 9, "description": "能识别常见问题，判断基本合理，但风险分析不够深入。"},
+        {"id": "high", "title": "判断深入", "score": 15, "description": "识别关键风险，说明依据、影响及优先级，判断有助于评审决策。"},
+        {"id": "medium", "title": "判断合理", "score": 10, "description": "能识别常见问题，判断基本合理，但风险分析不够深入。"},
         {"id": "low", "title": "判断失当", "score": 0, "description": "对职责范围内已有充分线索的关键风险明显漏判，或无依据作出重要判断。"}]},
     {"id": "guidance", "title": "改善建议与方案指导", "options": [
-        {"id": "high", "title": "建议可落地", "score": 13, "description": "提出具体可执行的建议，结合项目约束说明方案取舍，帮助推进问题解决。"},
-        {"id": "medium", "title": "方向合理", "score": 9, "description": "建议方向合理，但具体措施或适用条件仍需进一步明确。"},
+        {"id": "high", "title": "建议可落地", "score": 15, "description": "提出具体可执行的建议，结合项目约束说明方案取舍，帮助推进问题解决。"},
+        {"id": "medium", "title": "方向合理", "score": 10, "description": "建议方向合理，但具体措施或适用条件仍需进一步明确。"},
         {"id": "low", "title": "指导不足", "score": 0, "description": "对需要指导的问题只作泛化评价，或提出明显不可执行的建议。"}]},
     {"id": "verification", "title": "验证把关与闭环质量", "options": [
-        {"id": "high", "title": "把关有效", "score": 8, "description": "指出关键验证证据及通过条件，复核时识别证据缺口，推动问题有效关闭。"},
-        {"id": "medium", "title": "复核到位", "score": 5, "description": "能检查主要验证结果，对明显未满足要求的问题提出补充要求。"},
+        {"id": "high", "title": "把关有效", "score": 10, "description": "指出关键验证证据及通过条件，复核时识别证据缺口，推动问题有效关闭。"},
+        {"id": "medium", "title": "复核到位", "score": 7, "description": "能检查主要验证结果，对明显未满足要求的问题提出补充要求。"},
         {"id": "low", "title": "把关不足", "score": 0, "description": "对负责复核的问题未核实关键证据便认可关闭，或无依据反复变更要求。"}]},
     {"id": "collaboration", "title": "沟通协作与评审担当", "options": [
-        {"id": "high", "title": "有据有担当", "score": 8, "description": "观点清楚、依据充分，能协调分歧；关键问题敢于坚持，也能根据新证据修正判断。"},
-        {"id": "medium", "title": "沟通尽责", "score": 5, "description": "表达清楚、配合讨论，能够说明并承担本人的专业判断。"},
+        {"id": "high", "title": "有据有担当", "score": 10, "description": "观点清楚、依据充分，能协调分歧；关键问题敢于坚持，也能根据新证据修正判断。"},
+        {"id": "medium", "title": "沟通尽责", "score": 7, "description": "表达清楚、配合讨论，能够说明并承担本人的专业判断。"},
         {"id": "low", "title": "协作失当", "score": 0, "description": "回避应作出的判断，或以情绪化、无依据的表达妨碍有效讨论。"}]},
     {"id": "contribution", "title": "突出贡献", "options": [
         {"id": "high", "title": "有突出贡献", "score": 10, "description": "有可核实的超出常规履职的贡献：避免重大风险、突破关键难题或推动方案明显改善；普通建议被采纳不足以获得本项加分。"},

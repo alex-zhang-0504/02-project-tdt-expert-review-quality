@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import unittest
 from io import BytesIO
+from types import SimpleNamespace
+from pathlib import Path
 
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
@@ -16,6 +18,8 @@ from tdt_scoring.api import (
     FeishuImportRequest,
     import_local_batch,
     index,
+    static_asset,
+    WEB_ASSETS,
     service,
     start_feishu_import,
 )
@@ -25,6 +29,25 @@ from tests.workbook_factory import build_v04_workbook
 
 
 class ApiTests(unittest.TestCase):
+    def test_loaded_frontend_does_not_reread_changed_disk_files(self) -> None:
+        expected_html = index().body
+        expected_js = WEB_ASSETS["experiment.js"]
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("不得读取新构建资源")), \
+             patch.object(Path, "read_text", side_effect=AssertionError("不得读取新构建页面")):
+            self.assertEqual(expected_html, index().body)
+            response = static_asset("experiment.js", SimpleNamespace(method="GET"))
+            self.assertEqual(expected_js, response.body)
+            self.assertEqual("no-store", response.headers["cache-control"])
+        self.assertIn("/api/experiment/jobs", app.openapi()["paths"])
+
+    def test_static_asset_head_and_unknown_file(self) -> None:
+        response = static_asset("styles.css", SimpleNamespace(method="HEAD"))
+        self.assertEqual(b"", response.body)
+        self.assertEqual(str(len(WEB_ASSETS["styles.css"])), response.headers["content-length"])
+        with self.assertRaises(HTTPException) as error:
+            static_asset("../api.py", SimpleNamespace(method="GET"))
+        self.assertEqual(404, error.exception.status_code)
+
     def test_health_identifies_the_loaded_source_build(self) -> None:
         result = health()
 

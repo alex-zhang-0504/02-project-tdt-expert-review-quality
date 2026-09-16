@@ -61,7 +61,6 @@ function renderSubjectiveRail() {
 }
 
 function renderSubjectiveEditor() {
-  hideSubjectiveTooltip();
   const expert = state.analysis.experts.find(e => e.expert_name === subjective.expert);
   if (!expert) { sq("#subjective-editor").innerHTML = '<p class="muted">当前无可评价的评审人。</p>'; return; }
   const draft = subjectiveDraft();
@@ -76,10 +75,10 @@ function renderSubjectiveEditor() {
         <div class="subjective-completion" id="subjective-completion" aria-live="polite"></div></div>
       <details class="subjective-facts-summary"><summary>客观事实参考</summary><p>${[
         ["出勤率", expert.overall.attendance_rate], ["会签率", expert.overall.signoff_rate],
-        ["意见提出率", expert.overall.opinion_rate], ["含对策意见率", expert.overall.solution_rate],
+        ["意见提出率", expert.overall.opinion_rate],
         ["代理率", expert.overall.proxy_rate],
       ].map(([name, value]) => `${name}：${value == null ? "—" : value + "％"}`).join("　")}</p>
-        <p>应参${expert.overall.expected}场 · 实参${expert.overall.attended}场 · 意见${expert.overall.opinions}条；未识别的对策不作为已确认事实。</p></details>
+        <p>应参${expert.overall.expected}场 · 实参${expert.overall.attended}场 · 意见${expert.overall.opinions}条 · 含对策${expert.overall.pending ? '待统计' : expert.overall.solutions + '条'}；未识别的对策不作为已确认事实。</p></details>
       <label class="field subjective-evaluator"><span>评价人</span><input id="subjective-evaluator" maxlength="80" required
         placeholder="填写本人姓名" value="${escapeHtml(draft.evaluator)}" /></label>
       ${subjective.catalog.map((d, index) => {
@@ -88,8 +87,8 @@ function renderSubjectiveEditor() {
         return `<fieldset class="subjective-dimension"><legend>${index + 1}．${d.title}</legend>
           <div class="subjective-options">${d.options.map(o => `<div class="subjective-option">
             <label for="${d.id}-${o.id}"><input type="radio" name="${d.id}" id="${d.id}-${o.id}" value="${o.id}" ${rating?.option === o.id ? "checked" : ""} />
-              <span><strong>${o.title}</strong></span></label>
-            <button type="button" class="subjective-help" data-help="${d.id}:${o.id}" aria-label="${o.title}的解释" aria-describedby="subjective-tooltip">!</button>
+              <span><strong>${o.title}</strong><span class="subjective-description">${escapeHtml(o.description)}</span></span></label>
+
           </div>`).join("")}</div>
           ${rating ? `<div class="subjective-row-tools"><button type="button" class="ghost-button" data-clear="${d.id}">恢复待评价</button>
             </div>
@@ -155,24 +154,7 @@ async function exportSubjective() {
   finally { button.disabled = false; }
 }
 
-function hideSubjectiveTooltip() {
-  const tooltip = sq("#subjective-tooltip");
-  if (tooltip) tooltip.hidden = true;
-}
-
-function showSubjectiveTooltip(button) {
-  const [dimension, option] = button.dataset.help.split(":");
-  const text = subjective.catalog.find(d => d.id === dimension).options.find(o => o.id === option).description;
-  const tooltip = sq("#subjective-tooltip");
-  tooltip.textContent = text;
-  tooltip.hidden = false;
-  const rect = button.getBoundingClientRect();
-  tooltip.style.left = Math.max(8, Math.min(rect.right - tooltip.offsetWidth, window.innerWidth - tooltip.offsetWidth - 8)) + "px";
-  tooltip.style.top = (rect.bottom + 8 + tooltip.offsetHeight < window.innerHeight ? rect.bottom + 8 : Math.max(8, rect.top - tooltip.offsetHeight - 8)) + "px";
-}
-
 function initializeSubjectiveUI() {
-  sq("#open-subjective").addEventListener("click", () => navigateStep(3));
   sq("#subjective-search").addEventListener("input", renderSubjectiveRail);
   sq("#export-subjective").addEventListener("click", exportSubjective);
   sq("#subjective-experts").addEventListener("click", event => {
@@ -203,21 +185,10 @@ function initializeSubjectiveUI() {
     }
   });
   editor.addEventListener("click", event => {
-    const help = event.target.closest("[data-help]");
-    if (help) { showSubjectiveTooltip(help); return; }
     const clear = event.target.closest("[data-clear]");
     if (clear) { delete subjectiveDraft().ratings[clear.dataset.clear]; subjectiveChanged(); renderSubjectiveEditor(); return; }
     if (event.target.closest("#subjective-facts")) openDimensionOneEvidence(subjective.expert);
   });
-  editor.addEventListener("pointerover", event => { const b = event.target.closest("[data-help]"); if (b) showSubjectiveTooltip(b); });
-  editor.addEventListener("pointerout", event => { if (event.target.closest("[data-help]") && event.relatedTarget !== sq("#subjective-tooltip")) hideSubjectiveTooltip(); });
-  editor.addEventListener("focusin", event => { if (event.target.matches("[data-help]")) showSubjectiveTooltip(event.target); });
-  editor.addEventListener("focusout", hideSubjectiveTooltip);
-  sq("#subjective-tooltip").addEventListener("pointerleave", hideSubjectiveTooltip);
-  document.addEventListener("keydown", event => { if (event.key === "Escape") hideSubjectiveTooltip(); });
-  document.addEventListener("click", event => { if (!event.target.closest("[data-help], #subjective-tooltip")) hideSubjectiveTooltip(); });
-  window.addEventListener("scroll", hideSubjectiveTooltip, true);
-  window.addEventListener("resize", hideSubjectiveTooltip);
   window.addEventListener("beforeunload", event => {
     if (subjective.analysisId === state.analysis?.analysis_id && ([...subjective.drafts.values()].some(d => d.dirty) || Object.keys(state.analysis.subjective_reviews || {}).length)) {
       event.preventDefault(); event.returnValue = "";

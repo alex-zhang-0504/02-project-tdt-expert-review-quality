@@ -106,6 +106,10 @@ def normalize_text(value: object) -> str:
     return " ".join(text.split()).strip()
 
 
+def normalize_person_name(value: object) -> str:
+    return re.sub(r"^[@＠]\s*", "", normalize_text(value)).strip()
+
+
 def normalize_label(value: object) -> str:
     if value is None:
         return ""
@@ -162,9 +166,9 @@ def parse_reviewer(value: object) -> tuple[str, str | None, str]:
     raw = normalize_text(value)
     match = PROXY_PATTERN.match(raw)
     if not match:
-        return raw, None, raw
-    expert_name = normalize_text(match.group(1))
-    proxy_name = normalize_text(match.group(2))
+        return normalize_person_name(raw), None, raw
+    expert_name = normalize_person_name(match.group(1))
+    proxy_name = normalize_person_name(match.group(2))
     return expert_name, proxy_name or None, raw
 
 
@@ -173,9 +177,9 @@ def split_reviewers(value: object) -> list[str]:
     if not text:
         return []
     return [
-        normalize_text(reviewer)
+        normalize_person_name(reviewer)
         for reviewer in re.split(r"[、，,；;／/\r\n]", text)
-        if normalize_text(reviewer)
+        if normalize_person_name(reviewer)
     ]
 
 
@@ -185,11 +189,11 @@ def split_absent_reviewers(value: object) -> list[str]:
         return []
     reviewers: list[str] = []
     for item in re.split(r"[、，,；;／/\n]", str(value)):
-        normalized = normalize_text(item)
+        normalized = normalize_person_name(item)
         if not normalized:
             continue
         match = ABSENT_ROLE_PATTERN.match(normalized)
-        reviewers.append(normalize_text(match.group(1)) if match else normalized)
+        reviewers.append(normalize_person_name(match.group(1)) if match else normalized)
     return reviewers
 
 
@@ -604,7 +608,7 @@ def _parse_sheet(ws: Worksheet, sections: dict[str, int]) -> ReviewSession | Non
         project_code=project_code,
         stage=stage,
         meeting_date=parse_date(info.get("会议日期"), epoch=ws.parent.epoch),
-        project_manager=normalize_text(info.get("技术项目经理")),
+        project_manager=normalize_person_name(info.get("技术项目经理")),
         meeting_conclusion=canonical_meeting_conclusion(info.get("评审结论")),
         meeting_opinion=normalize_text(info.get("评审意见")),
         signoffs=signoffs,
@@ -932,8 +936,8 @@ def _normalize_v04_people(
                 issues.append(
                     ValidationIssue(
                         "absent_with_valid_signoff",
-                        f"评审人“{signoff.expert_name}”出现在缺席名单中但已提交有效会签；按规则以有效会签为准，按出席和正常会签统计，请核实并修正缺席名单",
-                        "warning",
+                        f"评审人“{signoff.expert_name}”虽列入缺席名单，但已填写有效会签；会签优先，已按出席及已会签统计，无需修改报告",
+                        "info",
                         sheet_name,
                         signoff.expert_name,
                         signoff.row_number,

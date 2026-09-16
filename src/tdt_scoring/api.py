@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from io import BytesIO
+from mimetypes import guess_type
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -10,13 +11,13 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import PRODUCT_VERSION, RELEASE_CHANNEL, __version__
 from .build_info import BUILD_ID, PROJECT_ID
 from .progress import ImportJobStore
+from .import_batches import ImportBatches
 from .search import expert_name_search_terms
 from .service import ScoringService
 from .sources.feishu_document import FeishuDocumentSource
@@ -27,10 +28,12 @@ from .score_statistics import build_statistics, build_statistics_workbook
 
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+WEB_ASSETS = {path.name: path.read_bytes() for path in WEB_DIR.iterdir() if path.is_file()}
 SERVICE_INSTANCE_ID = uuid4().hex
 service = ScoringService()
 import_jobs = ImportJobStore()
 import_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tdrx-import")
+import_batches = ImportBatches(service, import_jobs, import_executor)
 _feishu_device_code: str | None = None
 
 app = FastAPI(
@@ -39,10 +42,20 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url=None,
 )
-app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+
+@app.api_route("/static/{filename}", methods=["GET", "HEAD"], include_in_schema=False)
+def static_asset(filename: str, request: Request) -> Response:
+    content = WEB_ASSETS.get(filename)
+    if content is None:
+        raise HTTPException(404, "未找到此构建的页面资源。")
+    return Response(
+        content if request.method == "GET" else b"",
+        media_type=guess_type(filename)[0] or "application/octet-stream",
+        headers={"Cache-Control": "no-store", "Content-Length": str(len(content))},
+    )
 
 from .experiment import create_experiment_router
-app.include_router(create_experiment_router(service))
+app.include_router(create_experiment_router(service, encode=lambda value: _encoded(value)))
 
 
 class FeishuImportRequest(BaseModel):
@@ -92,31 +105,6 @@ def _require_feishu_authorization() -> None:
         )
 
 
-def _run_feishu_import(job_id: str, url: str) -> None:
-    import_jobs.start(job_id)
-    try:
-        analysis = service.import_feishu_url(
-            url,
-            progress=lambda event: import_jobs.record(job_id, event),
-            on_candidates=lambda names: import_jobs.set_reports(job_id, names),
-        )
-        import_jobs.complete(job_id, analysis)
-    except Exception as exc:
-        import_jobs.fail(job_id, str(exc))
-
-
-def _run_local_import(job_id: str, uploads: list[tuple[bytes, str]]) -> None:
-    import_jobs.start(job_id)
-    try:
-        analysis = service.import_local_files(
-            uploads,
-            progress=lambda event: import_jobs.record(job_id, event),
-        )
-        import_jobs.complete(job_id, analysis)
-    except Exception as exc:
-        import_jobs.fail(job_id, str(exc))
-
-
 def _job_payload(job_id: str) -> dict[str, object]:
     try:
         job = import_jobs.snapshot(job_id)
@@ -132,6 +120,8 @@ def _job_payload(job_id: str) -> dict[str, object]:
                 "current_checkpoint": report.current_checkpoint,
                 "current_checkpoint_label": report.current_checkpoint_label,
                 "message": report.message,
+                "issues": jsonable_encoder(report.issues),
+                "ready": report.ready,
                 "checkpoint_durations_ms": report.checkpoint_durations_ms,
             }
         )
@@ -149,7 +139,7 @@ def _job_payload(job_id: str) -> dict[str, object]:
 
 @app.get("/", include_in_schema=False)
 def index() -> HTMLResponse:
-    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    html = WEB_ASSETS["index.html"].decode("utf-8")
     return HTMLResponse(
         html.replace("__BUILD_ID__", BUILD_ID),
         headers={"Cache-Control": "no-store"},
@@ -311,9 +301,7 @@ async def start_local_batch_import(
             raise HTTPException(status_code=400, detail="存在文件名为空的评审报告")
         content = await upload.read(MAX_WORKBOOK_BYTES + 1)
         uploads.append((content, filename))
-    job = import_jobs.create("local_excel")
-    import_jobs.set_reports(job.job_id, [filename for _, filename in uploads])
-    import_executor.submit(_run_local_import, job.job_id, uploads)
+    job = import_batches.local(uploads)
     return {"job_id": job.job_id, "status": job.status}
 
 
@@ -337,15 +325,38 @@ def start_feishu_import(payload: FeishuImportRequest) -> dict[str, object]:
     try:
         if FeishuDocumentSource.is_folder_url(payload.url):
             FeishuDocumentSource.validate_folder_url(payload.url)
-            source_type = "feishu_folder"
         else:
             FeishuDocumentSource.validate_url(payload.url)
-            source_type = "feishu_document"
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    job = import_jobs.create(source_type)
-    import_executor.submit(_run_feishu_import, job.job_id, payload.url)
+    job = import_batches.feishu(payload.url)
     return {"job_id": job.job_id, "status": job.status}
+
+
+@app.post("/api/import/jobs/{job_id}/stop")
+def stop_import(job_id: str):
+    try:
+        import_jobs.stop(job_id)
+        return {"message": "已请求停止，当前单次读取结束后停止，保留已完成结果"}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/import/jobs/{job_id}/retry/{index}")
+async def retry_import(job_id: str, index: int, file: UploadFile | None = File(None)):
+    upload = None
+    if file:
+        content = await file.read(MAX_WORKBOOK_BYTES + 1)
+        if len(content) > MAX_WORKBOOK_BYTES:
+            raise HTTPException(status_code=400, detail="报告超过30MB")
+        upload = (content, file.filename or '')
+    try:
+        job = import_batches.retry(job_id, index, upload)
+        return {"job_id": job.job_id, "status": job.status}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="批次不存在，请重新导入") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/import/jobs/{job_id}")
@@ -434,7 +445,7 @@ async def import_dimension_one_submissions(
 class SolutionSelectionRequest(BaseModel):
     analysis_id: str = Field(min_length=1)
     opinion_id: str = Field(min_length=1)
-    included: bool
+    included: bool | None
 
 
 class IdentifySolutionsRequest(BaseModel):

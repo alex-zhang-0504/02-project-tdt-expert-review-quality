@@ -42,6 +42,9 @@ class ReportProgress:
     current_checkpoint: str = ""
     current_checkpoint_label: str = "等待检查"
     message: str = ""
+    issues: list = field(default_factory=list)
+    ready: bool = False
+
 
     @property
     def progress_percent(self) -> int:
@@ -56,6 +59,7 @@ class ImportJob:
     reports: list[ReportProgress] = field(default_factory=list)
     result: WorkbookAnalysis | None = None
     error: str = ""
+    stop_requested: bool = False
 
 
 class ImportJobStore:
@@ -80,6 +84,27 @@ class ImportJobStore:
             job.reports = [
                 existing.get(name, ReportProgress(source_name=name)) for name in source_names
             ]
+
+    def reset_report(self, job_id: str, index: int) -> None:
+        with self._lock:
+            job = self._get(job_id)
+            job.reports[index] = ReportProgress(source_name=job.reports[index].source_name)
+
+    def report_result(self, job_id: str, index: int, issues: list) -> None:
+        with self._lock:
+            report = self._get(job_id).reports[index]
+            report.issues = deepcopy(issues)
+            report.ready = True
+            errors = sum(i.severity == "error" for i in issues)
+            warnings = sum(i.severity == "warning" for i in issues)
+            report.status = "error" if errors else "warning" if warnings else "completed"
+            report.message = f"{errors}项错误" if errors else f"{warnings}项提醒" if warnings else "检查通过"
+
+    def seed_retry(self, job_id: str, previous_id: str, index: int) -> None:
+        with self._lock:
+            reports = deepcopy(self._get(previous_id).reports)
+            reports[index] = ReportProgress(source_name=reports[index].source_name)
+            self._get(job_id).reports = reports
 
     def record(self, job_id: str, event: ProgressEvent) -> None:
         if event.checkpoint_id not in CHECKPOINT_LABELS:
@@ -111,6 +136,8 @@ class ImportJobStore:
                     ),
                     None,
                 )
+            if report is None and event.status == "error":
+                report = next((item for item in matching_reports if item.status == "error"), None)
             if report is None:
                 report = ReportProgress(source_name=event.source_name)
                 job.reports.append(report)
@@ -138,7 +165,17 @@ class ImportJobStore:
         with self._lock:
             job = self._get(job_id)
             job.result = result
-            job.status = "completed"
+            job.status = "stopped" if job.stop_requested else "completed"
+
+    def stop(self, job_id: str) -> None:
+        with self._lock:
+            job = self._get(job_id)
+            if job.status in {"queued", "running"}:
+                job.stop_requested = True
+
+    def stopping(self, job_id: str) -> bool:
+        with self._lock:
+            return self._get(job_id).stop_requested
 
     def fail(self, job_id: str, message: str) -> None:
         with self._lock:

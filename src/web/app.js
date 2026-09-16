@@ -3,7 +3,6 @@ const EXPECTED_PROJECT_ID = "tdt-expert-review-quality";
 const EXPECTED_BUILD_ID = new URLSearchParams(window.location.search).get("build") || "";
 const SERVICE_DISCONNECTED_MESSAGE = "无法连接本地统计服务。请重新双击 start.cmd，并使用新打开的页面重新导入评审表";
 const SERVICE_RESTARTED_MESSAGE = "本地统计服务已重新启动，原评审分析已失效。请返回读取评审表并重新导入后再统计";
-const IMPORT_PROGRESS_STEP_MS = 120;
 const IMPORT_CHECKPOINTS = [
   ["report_acquisition", "获取报告"],
   ["xlsx_acquisition", "获取XLSX"],
@@ -36,7 +35,6 @@ const state = {
   importJobStatus: "queued",
   importProgressReports: [],
   displayProgressReports: [],
-  progressPlaybackTimer: null,
   dimensionOneVisibleRows: [],
 };
 
@@ -237,6 +235,7 @@ function validationCounts() {
 }
 
 function qualityGatePassed() {
+  if (state.importActive) return false;
   if (!state.analysis) return false;
   const { errors, warnings } = validationCounts();
   return errors === 0 && (warnings === 0 || state.warningsAcknowledged);
@@ -249,10 +248,10 @@ function canNavigate(step) {
 }
 
 function showPanel(panel) {
-  hideSubjectiveTooltip();
   [elements.modePanel, elements.mergePanel, elements.importPanel, elements.analysisPanel, document.querySelector("#subjective-panel"), document.querySelector("#score-statistics-panel")]
     .forEach((item) => item.classList.add("is-hidden"));
   panel.classList.remove("is-hidden");
+  panel.querySelectorAll('.table-scroll-content').forEach(makeTableScrollable);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -304,6 +303,7 @@ function validateWorkflowMetadata() {
 }
 
 async function importLocal() {
+  if (state.importActive) return;
   const button = elements.importLocal;
   clearNotice();
   setBusy(button, true, "正在读取与检查…");
@@ -326,11 +326,13 @@ async function importLocal() {
     finishCheckWithRequestError(error.message);
     setNotice(error.message, "error");
   } finally {
+    finishImportControls();
     setBusy(button, false);
   }
 }
 
 async function importFeishu() {
+  if (state.importActive) return;
   const button = elements.importFeishu;
   clearNotice();
   startProgressDisplay([]);
@@ -350,11 +352,13 @@ async function importFeishu() {
     finishCheckWithRequestError(error.message);
     setNotice(error.message, "error");
   } finally {
+    finishImportControls();
     setBusy(button, false);
   }
 }
 
 async function receiveAnalysis(analysis) {
+  state.importActive = false;
   state.analysis = analysis;
   state.analysisServiceInstanceId = state.serviceInstanceId;
   state.analysisStale = false;
@@ -376,7 +380,9 @@ async function receiveAnalysis(analysis) {
 }
 
 function startProgressDisplay(sourceNames = []) {
-  stopProgressPlayback();
+  state.importActive = true;
+  document.querySelector("#stop-import").hidden = false;
+  document.querySelector("#stop-import").disabled = true;
   state.analysis = null;
   state.selectedReportIndex = 0;
   state.importJobId = null;
@@ -411,93 +417,136 @@ function startProgressDisplay(sourceNames = []) {
 
 async function pollImportJob(jobId) {
   state.importJobId = jobId;
+  const stop = document.querySelector("#stop-import");
+  stop.hidden = false;
+  stop.disabled = false;
+  stop.textContent = "停止读取";
   while (true) {
-    const job = await requestJson(`/api/import/jobs/${encodeURIComponent(jobId)}?ts=${Date.now()}`, {
-      cache: "no-store",
-    });
+    const epoch = state.importProgressEpoch || 0;
+    const job = await requestJson(`/api/import/jobs/${encodeURIComponent(jobId)}?ts=${Date.now()}`, {cache: "no-store"});
+    if (epoch !== (state.importProgressEpoch || 0)) continue;
+    if (jobId !== state.importJobId) { jobId = state.importJobId; continue; }
+    state.importSourceType = job.source_type;
     state.importJobStatus = job.status;
-    syncProgressTargets(job.reports || []);
-    if (job.status === "completed") {
-      await waitForProgressPlayback();
+    await syncProgressTargets(job.reports || []);
+    if (epoch !== (state.importProgressEpoch || 0)) continue;
+    renderSelectedReportChecks();
+    if (["completed", "stopped"].includes(job.status)) {
+      if (state.rescanRequests) { await new Promise(resolve => setTimeout(resolve, 100)); continue; }
+      if (job.status === "stopped") setNotice("已停止读取，已完成结果保留；未扫描报告可逐份继续检查。", "info");
       return job.result;
     }
     if (job.status === "error") throw new Error(job.error || "评审报告批量读取失败");
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 }
 
-function stopProgressPlayback() {
-  if (state.progressPlaybackTimer !== null) {
-    window.clearTimeout(state.progressPlaybackTimer);
-    state.progressPlaybackTimer = null;
-  }
+function finishImportControls() {
+  state.importActive = false;
+  state.rescanningIndex = null;
+  document.querySelector("#stop-import").hidden = true;
 }
 
-function syncProgressTargets(reports) {
-  const previous = state.displayProgressReports;
+async function retryReport(index, file = null) {
+  if (!await checkServiceHealth()) return;
+  if (state.importActive) {
+    if (!state.displayProgressReports[index]?.ready) return;
+    if (state.importSourceType === "local_excel" && !file) {
+      state.retryReportIndex = index;
+      const input = document.querySelector("#retry-report-file"); input.value = ""; input.click(); return;
+    }
+    state.rescanRequests = (state.rescanRequests || 0) + 1;
+    try {
+      const body = new FormData();
+      if (file) body.append("file", file, file.name);
+      const job = await requestJson(`/api/import/jobs/${state.importJobId}/retry/${index}`, {method:"POST",body});
+      state.importJobId = job.job_id;
+      state.importProgressEpoch = (state.importProgressEpoch || 0) + 1;
+      state.displayProgressReports[index] = {...state.displayProgressReports[index], ready:false, status:"queued", issues:[], display_percent:0, target_percent:0, display_checkpoint_label:"等待重扫"};
+      renderReportList(); renderSelectedReportChecks();
+    } catch (error) { setNotice(error.message, "error"); }
+    finally { state.rescanRequests -= 1; }
+    return;
+  }
+  const previous = state.analysis;
+  if (!previous || !state.importJobId) return;
+  if (previous.source_type === "local_excel" && !file) {
+    state.retryReportIndex = index;
+    const input = document.querySelector("#retry-report-file");
+    input.value = "";
+    input.click();
+    return;
+  }
+  const oldJob = state.importJobId;
+  state.importActive = true;
+  try {
+    const body = new FormData();
+    if (file) body.append("file", file, file.name);
+    const job = await requestJson(`/api/import/jobs/${oldJob}/retry/${index}`, {method: "POST", body});
+    state.rescanningIndex = index;
+    state.displayProgressReports[index] = {...state.displayProgressReports[index], status:"queued", display_percent:0, target_percent:0, display_checkpoint_label:"等待检查"};
+    elements.continueAnalysis.disabled = true;
+    setNotice("");
+    elements.issueSummary.innerHTML = "";
+    elements.warningConfirm.classList.add("is-hidden");
+    const result = await pollImportJob(job.job_id);
+    await receiveAnalysis(result);
+    selectReport(index);
+  } catch (error) {
+    state.analysis = previous;
+    renderReportList();
+    setNotice(error.message, "error");
+  } finally { finishImportControls(); syncServiceActions(); }
+}
+
+document.querySelector("#retry-report-file").addEventListener("change", event => {
+  if (event.target.files[0]) retryReport(state.retryReportIndex, event.target.files[0]);
+});
+document.querySelector("#stop-import").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const result = await requestJson(`/api/import/jobs/${state.importJobId}/stop`, {method:"POST"});
+    button.textContent = "正在停止…";
+    setNotice(result.message, "info");
+  } catch (error) { button.disabled = false; setNotice(error.message, "error"); }
+});
+
+async function syncProgressTargets(reports) {
+  const epoch = state.importProgressEpoch || 0;
+  const starts = reports.map((report, index) => state.displayProgressReports[index]?.display_percent || 0);
   state.importProgressReports = reports;
   state.displayProgressReports = reports.map((report, index) => {
     const target = Math.max(0, Math.min(100, Number(report.progress_percent) || 0));
-    const existing = previous[index];
-    const canReuse = existing?.source_name === report.source_name;
-    const displayPercent = canReuse
-      ? Math.min(Number(existing.display_percent) || 0, target)
-      : 0;
     return {
       ...report,
+      status: report.status === "completed" && !report.ready ? "running" : report.status,
       target_percent: target,
-      display_percent: displayPercent,
-      display_checkpoint_label: canReuse
-        ? existing.display_checkpoint_label
-        : "等待检查",
+      display_percent: Math.min(starts[index], target),
+      display_checkpoint_label: report.current_checkpoint_label || "等待检查",
     };
   });
-  renderReportList();
-  updateProgressHeader();
-  scheduleProgressPlayback();
-}
-
-function nextProgressReport() {
-  const reports = state.displayProgressReports;
-  const preparing = reports.find((report) => (
-    report.display_percent < Math.min(20, report.target_percent)
-  ));
-  if (preparing) return preparing;
-  const allPrepared = reports.length > 0 && reports.every((report) => (
-    report.target_percent >= 20 || report.status === "error"
-  ));
-  if (!allPrepared) return null;
-  return reports.find((report) => report.display_percent < report.target_percent) || null;
-}
-
-function advanceProgressPlayback() {
-  const report = nextProgressReport();
-  if (!report) return false;
-  report.display_percent = Math.min(report.target_percent, report.display_percent + 10);
-  const checkpointIndex = Math.max(0, Math.ceil(report.display_percent / 10) - 1);
-  report.display_checkpoint_label = IMPORT_CHECKPOINTS[checkpointIndex]?.[1] || "等待检查";
-  renderReportList();
-  updateProgressHeader();
-  return true;
-}
-
-function scheduleProgressPlayback() {
-  if (state.progressPlaybackTimer !== null || !nextProgressReport()) return;
-  state.progressPlaybackTimer = window.setTimeout(() => {
-    state.progressPlaybackTimer = null;
-    if (advanceProgressPlayback()) scheduleProgressPlayback();
-  }, IMPORT_PROGRESS_STEP_MS);
-}
-
-async function waitForProgressPlayback() {
-  scheduleProgressPlayback();
-  while (nextProgressReport() || state.progressPlaybackTimer !== null) {
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  }
+  await new Promise(resolve => {
+    const started = performance.now();
+    function frame(now) {
+      if (epoch !== (state.importProgressEpoch || 0)) { resolve(); return; }
+      const fraction = Math.min(1, (now - started) / 240);
+      state.displayProgressReports.forEach((report, index) => {
+        const from = Math.min(starts[index], report.target_percent);
+        report.display_percent = Math.round(from + (report.target_percent - from) * fraction);
+      });
+      renderReportList();
+      updateProgressHeader();
+      if (fraction < 1) requestAnimationFrame(frame);
+      else resolve();
+    }
+    requestAnimationFrame(frame);
+  });
 }
 
 function updateProgressHeader() {
   const reports = state.displayProgressReports;
+  elements.checkState.className = "check-state";
   if (!reports.length) {
     elements.checkTitle.textContent = "正在枚举飞书归档文件夹";
     elements.checkState.textContent = "检查中";
@@ -517,13 +566,15 @@ function updateProgressHeader() {
 }
 
 function selectedReport() {
+  if (state.importActive) return state.displayProgressReports[state.selectedReportIndex] || null;
   return state.analysis?.reports?.[state.selectedReportIndex] || null;
 }
 
 function renderReportList() {
-  const reports = state.analysis
+  const reports = state.analysis && !state.importActive
     ? state.analysis.reports.map((report, index) => {
       const live = state.displayProgressReports[index];
+      if (state.importActive && state.rescanningIndex === index) return live;
       const errors = report.issues.filter((issue) => issue.severity === "error").length;
       const warnings = report.issues.filter((issue) => issue.severity === "warning").length;
       return {
@@ -538,7 +589,7 @@ function renderReportList() {
       };
     })
     : state.displayProgressReports;
-  elements.reportList.innerHTML = reports.map((report, index) => {
+  const rows = reports.map((report, index) => {
     const percent = Math.max(0, Math.min(100, Number(report.display_percent) || 0));
     const targetPercent = Math.max(percent, Math.min(100, Number(report.target_percent) || 0));
     const completedSegments = Math.floor(percent / 10);
@@ -574,20 +625,35 @@ function renderReportList() {
       const classes = ["report-progress-segment"];
       if (segmentIndex < completedSegments) classes.push("is-complete");
       if (segmentIndex === activeCheckpointIndex) classes.push("is-current");
-      return `<span class="${classes.join(" ")}"></span>`;
+      const fill = Math.max(0, Math.min(100, (percent - segmentIndex * 10) * 10));
+      return `<span class="${classes.join(" ")}" style="background:linear-gradient(to right,var(--progress-color) ${fill}%,transparent ${fill}%)"></span>`;
     }).join("");
-    const tag = state.analysis ? "button" : "div";
-    return `<${tag} class="report-progress-row ${statusClass} ${index === state.selectedReportIndex && state.analysis ? "is-active" : ""}" ${state.analysis ? `type="button" data-index="${index}"` : ""}>
+    const tag = "button";
+    return `<div class="report-scan-item"><${tag} class="report-progress-row ${statusClass} ${index === state.selectedReportIndex ? "is-active" : ""}" type="button" data-index="${index}">
       <span class="report-progress-name"><strong class="inline-name-expand">${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small></span>
       <span class="report-progress-reader ${activeCheckpointIndex >= 0 ? "is-reading" : ""}"><small>当前检查</small><strong>${escapeHtml(checkpointLabel)}</strong></span>
       <span class="report-progress-meter">
         <span class="report-progress-segments" role="progressbar" aria-label="${escapeHtml(report.source_name)}检查进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">${segments}</span>
         <span class="report-progress-value">${percent}%</span>
       </span>
-    </${tag}>`;
-  }).join("");
+    </${tag}>${(!state.importActive || report.ready) && ["error", "warning"].includes(report.status) && state.importJobId ? `<button type="button" class="secondary-button retry-report" data-retry="${index}">重扫</button>` : ""}</div>`;
+  });
+  while (elements.reportList.children.length > rows.length) elements.reportList.lastElementChild.remove();
+  rows.forEach((html, index) => {
+    const old = elements.reportList.children[index];
+    if (old?.dataset.markup === html) return;
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const node = template.content.firstElementChild;
+    node.dataset.markup = html;
+    if (old) old.replaceWith(node);
+    else elements.reportList.append(node);
+  });
+  elements.reportList.querySelectorAll("[data-retry]").forEach(button => {
+    button.onclick = () => retryReport(Number(button.dataset.retry));
+  });
   elements.reportList.querySelectorAll("button.report-progress-row").forEach((button) => {
-    button.addEventListener("click", () => selectReport(Number(button.dataset.index)));
+    button.onclick = () => selectReport(Number(button.dataset.index));
   });
 }
 
@@ -610,11 +676,15 @@ function renderBatchSummary() {
 function renderSelectedReportChecks() {
   const report = selectedReport();
   if (!report) return;
+  if (state.importActive && !report.ready) {
+    elements.issueSummary.textContent = `${report.source_name}：正在读取或等待检查，结论尚未就绪。`;
+    return;
+  }
   renderIssues(report.issues, report.source_name);
 }
 
 function selectReport(index) {
-  if (!state.analysis?.reports?.[index]) return;
+  if (!(state.importActive ? state.displayProgressReports[index] : state.analysis?.reports?.[index])) return;
   state.selectedReportIndex = index;
   renderReportList();
   renderSelectedReportChecks();
@@ -632,7 +702,7 @@ function renderIssues(issues, reportName = "") {
     issue.requires_confirmation
     || (state.analysis?.batch_summary && issue.code.startsWith("feishu_folder_"))
   ));
-  const visibleIssues = issues.filter((issue) => issue.severity !== "info");
+  const visibleIssues = issues.filter((issue) => issue.severity !== "info" || issue.code === "absent_with_valid_signoff");
   batchIssues.forEach((issue) => {
     const alreadyVisible = visibleIssues.some((visibleIssue) => (
       visibleIssue === issue
@@ -645,18 +715,22 @@ function renderIssues(issues, reportName = "") {
   const aggregate = validationCounts();
   const label = reportName ? `“${reportName}”` : "评审报告";
   if (!visibleIssues.length) {
-    elements.checkTitle.textContent = `${label}检查完成`;
-    elements.checkState.textContent = "检查通过";
-    elements.checkState.className = "check-state is-ok";
-    elements.issueSummary.innerHTML = `<p><strong>未发现格式错误或检查提醒。</strong>可以继续进入统计。</p>`;
+    if (!state.importActive) {
+      elements.checkTitle.textContent = `${label}检查完成`;
+      elements.checkState.textContent = "检查通过";
+      elements.checkState.className = "check-state is-ok";
+    }
+    elements.issueSummary.innerHTML = `<p><strong>未发现格式错误或检查提醒。</strong>${state.importActive ? "本文件检查通过，仍需等待全批次完成。" : "可以继续进入统计。"}</p>`;
   } else {
-    elements.checkTitle.textContent = errors
-      ? `${label}存在错误`
-      : warnings ? `${label}存在提醒` : `${label}检查完成`;
-    elements.checkState.textContent = errors
-      ? `${errors}项错误`
-      : warnings ? `${warnings}项提醒` : "检查通过";
-    elements.checkState.className = `check-state ${errors ? "is-error" : warnings ? "is-warning" : "is-ok"}`;
+    if (!state.importActive) {
+      elements.checkTitle.textContent = errors
+        ? `${label}存在错误`
+        : warnings ? `${label}存在提醒` : `${label}检查完成`;
+      elements.checkState.textContent = errors
+        ? `${errors}项错误`
+        : warnings ? `${warnings}项提醒` : "检查通过";
+      elements.checkState.className = `check-state ${errors ? "is-error" : warnings ? "is-warning" : "is-ok"}`;
+    }
     elements.issueSummary.innerHTML = `
       <strong>${errors}项错误，${warnings}项提醒</strong>
       <ul>${visibleIssues.map((issue) => {
@@ -664,7 +738,7 @@ function renderIssues(issues, reportName = "") {
           ? `${issue.sheet_name}${issue.cell_reference ? `!${issue.cell_reference}` : ""}`
           : issue.source_name || "工作簿";
         const expert = issue.expert_name ? `；专家：${issue.expert_name}` : "";
-        const severityLabel = issue.severity === "error" ? "错误" : "提醒";
+        const severityLabel = issue.severity === "error" ? "错误" : issue.severity === "info" ? "说明" : "提醒";
         const relatedLocations = issue.related_locations?.length
           ? `<small class="issue-related-locations"><strong>表格位置：</strong>${issue.related_locations.map((location, index) => `<span>${index + 1}．${escapeHtml(location)}</span>`).join("")}</small>`
           : "";

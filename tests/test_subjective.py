@@ -31,13 +31,13 @@ class SubjectiveTests(unittest.TestCase):
         facts = deepcopy(self.expert.overall)
         review = save_review(self.analysis, self.payload())
         self.assertNotIn("total", review)
-        self.assertEqual(60, questionnaire_score(review)[1])
+        self.assertEqual(70, questionnaire_score(review)[1])
         self.assertEqual("已完成", review["status"])
         payload = self.payload()
         payload.ratings["contribution"].option = "low"
         payload.ratings["contribution"].note = ""
         payload.ratings["contribution"].project_code = ""
-        self.assertEqual(50, questionnaire_score(save_review(self.analysis, payload))[1])
+        self.assertEqual(60, questionnaire_score(save_review(self.analysis, payload))[1])
         self.assertEqual(facts, self.expert.overall)
 
     def test_unselected_and_required_evidence_do_not_become_zero_total(self):
@@ -50,11 +50,11 @@ class SubjectiveTests(unittest.TestCase):
         payload.ratings["preparation"].note = "未阅读关键材料，导致讨论反复。"
         self.assertIsNone(questionnaire_score(save_review(self.analysis, payload))[1])
         payload.ratings["preparation"].project_code = self.project
-        self.assertEqual(52, questionnaire_score(save_review(self.analysis, payload))[1])
+        self.assertEqual(60, questionnaire_score(save_review(self.analysis, payload))[1])
 
     def test_middle_scores_and_contribution_zero(self):
         ratings = {d["id"]: {"option": "medium" if d["id"] != "contribution" else "low"} for d in DIMENSIONS}
-        self.assertEqual(33, questionnaire_score(save_review(self.analysis, self.payload(ratings=ratings)))[1])
+        self.assertEqual(41, questionnaire_score(save_review(self.analysis, self.payload(ratings=ratings)))[1])
 
     def test_invalid_dimension_option_project_and_person_are_atomic(self):
         saved = deepcopy(save_review(self.analysis, self.payload()))

@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from dataclasses import asdict
 from unittest.mock import patch, MagicMock
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from fastapi import FastAPI
 from tdt_scoring.experiment import create_experiment_router, call_deepseek, BASE_URL
@@ -53,9 +53,10 @@ class ExperimentTests(unittest.TestCase):
 
     def configure(self):
         response = self.client.post("/api/experiment/settings", headers=self.headers,
-            json={"api_key": "fake-test-key-only", "model": "deepseek-v4-flash"})
+            json={"api_key": "fake-test-key-only", "model": "deepseek-flash"})
         self.assertEqual(200, response.status_code)
         self.assertNotIn("fake-test-key-only", response.text)
+        self.assertEqual("deepseek-flash", response.json()["model"])
         self.headers["X-Experiment-Session"] = response.json()["session"]
 
     def test_default_off_configure_test_disable(self):
@@ -74,7 +75,7 @@ class ExperimentTests(unittest.TestCase):
     def test_bad_key_never_echoed(self):
         secret = "sensitive\ninvalid-key"
         response = self.client.post("/api/experiment/settings", headers=self.headers,
-            json={"api_key": secret, "model": "deepseek-v4-flash"})
+            json={"api_key": secret, "model": "deepseek-flash"})
         self.assertEqual(400, response.status_code)
         self.assertNotIn("sensitive", response.text)
 
@@ -116,12 +117,16 @@ class ExperimentTests(unittest.TestCase):
         response.__enter__.return_value.read.return_value = json.dumps(envelope).encode()
         with patch("tdt_scoring.experiment.build_opener") as opener:
             opener.return_value.open.return_value = response
-            result = call_deepseek("fake-test-key-only", "deepseek-v4-flash", [opinion])
+            result = call_deepseek("fake-test-key-only", "deepseek-flash", [opinion])
             request = opener.return_value.open.call_args.args[0]
             self.assertEqual(BASE_URL + "/chat/completions", request.full_url)
             payload = json.loads(request.data)
+            self.assertEqual("deepseek-flash", payload["model"])
+            self.assertEqual({"type": "disabled"}, payload["thinking"])
+            self.assertEqual("POST", request.get_method())
+            self.assertEqual("Bearer fake-test-key-only", request.get_header("Authorization"))
             self.assertEqual({"type": "json_object"}, payload["response_format"])
-            self.assertEqual([{"id": "x", "text": opinion.text}], json.loads(payload["messages"][1]["content"]))
+            self.assertEqual([{"id": "x", "text": opinion.text, "review_roles": []}], json.loads(payload["messages"][1]["content"]))
             self.assertEqual("yes", result["x"]["status"])
             self.assertEqual(45, opener.return_value.open.call_args.kwargs["timeout"])
 
@@ -129,8 +134,45 @@ class ExperimentTests(unittest.TestCase):
         with patch("tdt_scoring.experiment.build_opener") as opener:
             opener.return_value.open.side_effect = HTTPError(BASE_URL, 401, "fake-test-key-only", {}, None)
             with self.assertRaisesRegex(ValueError, "密钥无效"):
-                call_deepseek("fake-test-key-only", "deepseek-v4-flash", [])
+                call_deepseek("fake-test-key-only", "deepseek-flash", [])
 
     def test_redirect_not_followed(self):
         from tdt_scoring.experiment import NoRedirect
         self.assertIsNone(NoRedirect().redirect_request(None, None, 302, "", {}, "https://evil.example"))
+
+    def test_transport_errors_are_distinct_and_redacted(self):
+        failures = [
+            (TimeoutError("fake-test-key-only"), "等待DeepSeek响应超时"),
+            (URLError(TimeoutError("fake-test-key-only")), "等待DeepSeek响应超时"),
+            (URLError("fake-test-key-only"), "无法连接DeepSeek"),
+            (HTTPError(BASE_URL, 422, "fake-test-key-only", {}, None), "请求参数被DeepSeek拒绝"),
+            (HTTPError(BASE_URL, 503, "fake-test-key-only", {}, None), "服务繁忙"),
+        ]
+        for failure, message in failures:
+            with self.subTest(failure=type(failure).__name__, message=message):
+                with patch("tdt_scoring.experiment.build_opener") as opener:
+                    opener.return_value.open.side_effect = failure
+                    with self.assertRaisesRegex(ValueError, message) as caught:
+                        call_deepseek("fake-test-key-only", "deepseek-flash", [])
+                    self.assertNotIn("fake-test-key-only", str(caught.exception))
+
+    def test_model_response_failures_reach_page_without_secrets(self):
+        self.configure()
+        self.caller.side_effect = call_deepseek
+        for finish, content, message in [
+            ("length", "fake-test-key-only", "输出达到长度上限"),
+            ("stop", "", "返回了空内容"),
+            ("stop", "fake-test-key-only", "不是有效JSON"),
+            ("stop", '{"results": []}', "意见结果不完整或原文片段不匹配"),
+        ]:
+            with self.subTest(message=message):
+                response = MagicMock()
+                response.__enter__.return_value.read.return_value = json.dumps({"choices": [
+                    {"finish_reason": finish, "message": {"content": content}}
+                ]}).encode()
+                with patch("tdt_scoring.experiment.build_opener") as opener:
+                    opener.return_value.open.return_value = response
+                    result = self.client.post("/api/experiment/test", headers=self.headers)
+                self.assertEqual(422, result.status_code)
+                self.assertIn(message, result.json()["detail"])
+                self.assertNotIn("fake-test-key-only", result.text)

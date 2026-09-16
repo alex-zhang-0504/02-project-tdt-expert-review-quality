@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from hashlib import sha256
 from io import BytesIO
 import json
+import re
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -300,7 +301,7 @@ def _write_fact_detail(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
                           fact.attendance, fact.proxy_name or "", fact.signoff, fact.source_name,
                           fact.sheet_name, json.dumps(fact.cells, ensure_ascii=False)))
             for opinion in fact.opinions:
-                included = opinion.ai_status in {"yes", "suspected"} and opinion.included is not False
+                included = opinion.ai_status != "pending" and (opinion.included is True or (opinion.included is None and opinion.ai_status == "yes"))
                 opinions.append((expert.expert_name, fact.project_code, fact.project_name, fact.stage,
                     opinion.opinion_id, opinion.text, opinion.ai_status, opinion.excerpt, opinion.reason,
                     "待AI识别" if opinion.ai_status == "pending" else "是" if included else "否",
@@ -312,14 +313,15 @@ def _write_fact_detail(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
 
 
 def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
-    keys = ("attendance_rate", "signoff_rate", "opinion_rate", "solution_rate")
-    labels = ("出勤率", "会签率", "意见提出率", "含对策意见率")
+    keys = ("attendance_rate", "signoff_rate", "opinion_rate", "solutions")
+    labels = ("出勤率", "会签率", "意见提出率", "含对策意见条数")
     for title, stages in (("04_分阶段统计", ("TDR1", "TDR2", "TDR3")), ("05_全部阶段汇总", ("全部阶段",))):
         sheet = workbook.create_sheet(title)
-        sheet.append(["评审人"] + [stage + " " + label for stage in stages for label in labels] + ["评审参与度（有效参评场次）", "代理率"])
+        sheet.append(["评审人"] + [stage + " " + label for stage in stages for label in labels] + ["总参与评审场次", "代理率"])
         for expert in analysis.experts:
             stats = [expert.overall if stage == "全部阶段" else expert.stages[stage] for stage in stages]
             sheet.append([expert.expert_name] + [
+                (None if value["pending"] else value[key]) if key == "solutions" else
                 None if value[key] is None else value[key] / 100 for value in stats for key in keys
             ] + [None if expert.overall["unknown"] else expert.overall["attended"],
                  None if expert.overall["proxy_rate"] is None else expert.overall["proxy_rate"] / 100])
@@ -329,7 +331,7 @@ def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
                     f"实参场次÷应参场次×100％＝{value['attended']}÷{value['expected']}×100％；未知出勤{value['unknown']}场",
                     f"已填会签场次÷应参场次×100％＝{value['signed']}÷{value['expected']}×100％",
                     f"意见总条数÷实参场次×100％＝{value['opinions']}÷{value['attended']}×100％",
-                    f"含对策意见÷意见总条数×100％＝{value['solutions']}÷{value['opinions']}×100％；待识别{value['pending']}条，疑似{value['suspected']}条",
+                    f"含对策意见{value['solutions']}条；待识别{value['pending']}条，疑似{value['suspected']}条；每条2分奖励在第四模块计算",
                 ]
                 for offset, formula in enumerate(formulas):
                     sheet.cell(sheet.max_row, 2 + index * 4 + offset).comment = Comment(formula, "V0.6")
@@ -340,7 +342,8 @@ def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
         _format_sheet(sheet, widths=tuple([18] + [22] * (len(stages) * 4 + 2)))
         for row in sheet.iter_rows(min_row=2, min_col=2):
             for cell in row:
-                cell.number_format = "0" if cell.column == sheet.max_column - 1 else "0.##%"
+                count_column = cell.column == sheet.max_column - 1 or (cell.column < sheet.max_column - 1 and (cell.column - 2) % 4 == 3)
+                cell.number_format = "0" if count_column else "0.##%"
 
 
 def _write_issues(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
@@ -422,21 +425,20 @@ def _validated_decisions(sessions, decisions) -> dict:
         if item.get("text") != facts[oid].text or not isinstance(item.get("audit", []), list):
             raise ValueError("提交表意见证据不一致")
         audit = item.get("audit", [])
-        if any(not isinstance(a, dict) or not isinstance(a.get("at"), str)
-               or type(a.get("to")) is not bool
+        if any(not isinstance(a, dict) or "to" not in a or not isinstance(a.get("at"), str)
+               or (a.get("to") is not None and type(a["to"]) is not bool)
                or (a.get("from") is not None and type(a["from"]) is not bool) for a in audit):
             raise ValueError("人工复核记录无效")
         status = item.get("ai_status")
-        if status != "suspected" and audit:
-            raise ValueError("非疑似意见不能含人工复核记录")
+        if status == "pending" and audit:
+            raise ValueError("未识别意见不能含人工复核记录")
         if status == "pending":
             if item.get("included") is not None:
                 raise ValueError("未识别意见不能人工计入")
         else:
             validate_predictions([facts[oid]], [{"id": oid, "status": status,
                 "excerpt": item.get("excerpt", ""), "reason": item.get("reason", "")}])
-            if status != "suspected" and item.get("included") is not None:
-                raise ValueError("非疑似意见不能修改计入选择")
-        if status != "pending" and item.get("rule_version") != "countermeasure-v0.6":
+        policy_version = re.fullmatch(r"countermeasure-policy-v[0-9]+\.[0-9]+/sha256:[0-9a-f]{64}/deepseek-(?:flash|v4-pro)", str(item.get("rule_version", "")))
+        if status != "pending" and not policy_version and item.get("rule_version") not in {"countermeasure-v0.6", "countermeasure-ai-v0.8/deepseek-flash", "countermeasure-ai-v0.8/deepseek-v4-pro"}:
             raise ValueError("对策识别规则版本不一致")
     return decisions

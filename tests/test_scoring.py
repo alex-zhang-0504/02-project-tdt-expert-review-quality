@@ -122,19 +122,19 @@ class FactStatisticsTests(unittest.TestCase):
             service.identify_solutions(analysis.analysis_id)
         self.assertIsNone(target(analysis.experts).overall["solution_rate"])
 
-    def test_suspected_default_included_manual_exclusion_is_audited(self):
+    def test_suspected_requires_manual_inclusion_is_audited(self):
         service = ScoringService(classifier=simulated_classifier)
         analysis = service.import_local_bytes(fixture(), "test.xlsx")
         service.identify_solutions(analysis.analysis_id)
         expert = target(analysis.experts)
-        self.assertEqual(100, expert.overall["solution_rate"])
+        self.assertIsNone(expert.overall["solution_rate"])
         opinion = expert.sessions[0].opinions[0]
         service.select_solution(analysis.analysis_id, opinion.opinion_id, False)
-        self.assertEqual(50, expert.overall["solution_rate"])
+        self.assertIsNone(expert.overall["solution_rate"])
         self.assertEqual(200, expert.overall["opinion_rate"])
         self.assertEqual(False, opinion.audit[-1]["to"])
         service.select_solution(analysis.analysis_id, opinion.opinion_id, True)
-        self.assertEqual(100, expert.overall["solution_rate"])
+        self.assertEqual(50, expert.overall["solution_rate"])
         self.assertEqual(2, len(opinion.audit))
 
     def test_untrusted_ai_missing_ids_and_invented_evidence_rejected(self):
@@ -162,7 +162,7 @@ class FactStatisticsTests(unittest.TestCase):
         content = build_dimension_one_workbook(analysis, package_kind="manager_submission", batch_id="2026",
             manager_id="PM01", manager_name="虚拟项目经理", product_version="v0.6", build_id="test")
         merged = service.merge_dimension_one_submissions([(content, "submit.xlsx")], expected_manager_count=1)
-        self.assertEqual(50, target(merged.experts).overall["solution_rate"])
+        self.assertIsNone(target(merged.experts).overall["solution_rate"])
         self.assertEqual(200, target(merged.experts).overall["opinion_rate"])
         self.assertEqual(1, len(target(merged.experts).sessions[0].opinions[0].audit))
         wb = load_workbook(BytesIO(content))

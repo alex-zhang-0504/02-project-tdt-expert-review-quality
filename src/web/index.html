@@ -140,7 +140,8 @@
             <section class="check-card is-hidden" id="check-card" aria-live="polite">
               <div class="check-heading">
                 <div><p class="section-index">文档质量检查</p><h3 id="check-title">正在检查评审报告</h3></div>
-                <span class="check-state" id="check-state">检查中</span>
+                <div><button type="button" class="secondary-button" id="stop-import" hidden>停止读取</button><span class="check-state" id="check-state">检查中</span></div>
+                <input type="file" id="retry-report-file" accept=".xlsx" hidden />
               </div>
               <div class="batch-summary usage-note is-hidden" id="batch-summary"></div>
               <div class="report-progress-list" id="report-list"></div>
@@ -169,13 +170,20 @@
               <label class="field control-stage"><span>统计视图</span><select id="dimension-one-stage"><option value="">分阶段</option><option value="overall">全部阶段汇总</option><option value="TDR1">仅TDR1</option><option value="TDR2">仅TDR2</option><option value="TDR3">仅TDR3</option></select></label>
               <div class="dimension-one-export">
                 <label class="field central-batch-field"><span>年度批次编号</span><input id="central-batch-id" type="text" placeholder="例如：2025四维事实" /></label>
+                <div class="ai-action-group">
+                  <div class="facts-ai-tools"><strong id="facts-ai-label">AI对策分析</strong><span id="facts-ai-status" role="status"></span></div>
+                  <div class="facts-ai-actions">
+                    <button class="secondary-button" id="identify-solutions" data-service-action="true" type="button">对策有效性识别</button>
+                    <button id="cancel-ai-analysis" type="button" class="secondary-button" hidden>停止分析</button>
+                  </div>
+                </div>
                 <button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled>导出维度一结果</button>
               </div>
             </div>
-            <div class="facts-ai-tools"><button class="secondary-button" id="identify-solutions" data-service-action="true" type="button">识别待处理对策</button><span id="facts-ai-status" role="status"></span></div>
+
             <div class="dimension-one-table-wrap" id="dimension-one-table-wrap"></div>
             <div class="expert-detail is-hidden" id="expert-detail"></div>
-            <div class="subjective-next"><button class="primary-button" id="open-subjective" type="button">填写专业价值贡献 →</button></div>
+            <p class="muted">「—」表示本批次无应参记录或该项不适用；「0」表示有统计依据，但数量为零。</p>
           </section>
 
           <section class="panel is-hidden" id="subjective-panel">
@@ -205,7 +213,7 @@
           </section>
           <section class="panel is-hidden" id="score-statistics-panel">
             <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><h2>分数统计</h2>
-              <p>过程表现40分＋专业价值60分＋超额意见奖励，最高100分；阶段基础分按4∶2∶4加权。</p></div>
+              <p>过程表现30分＋专业价值70分；超额意见每条＋1分，含对策意见每条另＋2分，最高100分。阶段基础分按4∶2∶4加权。</p></div>
               <div class="heading-actions"><button class="secondary-button" id="refresh-score-statistics" type="button">刷新统计</button>
                 <button class="primary-button" id="export-score-statistics" type="button" disabled>导出分数统计</button></div></div>
             <label class="warning-confirm"><input id="score-scope-confirmed" type="checkbox" />
@@ -227,26 +235,29 @@
       <div id="formula-body"></div>
     </dialog>
     <dialog id="experiment-dialog" aria-labelledby="experiment-title">
-      <div class="formula-heading"><h3 id="experiment-title">个人实验设置</h3><button class="ghost-button" id="close-experiment" type="button">关闭</button></div>
-      <p class="muted">仅供本人试验，不改变部门规则，不写回主表或导出。需要允许向DeepSeek发送所选意见；文本本身仍可能含敏感信息。</p>
+      <div class="formula-heading"><h3 id="experiment-title">AI设置</h3><button class="ghost-button" id="close-experiment" type="button">关闭</button></div>
+      <p class="muted">配置成功后，在评审过程表现中识别全部待处理意见，结果自动写回统计。</p>
       <label class="field"><span>服务地址（固定官方地址）</span><input value="https://api.deepseek.com" readonly /></label>
-      <label class="field"><span>模型</span><select id="experiment-model"><option value="deepseek-v4-flash">DeepSeek V4 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option></select></label>
+      <label class="field"><span>模型</span><select id="experiment-model"><option value="deepseek-flash">DeepSeek V4.1 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro（过渡入口）</option></select></label>
       <label class="field"><span>API Key</span><input id="experiment-key" type="password" autocomplete="off" spellcheck="false" placeholder="自行输入，不会回显或写入项目文件" /></label>
-      <p class="muted">默认关闭。保存只暂存于本地后端内存，有效期1小时，服务退出后失效；刷新页面需重新配置。测试及识别会产生API调用费用。</p>
+      <p class="muted">配置仅保留在内存，空闲有效期1小时，刷新后需重新填写。关闭弹窗可继续使用；测试及识别会产生API调用费用。</p>
       <div class="solution-actions">
-        <button class="primary-button" id="save-experiment" type="button">开启本次实验</button>
+        <button class="primary-button" id="save-experiment" type="button">保存并验证连接</button>
         <button class="secondary-button" id="test-experiment" type="button" disabled>测试连接（虚拟文本）</button>
         <button class="secondary-button" id="disable-experiment" type="button" disabled>关闭并清除密钥</button>
       </div>
-      <p id="experiment-status" role="status">实验未开启。</p>
-      <button class="secondary-button" id="preview-experiment" type="button" disabled>预览本批次前10条意见</button>
-      <section id="experiment-preview"></section>
-      <label class="warning-confirm is-hidden" id="experiment-consent"><input id="experiment-confirmed" type="checkbox" /><span>我已核对上方文本，确认允许发送到DeepSeek。</span></label>
-      <button class="primary-button is-hidden" id="run-experiment" type="button" disabled>发送预览意见并试验</button>
-      <section id="experiment-results" aria-live="polite"></section>
+      <p id="experiment-status" role="status">尚未配置AI。</p>
+      <div class="usage-note" role="status" id="ai-policy-settings">判定配置：尚未读取。</div>
+      <button class="secondary-button" id="reload-ai-policy" type="button">重新读取判定配置</button>
+    </dialog>
+    <dialog id="ai-consent-dialog" aria-labelledby="ai-consent-title">
+      <div class="formula-heading"><h3 id="ai-consent-title">分析全部待处理意见</h3><button id="close-ai-consent" class="ghost-button" type="button">取消</button></div>
+      <p id="ai-consent-summary"></p>
+      <div class="usage-note" role="status" id="ai-policy-consent">判定配置：尚未读取。</div>
+      <p class="muted">将逐条向DeepSeek发送意见原文及编号，可能包含文本中原有的项目或人员信息，并产生API费用。成功结果自动写回，已完成意见不重复分析。</p>
+      <button id="start-ai-analysis" class="primary-button" type="button">确认发送并开始分析</button>
     </dialog>
     <div class="copyright-mark" aria-hidden="true">Designed by Siyuan for TRD</div>
-    <div id="subjective-tooltip" role="tooltip" hidden></div>
     <script src="/static/facts.js?build=__BUILD_ID__" defer></script>
     <script src="/static/subjective.js?build=__BUILD_ID__" defer></script>
     <script src="/static/score-statistics.js?build=__BUILD_ID__" defer></script>

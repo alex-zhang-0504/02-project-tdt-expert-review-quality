@@ -2,7 +2,6 @@ const FACT_METRICS = [
   ["attendance_rate", "出勤率", "attended", "expected", "实参场次÷应参场次×100％", "实参包含按原规则归属的代理参评。"],
   ["signoff_rate", "会签率", "signed", "expected", "已填会签场次÷应参场次×100％", "会签结果非空且不是横杠即计入，以项目经理填写为准。"],
   ["opinion_rate", "意见提出率", "opinions", "attended", "意见总条数÷实参场次×100％", "同场多条意见逐条累计，允许超过100％。"],
-  ["solution_rate", "含对策意见率", "solutions", "opinions", "纳入统计的含对策意见条数÷意见总条数×100％", "疑似默认计入，可在详情选择不计入；一条意见多项措施只计一条。"],
 ];
 const PROXY_METRIC = ["proxy_rate", "代理情况", "proxy", "expected", "代理场次÷应参场次×100％", "跨全部阶段统计，代理事实归原评审人。"];
 const FACT_COLUMNS = [
@@ -10,15 +9,16 @@ const FACT_COLUMNS = [
   ["attendance_rate", "出勤率", 80], ["signed", "已会签场次", 84, "已会签<br>场次"],
   ["signoff_rate", "会签率", 80], ["opinions", "意见条数", 72, "意见<br>条数"],
   ["opinion_rate", "意见提出率", 88, "意见<br>提出率"], ["solutions", "含对策意见条数", 100, "含对策<br>意见条数"],
-  ["solution_rate", "含对策意见率", 100, "含对策<br>意见率"],
 ];
 function visibleFactGroups(value) {
   return value === "overall" ? ["全部阶段"] : ["TDR1", "TDR2", "TDR3"].includes(value) ? [value] : ["TDR1", "TDR2", "TDR3"];
 }
 function factCellText(stats, key) {
+  if (stats.expected === 0) return "—";
   if (key === "proxy_rate") return stats.proxy + "/" + stats.expected;
+  if (stats.unknown && ["attendance_rate", "opinion_rate"].includes(key)) return "待确认";
   if (key.endsWith("_rate")) return percent(stats[key]);
-  if (key === "solutions" && stats.pending) return "—";
+  if (key === "solutions" && stats.pending) return "待识别";
   return String(stats[key]);
 }
 function subtaskDisplayName(name) {
@@ -49,24 +49,25 @@ function renderDimensionOneTable() {
   const groups = visibleFactGroups(elements.dimensionOneStage.value);
   elements.analysisSummary.textContent = experts.length + "位评审人 · 点击数字查看公式，详情查看项目与意见证据。";
   const pending = state.analysis.experts.reduce((n, e) => n + e.overall.pending, 0);
-  document.querySelector("#facts-ai-status").textContent = state.analysis.ai_message
-    || (pending ? pending + "条意见待AI识别，含对策意见率暂不计算。" : "识别结果可在详情查看；疑似项默认计入。");
+  const totalOpinions = state.analysis.experts.reduce((n, e) => n + e.overall.opinions, 0);
+  const unresolvedCount = state.analysis.experts.reduce((n, e) => n + e.overall.suspected, 0);
+  document.querySelector("#facts-ai-status").textContent = `已识别${totalOpinions - pending}／${totalOpinions}条 · 疑似待确认${unresolvedCount}条`;
   if (!experts.length) {
     elements.dimensionOneTableWrap.innerHTML = '<div class="dimension-one-empty">没有匹配的评审人。</div>';
     return;
   }
   const metricCell = (value, row, group, metric) => '<td class="numeric"><button type="button" class="fact-number" data-row="' + row
     + '" data-group="' + group + '" data-metric="' + metric[0] + '" aria-label="' + metric[1] + '计算方法">'
-    + factCellText(value, metric[0]) + '</button>'
+    + factCellText(value, metric[0]) + (metric[0] === 'solutions' && value.suspected ? '<span class="solution-alert" title="' + value.suspected + '条疑似待确认，尚未计入" aria-label="' + value.suspected + '条疑似待确认">!</span>' : '') + '</button>'
     + (metric[0] === 'attended' && value.unknown ? '<small class="fact-hint">' + value.unknown + '场待确认</small>' : '')
-    + (metric[0] === 'solutions' && value.pending ? '<small class="fact-hint">待识别</small>' : '') + '</td>';
+    + '</td>';
   elements.dimensionOneTableWrap.innerHTML = '<table class="dimension-one-table facts-table" style="--dimension-table-width:'
     + (408 + groups.length * FACT_COLUMNS.reduce((n, c) => n + c[2], 0)) + 'px"><colgroup><col style="width:120px">'
     + groups.map(() => FACT_COLUMNS.map(c => '<col style="width:' + c[2] + 'px">').join("")).join("")
     + '<col style="width:112px"><col style="width:88px"><col style="width:88px"></colgroup><thead><tr>'
     + '<th class="sticky-1" rowspan="2">评审人</th>'
-    + groups.map(g => '<th colspan="9" scope="colgroup">' + g + '</th>').join("")
-    + '<th rowspan="2">评审参与度</th><th rowspan="2">代理情况</th><th class="evidence-sticky" rowspan="2">详情</th></tr><tr>'
+    + groups.map(g => '<th colspan="8" scope="colgroup">' + g + '</th>').join("")
+    + '<th rowspan="2">总参与<br>评审场次</th><th rowspan="2">代理情况</th><th class="evidence-sticky" rowspan="2">详情</th></tr><tr>'
     + groups.map(() => FACT_COLUMNS.map(m => '<th scope="col" aria-label="' + m[1] + '">' + (m[3] || m[1]) + '</th>').join("")).join("")
     + '</tr></thead><tbody>'
     + experts.map((e, row) => '<tr><td class="sticky-1">' + escapeHtml(e.expert_name) + '</td>'
@@ -76,6 +77,7 @@ function renderDimensionOneTable() {
       + metricCell(e.overall, row, "全部阶段", PROXY_METRIC)
       + '<td class="evidence-sticky"><button class="row-evidence-button" type="button" data-details="' + row + '">详情查看</button></td></tr>').join("")
     + '</tbody></table>';
+  makeTableScrollable(elements.dimensionOneTableWrap);
   elements.dimensionOneTableWrap.querySelectorAll("[data-metric]").forEach(button => button.addEventListener("click", () => {
     const expert = experts[Number(button.dataset.row)];
     const metric = [...FACT_METRICS, PROXY_METRIC].find(m => m[0] === button.dataset.metric);
@@ -105,7 +107,7 @@ function showFactCount(name, stage, key, stats) {
     attended: "已确认实际参评场次，包含按原规则归属的代理参评；待确认出勤另行标示。",
     signed: "会签结果非空且不是横杠的场次，以项目经理填写为准。",
     opinions: "按原摘取、拆条、归属和去重规则累计意见条数，不按场次折为一条。",
-    solutions: "纳入统计的含对策意见条数，疑似默认计入；识别未完成时不显示最终数量。",
+    solutions: "纳入统计的含对策意见条数，疑似未确认不计入；识别未完成时不显示最终数量。",
   };
   document.querySelector("#formula-title").textContent = name + " · " + stage + " · " + column[1];
   document.querySelector("#formula-body").innerHTML = '<p class="formula-value">' + factCellText(stats, key)
@@ -122,11 +124,6 @@ function showFormula(name, stage, metric, stats) {
   if (!stats[metric[3]]) note += " 分母为0，显示“—”。";
   if ((metric[0] === "attendance_rate" || metric[0] === "opinion_rate") && stats.unknown)
     note += " 有" + stats.unknown + "场出勤状态无法判断，暂不计算比率。";
-  if (metric[0] === "solution_rate") {
-    note += " 疑似" + stats.suspected + "条，待AI识别" + stats.pending + "条。";
-    if (stats.pending) note += " 识别未完成，当前分子不是最终值，暂不计算比率。";
-    else if (!stats.solutions) note += " 当前纳入的含对策意见为0条，按展示约定显示“—”。";
-  }
   document.querySelector("#formula-body").innerHTML = '<p>' + escapeHtml(metric[4]) + '</p><p class="formula-value">'
     + stats[metric[2]] + ' ÷ ' + stats[metric[3]] + ' × 100％'
     + (stats[metric[0]] === null ? '；当前显示：—' : ' ＝ ' + percent(stats[metric[0]]))
@@ -140,47 +137,85 @@ function openDimensionOneEvidence(name) {
   if (!elements.evidenceDrawer.open) evidenceReturnFocus = document.activeElement;
   evidenceExpertName = name;
   const projects = [...new Set(expert.sessions.map(s => s.project_code))];
-  elements.evidenceDrawerTitle.textContent = name + " · 副表格";
-  elements.evidenceDrawerContent.innerHTML = '<table class="review-detail-table"><colgroup><col class="detail-project-col"><col class="detail-code-col"><col span="3" class="detail-stage-col"></colgroup>'
-    + '<thead><tr><th scope="col">项目名</th><th scope="col">项目编码</th><th scope="col">TDR1详情</th><th scope="col">TDR2详情</th><th scope="col">TDR3详情</th></tr></thead><tbody>'
-    + projects.map(code => {
-      const sessions = expert.sessions.filter(s => s.project_code === code)
-        .sort((a, b) => a.stage.localeCompare(b.stage));
-      return '<tr><td class="detail-project-name">' + escapeHtml(subtaskDisplayName(sessions[0].project_name)) + '</td><td>'
-        + escapeHtml(code) + '</td>' + ['TDR1', 'TDR2', 'TDR3'].map(stage => {
-          const stageSessions = sessions.filter(session => session.stage === stage);
-          return '<td data-stage="' + stage + '">' + (stageSessions.length ? stageSessions.map(session => '<section class="detail-stage">'
-          + (session.opinions.length ? session.opinions.map((opinion, index) => renderOpinion(opinion, session, index)).join("")
-            : '<p class="muted">本场未提供意见记录。</p><details><summary>查看证据</summary><p class="evidence-source">'
-              + escapeHtml(session.source_name + "／" + session.sheet_name) + '</p></details>')
-          + '</section>').join("") : '<p class="muted">本批次无参评记录。</p>') + '</td>';
-        }).join("") + '</tr>';
-    }).join("") + '</tbody></table>';
+  elements.evidenceDrawerTitle.textContent = name + " · 评审详情";
+  elements.evidenceDrawerContent.innerHTML = projects.map((code, projectIndex) => {
+    const sessions = expert.sessions.filter(s => s.project_code === code);
+    return '<section class="review-project"><h3>' + (projectIndex + 1) + '　'
+      + escapeHtml(subtaskDisplayName(sessions[0].project_name)) + '　｜　项目编码：' + escapeHtml(code) + '</h3>'
+      + ['TDR1', 'TDR2', 'TDR3'].map(stage => {
+        const stageSessions = sessions.filter(s => s.stage === stage);
+        const imported = (state.analysis.sessions || []).some(s => s.project_code === code && s.stage === stage)
+          || state.analysis.experts.some(e => e.sessions.some(s => s.project_code === code && s.stage === stage));
+        return '<section class="review-stage" data-stage="' + stage + '">'
+          + (stageSessions.length ? stageSessions.map(session => '<h4>' + stage + '　｜　参评：'
+            + escapeHtml(session.attendance || (session.attended === true ? '已参加' : session.attended === false ? '未参加' : '待确认'))
+            + (session.proxy_name ? '（代理：' + escapeHtml(session.proxy_name) + '）' : '')
+            + '　｜　会签：' + escapeHtml(session.signoff || '未填写') + '</h4>'
+            + (session.opinions.length ? session.opinions.map((o, i) => renderOpinion(o, session, i)).join('')
+              : '<p>评审意见：无</p>')).join('')
+            : '<h4>' + stage + '　｜　' + (imported ? '未列入本阶段评审名单' : '本批次未导入该阶段报告') + '</h4>')
+          + '</section>';
+      }).join('') + '</section>';
+  }).join('');
   elements.evidenceDrawerContent.querySelectorAll("[data-opinion]").forEach(button => button.addEventListener("click", () =>
-    selectSolution(button.dataset.opinion, button.dataset.include === "true")));
+    selectSolution(button.dataset.opinion, button.dataset.include === "null" ? null : button.dataset.include === "true")));
   if (!elements.evidenceDrawer.open) elements.evidenceDrawer.showModal();
+
 }
 
+function makeTableScrollable(scroller) {
+  let frame = scroller.parentElement;
+  if (!frame.classList.contains('table-scroll-frame')) {
+    frame = document.createElement('div');
+    frame.className = 'table-scroll-frame';
+    scroller.before(frame);
+    frame.append(scroller);
+    scroller.classList.add('table-scroll-content');
+    const bar = document.createElement('div');
+    bar.className = 'table-x-scroll';
+    bar.tabIndex = 0;
+    bar.setAttribute('role', 'region');
+    bar.setAttribute('aria-label', '表格横向滚动条');
+    bar.append(document.createElement('div'));
+    frame.append(bar);
+    bar.addEventListener('scroll', () => { scroller.scrollLeft = bar.scrollLeft; });
+    scroller.addEventListener('scroll', () => { bar.scrollLeft = scroller.scrollLeft; });
+  }
+  const bar = frame.querySelector('.table-x-scroll');
+  bar.hidden = scroller.scrollWidth <= scroller.clientWidth;
+  bar.firstElementChild.style.width = (scroller.scrollWidth + bar.clientWidth - scroller.clientWidth) + 'px';
+  bar.scrollLeft = scroller.scrollLeft;
+}
+
+window.addEventListener('resize', () => {
+  document.querySelectorAll('.table-scroll-content').forEach(makeTableScrollable);
+});
+document.addEventListener('toggle', event => {
+  if (event.target.open) event.target.querySelectorAll('.table-scroll-content').forEach(makeTableScrollable);
+}, true);
+
 function renderOpinion(o, session, index) {
-  const suspected = o.ai_status === "suspected";
-  const labels = {pending: "待AI识别", yes: "包含对策", no: "未识别到对策", suspected: "疑似待确认"};
-  let html = '<article class="opinion-record"><p class="opinion-text"><strong>意见' + (index + 1) + '：</strong>' + escapeHtml(o.text) + '</p><p class="'
-    + (suspected ? 'suspected-tag' : 'muted') + '">' + labels[o.ai_status]
-    + (suspected ? ' · ' + (o.included === false ? '不计入统计' : '计入统计') : '')
-    + '</p>';
-  html += '<p class="opinion-text"><strong>对策：</strong>' + escapeHtml(o.excerpt || (o.ai_status === "pending" ? "尚未识别" : "未提取到对策片段")) + '</p>';
-  if (suspected) html += '<div class="solution-actions" aria-label="是否计入对策统计">'
-    + [true, false].map(include => '<button type="button" class="secondary-button" data-opinion="' + o.opinion_id
-      + '" data-include="' + include + '" aria-pressed="' + (include ? o.included !== false : o.included === false)
-      + '">' + (include ? '计入统计' : '不计入统计') + '</button>').join("") + '</div>';
-  html += '<details class="opinion-evidence-details"><summary>查看证据</summary><p class="evidence-source">'
-    + escapeHtml(session.project_name + "／" + session.source_name + "／" + session.sheet_name + "／" + (o.cells.join("、") || "源意见记录")) + '</p>';
+  const labels = {pending: "待AI识别", yes: "包含", no: "不包含", suspected: "疑似"};
+  const unresolved = o.ai_status === 'suspected' && o.included == null;
+  const selection = unresolved ? null : (o.included ?? (o.ai_status === 'yes'));
+  const excerpt = o.excerpt === o.text ? "见上述意见" : o.excerpt;
+  let html = '<article class="opinion-record' + (unresolved ? ' needs-confirmation' : '') + '"><p class="opinion-text"><strong>意见' + (index + 1) + '：</strong>' + escapeHtml(o.text) + '</p>';
+  html += '<p class="opinion-text"><strong>对策：</strong>' + labels[o.ai_status]
+    + (excerpt ? '（' + escapeHtml(excerpt) + '）' : '')
+    + (o.ai_status !== 'pending' ? ' · ' + (unresolved ? '待人工确认，暂未计入' : selection ? '计入统计' : '不计入统计') : '') + '</p>';
   if (o.reason) html += '<p>判定说明：' + escapeHtml(o.reason) + '</p>';
-  if (o.raw_texts.length) html += '<p class="opinion-text">' + escapeHtml(o.raw_texts.join("\n")) + '</p>';
-  if (o.audit.length) html += '<p class="muted">人工选择记录：'
-    + escapeHtml(o.audit.map(a => a.at + ' ' + (a.to ? '计入' : '不计入')).join("；")) + '</p>';
+  if (o.ai_status !== "pending") html += '<div class="solution-actions" aria-label="是否计入对策统计">'
+    + [true, false].map(include => '<button type="button" class="secondary-button" data-opinion="' + o.opinion_id
+      + '" data-include="' + include + '" aria-pressed="' + (selection === include)
+      + '">' + (include ? '计入统计' : '不计入统计') + '</button>').join("") + '</div>';
+  if (o.audit.length) {
+    const latest = o.audit[o.audit.length - 1];
+    const date = new Date(latest.at);
+    const time = Number.isNaN(date.getTime()) ? '时间不可用' : date.toLocaleString('zh-CN', {hour12: false});
+    html += '<p class="muted">最近修改：' + escapeHtml(time) + '</p>';
+  }
   if (o.rule_version) html += '<p class="muted">识别版本：' + escapeHtml(o.rule_version) + '</p>';
-  return html + '</details></article>';
+  return html + '</article>';
 }
 
 async function selectSolution(opinionId, included) {
@@ -225,19 +260,9 @@ elements.evidenceDrawer.addEventListener("cancel", event => {
   event.preventDefault();
   closeDimensionOneEvidence();
 });
-document.querySelector("#identify-solutions").addEventListener("click", async event => {
-  const button = event.currentTarget;
+document.querySelector("#identify-solutions").addEventListener("click", async () => {
   if (!await checkServiceHealth() || state.analysisStale || !qualityGatePassed()) return;
-  setBusy(button, true, "正在识别对策…");
-  try {
-    state.analysis = await requestJson("/api/facts/identify-solutions", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({analysis_id: state.analysis.analysis_id}),
-    });
-    renderDimensionOneTable();
-  } catch (error) {
-    document.querySelector("#facts-ai-status").textContent = error.message;
-  } finally { setBusy(button, false); }
+  window.reviewAI.start();
 });
 document.querySelector("#close-formula").addEventListener("click", () => document.querySelector("#formula-dialog").close());
 

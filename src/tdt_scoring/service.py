@@ -388,7 +388,7 @@ class ScoringService:
         self._analyses[analysis.analysis_id] = analysis
         return analysis
 
-    def select_solution(self, analysis_id: str, opinion_id: str, included: bool) -> WorkbookAnalysis:
+    def select_solution(self, analysis_id: str, opinion_id: str, included: bool | None) -> WorkbookAnalysis:
         with self._fact_lock:
             analysis = self.get_analysis(analysis_id)
             if any(i.severity == "error" for i in analysis.issues):
@@ -396,8 +396,8 @@ class ScoringService:
             opinion = next((o for e in analysis.experts for s in e.sessions for o in s.opinions if o.opinion_id == opinion_id), None)
             if opinion is None:
                 raise KeyError("未找到对应意见")
-            if opinion.ai_status != "suspected":
-                raise ValueError("仅疑似待确认的意见允许选择计入与否")
+            if opinion.ai_status == "pending":
+                raise ValueError("请先完成该条AI识别，再选择计入与否")
             if opinion.included is not included:
                 opinion.audit.append({"at": datetime.now(timezone.utc).isoformat(), "from": opinion.included, "to": included})
                 opinion.included = included
@@ -423,7 +423,7 @@ class ScoringService:
                 opinion.reason = result["reason"]
                 opinion.rule_version = result["rule_version"]
             refresh(analysis.experts)
-            analysis.ai_message = "AI识别完成，疑似项默认计入，可在详情中确认"
+            analysis.ai_message = "AI识别完成，疑似项待人工确认后计入，可在详情中确认"
             return analysis
 
     def _analyze_many(
@@ -434,15 +434,20 @@ class ScoringService:
         source_name: str,
         batch_summary: BatchImportSummary | None = None,
         progress: Callable[[ProgressEvent], None] | None = None,
+        parsed_reports: dict | None = None,
     ) -> WorkbookAnalysis:
         sessions = []
         issues: list[ValidationIssue] = []
         reports: list[ReportAnalysis] = []
         seen_sessions: dict[tuple[str, str], str] = {}
-        for workbook, report_name, source_issues in workbooks:
+        for report_index, (workbook, report_name, source_issues) in enumerate(workbooks):
             report_sessions = []
             report_issues = list(source_issues)
-            if workbook is not None:
+            if parsed_reports is not None and report_index in parsed_reports:
+                from copy import deepcopy
+                report_sessions, cached_issues = deepcopy(parsed_reports[report_index])
+                report_issues.extend(cached_issues)
+            elif workbook is not None:
                 parse_started = perf_counter()
                 if progress:
                     progress(ProgressEvent(report_name, "workbook_parse", "started"))

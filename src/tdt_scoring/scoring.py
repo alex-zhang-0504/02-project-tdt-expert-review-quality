@@ -22,8 +22,8 @@ def aggregate(sessions: list[SessionFact]) -> dict:
     signed = sum(s.signed for s in sessions)
     opinions = [o for s in sessions for o in s.opinions]
     pending = sum(o.ai_status == "pending" for o in opinions)
-    solutions = sum(o.ai_status in {"yes", "suspected"} and o.included is not False for o in opinions)
-    suspected = sum(o.ai_status == "suspected" for o in opinions)
+    solutions = sum(o.ai_status != "pending" and (o.included is True or (o.included is None and o.ai_status == "yes")) for o in opinions)
+    suspected = sum(o.ai_status == "suspected" and o.included is None for o in opinions)
     proxy = sum(bool(s.proxy_name) for s in sessions)
     return {
         "expected": expected, "attended": attended, "unknown": unknown,
