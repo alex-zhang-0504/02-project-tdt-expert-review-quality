@@ -1,14 +1,14 @@
 const FACT_METRICS = [
   ["attendance_rate", "出勤率", "attended", "expected", "实参场次÷应参场次×100％", "实参包含按原规则归属的代理参评。"],
   ["signoff_rate", "会签率", "signed", "expected", "已填会签场次÷应参场次×100％", "会签结果非空且不是横杠即计入，以项目经理填写为准。"],
-  ["opinion_rate", "意见提出率", "opinions", "attended", "意见总条数÷实参场次×100％", "同场多条意见逐条累计，允许超过100％。"],
+  ["opinion_average", "意见提出平均数", "opinions", "attended", "意见总条数÷实参场次", "同场多条意见逐条累计，每场可超过1条。"],
 ];
 const PROXY_METRIC = ["proxy_rate", "代理情况", "proxy", "expected", "代理场次÷应参场次×100％", "跨全部阶段统计，代理事实归原评审人。"];
 const FACT_COLUMNS = [
   ["expected", "应参场次", 72, "应参<br>场次"], ["attended", "实参场次", 72, "实参<br>场次"],
   ["attendance_rate", "出勤率", 80], ["signed", "已会签场次", 84, "已会签<br>场次"],
   ["signoff_rate", "会签率", 80], ["opinions", "意见条数", 72, "意见<br>条数"],
-  ["opinion_rate", "意见提出率", 88, "意见<br>提出率"], ["solutions", "含对策意见条数", 100, "含对策<br>意见条数"],
+  ["opinion_average", "意见提出平均数", 88, "意见提出<br>平均数"], ["solutions", "含对策意见条数", 100, "含对策<br>意见条数"],
 ];
 function visibleFactGroups(value) {
   return value === "overall" ? ["全部阶段"] : ["TDR1", "TDR2", "TDR3"].includes(value) ? [value] : ["TDR1", "TDR2", "TDR3"];
@@ -16,7 +16,8 @@ function visibleFactGroups(value) {
 function factCellText(stats, key) {
   if (stats.expected === 0) return "—";
   if (key === "proxy_rate") return stats.proxy + "/" + stats.expected;
-  if (stats.unknown && ["attendance_rate", "opinion_rate"].includes(key)) return "待确认";
+  if (stats.unknown && ["attendance_rate", "opinion_average"].includes(key)) return "待确认";
+  if (key === "opinion_average") return stats[key] == null ? "—" : Number(stats[key]).toFixed(1);
   if (key.endsWith("_rate")) return percent(stats[key]);
   if (key === "solutions" && stats.pending) return "待识别";
   return String(stats[key]);
@@ -35,7 +36,6 @@ function percent(value) {
 
 function renderAnalysis() {
   if (!state.analysis) return;
-  elements.centralBatchField.classList.toggle("is-hidden", state.workflowMode !== "central");
   elements.exportDimensionOne.textContent = state.workflowMode === "manager" ? "导出个人提交表" : "导出统计结果";
   renderDimensionOneTable();
   syncServiceActions();
@@ -57,7 +57,7 @@ function renderDimensionOneTable() {
     return;
   }
   const metricCell = (value, row, group, metric) => '<td class="numeric"><button type="button" class="fact-number" data-row="' + row
-    + '" data-group="' + group + '" data-metric="' + metric[0] + '" aria-label="' + metric[1] + '计算方法">'
+    + '" data-group="' + group + '" data-metric="' + metric[0] + '" aria-label="' + metric[1] + (metric[0] === 'proxy_rate' ? '代理人清单' : '计算方法') + '">'
     + factCellText(value, metric[0]) + (metric[0] === 'solutions' && value.suspected ? '<span class="solution-alert" title="' + value.suspected + '条疑似待确认，尚未计入" aria-label="' + value.suspected + '条疑似待确认">!</span>' : '') + '</button>'
     + (metric[0] === 'attended' && value.unknown ? '<small class="fact-hint">' + value.unknown + '场待确认</small>' : '')
     + '</td>';
@@ -82,7 +82,8 @@ function renderDimensionOneTable() {
     const expert = experts[Number(button.dataset.row)];
     const metric = [...FACT_METRICS, PROXY_METRIC].find(m => m[0] === button.dataset.metric);
     const stats = button.dataset.group === "全部阶段" ? expert.overall : expert.stages[button.dataset.group];
-    if (metric) showFormula(expert.expert_name, button.dataset.group, metric, stats);
+    if (button.dataset.metric === 'proxy_rate') showProxyDetails(expert);
+    else if (metric) showFormula(expert.expert_name, button.dataset.group, metric, stats);
     else showFactCount(expert.expert_name, button.dataset.group, button.dataset.metric, stats);
   }));
   elements.dimensionOneTableWrap.querySelectorAll("[data-participation]").forEach(button => button.addEventListener("click", () => {
@@ -115,18 +116,26 @@ function showFactCount(name, stage, key, stats) {
     + (key === "solutions" ? '<p>当前已纳入' + stats.solutions + '条；待识别' + stats.pending + '条；疑似' + stats.suspected + '条。</p>' : '');
   document.querySelector("#formula-dialog").showModal();
 }
+function showProxyDetails(expert) {
+  const sessions = expert.sessions.filter(s => s.proxy_name);
+  document.querySelector('#formula-title').textContent = expert.expert_name + ' · 全部阶段 · 代理情况';
+  document.querySelector('#formula-body').innerHTML = sessions.length
+    ? '<p>共' + sessions.length + '场代理参评</p><ul class="proxy-meeting-list">' + sessions.map(s => '<li><div>'
+      + escapeHtml(s.project_name) + '</div><div class="muted">' + escapeHtml(s.project_code + ' · ' + s.stage)
+      + '</div><div>代理人：<strong>' + escapeHtml(s.proxy_name) + '</strong></div></li>').join('') + '</ul>'
+    : '<p>本批次无代理参评记录。</p>';
+  document.querySelector('#formula-dialog').showModal();
+}
 function showFormula(name, stage, metric, stats) {
   const dialog = document.querySelector("#formula-dialog");
   document.querySelector("#formula-title").textContent = name + " · " + stage + " · " + metric[1];
   let note = metric[5];
-  if (metric[0] === "proxy_rate") note = "主表" + stats.proxy + "/" + stats.expected
-    + "表示代理" + stats.proxy + "场／应参" + stats.expected + "场。" + note;
   if (!stats[metric[3]]) note += " 分母为0，显示“—”。";
-  if ((metric[0] === "attendance_rate" || metric[0] === "opinion_rate") && stats.unknown)
+  if ((metric[0] === "attendance_rate" || metric[0] === "opinion_average") && stats.unknown)
     note += " 有" + stats.unknown + "场出勤状态无法判断，暂不计算比率。";
   document.querySelector("#formula-body").innerHTML = '<p>' + escapeHtml(metric[4]) + '</p><p class="formula-value">'
-    + stats[metric[2]] + ' ÷ ' + stats[metric[3]] + ' × 100％'
-    + (stats[metric[0]] === null ? '；当前显示：—' : ' ＝ ' + percent(stats[metric[0]]))
+    + stats[metric[2]] + ' ÷ ' + stats[metric[3]] + (metric[0] === 'opinion_average' ? '' : ' × 100％')
+    + (stats[metric[0]] === null ? '；当前显示：—' : ' ＝ ' + factCellText(stats, metric[0]))
     + '</p><p>' + escapeHtml(note) + '</p>';
   dialog.showModal();
 }

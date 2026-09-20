@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
 from typing import Callable
@@ -30,6 +30,7 @@ class FeishuWorkbookExport:
     source_name: str
     content: bytes | None
     error: str | None = None
+    manager_identity: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -303,6 +304,11 @@ class FeishuDocumentSource:
                             )
                         )
 
+        from ..report_owner import read_owners
+        owners = read_owners([token for exported, (_, token, _) in zip(workbooks, candidates) if exported.content is not None and token])
+        for exported, (_, token, _) in zip(workbooks, candidates):
+            if exported.content is not None and token:
+                exported.manager_identity = owners[token]
         return FeishuFolderExport(
             source_name="飞书归档文件夹",
             discovered_count=len(items),

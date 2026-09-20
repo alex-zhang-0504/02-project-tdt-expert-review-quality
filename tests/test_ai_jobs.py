@@ -26,6 +26,9 @@ class AIJobTests(unittest.TestCase):
         self.opinions = [OpinionFact(str(i), f"建议调整参数{i}。", [], []) for i in range(13)]
         session.opinions = self.opinions
         refresh(self.analysis.experts)
+        from tdt_scoring.assessment import assign_local_manager, confirm_roster
+        assign_local_manager(self.analysis, "虚拟报告.xlsx", "manager-a", "虚拟经理甲")
+        confirm_roster(self.analysis, [e.expert_name for e in self.analysis.experts], "test-batch")
         self.calls = []
         self.behavior = simulated_call
         def caller(key, model, opinions):
@@ -174,6 +177,9 @@ class AIJobTests(unittest.TestCase):
     def test_real_fact_ids_and_model_version_export_roundtrip(self):
         self.analysis = self.service.import_local_bytes(build_v04_workbook([
             {'stage': 'TDR1', 'opinion': '建议增加屏蔽罩。'}]), '虚拟报告.xlsx')
+        from tdt_scoring.assessment import assign_local_manager, confirm_roster
+        assign_local_manager(self.analysis, '虚拟报告.xlsx', 'manager-a', '虚拟项目经理')
+        confirm_roster(self.analysis, [e.expert_name for e in self.analysis.experts], '2026')
         self.post('test'); self.finish(self.start().json()['id'])
         opinion = next(o for e in self.analysis.experts for s in e.sessions for o in s.opinions)
         self.service.select_solution(self.analysis.analysis_id, opinion.opinion_id, False)

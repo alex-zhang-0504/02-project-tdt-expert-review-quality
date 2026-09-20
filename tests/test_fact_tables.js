@@ -16,6 +16,10 @@ root.makeTableScrollable = () => {};
 const stats={expected:12,attended:12,unknown:0,signed:10,opinions:24,solutions:6,pending:0,suspected:0,
   attendance_rate:100,signoff_rate:83.33,opinion_rate:200,solution_rate:25,proxy:2,proxy_rate:16.67};
 assert.equal(root.factCellText(stats,"proxy_rate"),"2/12");
+assert.equal(root.factCellText({...stats,opinion_average:1.46},"opinion_average"),"1.5");
+assert.equal(root.factCellText({...stats,opinion_average:2},"opinion_average"),"2.0");
+assert.equal(root.factCellText({...stats,opinion_average:null},"opinion_average"),"—");
+assert.equal(root.factCellText({...stats,opinion_average:1.46,unknown:1},"opinion_average"),"待确认");
 assert.equal(root.subtaskDisplayName("虚拟大TDT-虚拟子任务-射频"),"虚拟子任务-射频");
 assert.equal(root.subtaskDisplayName("虚拟子任务"),"虚拟子任务");
 assert.equal(root.factCellText(stats,"opinions"),"24");
@@ -28,6 +32,15 @@ const opinion={opinion_id:"safe-id",text:"<script>意见</script>",excerpt:"",re
   included:null,cells:["D9"],raw_texts:["原文"],audit:[],rule_version:"test"};
 const session={project_code:"P001",project_name:"虚拟子任务",stage:"TDR1",source_name:"虚拟报告.xlsx",
   sheet_name:"TDR1",opinions:[opinion]};
+root.showProxyDetails({expert_name:'虚拟评审人',sessions:[session]});
+assert.ok(nodes['#formula-body'].innerHTML.includes('本批次无代理参评记录'));
+root.showProxyDetails({expert_name:'虚拟评审人',sessions:[
+  {...session,proxy_name:'<虚拟代理 Alex>'},
+  {...session,stage:'TDR2',proxy_name:'<虚拟代理 Alex>'}, session]});
+const proxyList=nodes['#formula-body'].innerHTML;
+assert.equal((proxyList.match(/<li>/g)||[]).length,2);
+assert.ok(proxyList.includes('P001 · TDR1') && proxyList.includes('P001 · TDR2'));
+assert.ok(proxyList.includes('&lt;虚拟代理 Alex>') && !proxyList.includes('formula-value'));
 root.state.analysis={experts:[{expert_name:"虚拟评审人",overall:stats,
   stages:{TDR1:stats,TDR2:stats,TDR3:stats},sessions:[session,{...session,stage:"TDR2",opinions:[{...opinion,text:"TDR2独立意见"}]}]}]};
 root.renderDimensionOneTable();

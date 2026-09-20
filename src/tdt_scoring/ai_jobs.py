@@ -1,3 +1,4 @@
+from .assessment import selected_experts, require_selected
 """Session-owned, incremental AI analysis. No credentials or report data on disk."""
 from dataclasses import asdict
 from threading import Event, Thread
@@ -87,8 +88,8 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
                 entry.expires = monotonic() + ttl
                 with service._fact_lock:
                     analysis = service.get_analysis(job["analysis_id"])
-                    total = sum(e.overall["opinions"] for e in analysis.experts)
-                    pending = sum(e.overall["pending"] for e in analysis.experts)
+                    total = sum(e.overall["opinions"] for e in selected_experts(analysis))
+                    pending = sum(e.overall["pending"] for e in selected_experts(analysis))
                     analysis.ai_message = (f"本批次{total - pending}／{total}条已识别；本次共{job['total']}条，成功{job['completed']}条（疑似{job['suspected']}条），"
                                            f"失败{job['failed']}条，剩余{job['total'] - job['completed'] - job['failed']}条。"
                                            + job["message"])
@@ -106,6 +107,7 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
         except Exception:
             raise HTTPException(400, "请先读取有效报告，并确认向DeepSeek发送意见文本。") from None
         try:
+            require_selected(analysis)
             policy = load_policy()
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
@@ -121,11 +123,11 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
             if entry.busy or not entry.verified:
                 raise HTTPException(409, "请先完成AI连接验证，或等待当前调用结束。")
             with service._fact_lock:
-                opinions = [o for e in analysis.experts for s in e.sessions for o in s.opinions if o.ai_status == "pending"]
+                opinions = [o for e in selected_experts(analysis) for s in e.sessions for o in s.opinions if o.ai_status == "pending"]
             if not opinions:
                 raise HTTPException(409, "全部意见已有识别结果，无需重复调用。")
             policy["roles"] = {}
-            for expert in analysis.experts:
+            for expert in selected_experts(analysis):
                 for session in expert.sessions:
                     roles = sorted({signoff.role for source in analysis.sessions
                                     if source.project_code == session.project_code and source.stage == session.stage

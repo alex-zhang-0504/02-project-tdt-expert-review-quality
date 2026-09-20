@@ -66,6 +66,7 @@ class DimensionOneSubmissionTests(unittest.TestCase):
             [
                 "00_提交信息",
                 "01_项目清单",
+                "项目经理身份",
                 "02_场次事实",
                 "03_意见证据",
                 "04_分阶段统计",
@@ -83,8 +84,10 @@ class DimensionOneSubmissionTests(unittest.TestCase):
         self.assertEqual(RULE_VERSION, package.rule_version)
         self.assertEqual("试算", workbook["00_提交信息"]["B8"].value)
         headers = [cell.value for cell in workbook["04_分阶段统计"][1]]
-        self.assertIn("TDR1 意见提出率", headers)
+        self.assertIn("TDR1 意见提出平均数", headers)
         self.assertIn("代理率", headers)
+        average_col = headers.index("TDR1 意见提出平均数") + 1
+        self.assertEqual("0.0", workbook["04_分阶段统计"].cell(2, average_col).number_format)
         self.assertEqual("PM01", package.manager_id)
         self.assertEqual(["B260001"], package.project_codes)
 

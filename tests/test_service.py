@@ -14,6 +14,11 @@ from tests.workbook_factory import build_v04_workbook, build_workbook
 
 
 class ServiceTests(unittest.TestCase):
+    def setUp(self):
+        mock = patch('tdt_scoring.service.read_owner_url', return_value={})
+        mock.start()
+        self.addCleanup(mock.stop)
+
     @patch("tdt_scoring.service.FeishuDocumentSource.export_xlsx")
     def test_feishu_import_uses_only_internal_stage_field(
         self, export_xlsx

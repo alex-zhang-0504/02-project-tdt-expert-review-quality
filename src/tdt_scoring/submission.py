@@ -79,6 +79,11 @@ def build_dimension_one_workbook(
     if package_kind == "manager_submission":
         if not manager_id or not manager_name:
             raise ValueError("生成项目经理提交表需要填写项目经理编号和姓名")
+        identities = [s.manager_identity for s in analysis.sessions if s.manager_identity]
+        if any(i.get('status') != 'resolved' for i in identities):
+            raise ValueError('项目经理所有者身份待识别，请重扫后再生成个人提交表')
+        if len({i.get('owner_id') for i in identities}) > 1:
+            raise ValueError('当前报告属于不同owner_id，不能生成单人提交表')
         source_managers = {
             session.project_manager.strip()
             for session in analysis.sessions
@@ -133,6 +138,14 @@ def build_dimension_one_workbook(
         analysis,
     )
     _write_project_list(workbook, analysis)
+    owners = workbook.create_sheet("项目经理身份")
+    owners.append(["报告", "项目编码", "阶段", "项目经理", "owner_id", "原文件标识", "状态", "说明", "规则版本", "配置指纹"])
+    for session in analysis.sessions:
+        identity = session.manager_identity
+        receipt = identity.get("policy") or {}
+        owners.append([session.source_name, session.project_code, session.stage, session.project_manager,
+                       identity.get("owner_id", ""), identity.get("source_token", ""), identity.get("status", "待指定"),
+                       identity.get("error", ""), receipt.get("version", ""), receipt.get("sha256", "")])
     _write_fact_detail(workbook, analysis)
     _write_statistics(workbook, analysis)
     _write_issues(workbook, analysis)
@@ -228,6 +241,7 @@ def _review_session_from_dict(item: dict[str, object]) -> ReviewSession:
         issues=[ValidationIssue(**value) for value in item.get("issues", [])],
         field_references=dict(item.get("field_references", {})),
         parser_profile=str(item.get("parser_profile", "legacy")),
+        manager_identity=dict(item.get("manager_identity", {})),
     )
 
 
@@ -313,8 +327,8 @@ def _write_fact_detail(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
 
 
 def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
-    keys = ("attendance_rate", "signoff_rate", "opinion_rate", "solutions")
-    labels = ("出勤率", "会签率", "意见提出率", "含对策意见条数")
+    keys = ("attendance_rate", "signoff_rate", "opinion_average", "solutions")
+    labels = ("出勤率", "会签率", "意见提出平均数", "含对策意见条数")
     for title, stages in (("04_分阶段统计", ("TDR1", "TDR2", "TDR3")), ("05_全部阶段汇总", ("全部阶段",))):
         sheet = workbook.create_sheet(title)
         sheet.append(["评审人"] + [stage + " " + label for stage in stages for label in labels] + ["总参与评审场次", "代理率"])
@@ -322,7 +336,7 @@ def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
             stats = [expert.overall if stage == "全部阶段" else expert.stages[stage] for stage in stages]
             sheet.append([expert.expert_name] + [
                 (None if value["pending"] else value[key]) if key == "solutions" else
-                None if value[key] is None else value[key] / 100 for value in stats for key in keys
+                None if value[key] is None else value[key] if key == "opinion_average" else value[key] / 100 for value in stats for key in keys
             ] + [None if expert.overall["unknown"] else expert.overall["attended"],
                  None if expert.overall["proxy_rate"] is None else expert.overall["proxy_rate"] / 100])
             from openpyxl.comments import Comment
@@ -330,7 +344,7 @@ def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
                 formulas = [
                     f"实参场次÷应参场次×100％＝{value['attended']}÷{value['expected']}×100％；未知出勤{value['unknown']}场",
                     f"已填会签场次÷应参场次×100％＝{value['signed']}÷{value['expected']}×100％",
-                    f"意见总条数÷实参场次×100％＝{value['opinions']}÷{value['attended']}×100％",
+                    f"意见总条数÷实参场次＝{value['opinions']}÷{value['attended']}",
                     f"含对策意见{value['solutions']}条；待识别{value['pending']}条，疑似{value['suspected']}条；每条2分奖励在第四模块计算",
                 ]
                 for offset, formula in enumerate(formulas):
@@ -343,7 +357,8 @@ def _write_statistics(workbook: Workbook, analysis: WorkbookAnalysis) -> None:
         for row in sheet.iter_rows(min_row=2, min_col=2):
             for cell in row:
                 count_column = cell.column == sheet.max_column - 1 or (cell.column < sheet.max_column - 1 and (cell.column - 2) % 4 == 3)
-                cell.number_format = "0" if count_column else "0.##%"
+                average_column = cell.column < sheet.max_column - 1 and (cell.column - 2) % 4 == 2
+                cell.number_format = "0" if count_column else "0.0" if average_column else "0.##%"
 
 
 def _write_issues(workbook: Workbook, analysis: WorkbookAnalysis) -> None:

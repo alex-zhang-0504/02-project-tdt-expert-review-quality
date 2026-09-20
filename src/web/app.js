@@ -63,7 +63,6 @@ const elements = {
   importPanel: document.querySelector("#import-panel"),
   importModeLabel: document.querySelector("#import-mode-label"),
   managerMeta: document.querySelector("#manager-meta"),
-  managerBatchId: document.querySelector("#manager-batch-id"),
   managerId: document.querySelector("#manager-id"),
   managerName: document.querySelector("#manager-name"),
   managerRevision: document.querySelector("#manager-revision"),
@@ -72,8 +71,6 @@ const elements = {
   dimensionOneSearch: document.querySelector("#dimension-one-search"),
   dimensionOneStage: document.querySelector("#dimension-one-stage"),
   dimensionOneTableWrap: document.querySelector("#dimension-one-table-wrap"),
-  centralBatchField: document.querySelector(".central-batch-field"),
-  centralBatchId: document.querySelector("#central-batch-id"),
   exportDimensionOne: document.querySelector("#export-dimension-one"),
   projectSummary: document.querySelector("#project-summary"),
   checkCard: document.querySelector("#check-card"),
@@ -236,14 +233,14 @@ function validationCounts() {
 
 function qualityGatePassed() {
   if (state.importActive) return false;
-  if (!state.analysis) return false;
+  if (!state.analysis?.assessment?.confirmed) return false;
   const { errors, warnings } = validationCounts();
   return errors === 0 && (warnings === 0 || state.warningsAcknowledged);
 }
 
 function canNavigate(step) {
   if (!state.workflowMode) return false;
-  if (step === 1) return state.workflowMode !== "merge";
+  if (step === 1) return state.workflowMode !== "merge" || !!state.analysis;
   return (step === 2 || step === 3 || step === 4) && qualityGatePassed();
 }
 
@@ -284,13 +281,13 @@ function returnToMode() {
 
 function managerMetadata() {
   const metadata = {
-    batch_id: elements.managerBatchId.value.trim(),
+    batch_id: String(new Date().getFullYear()),
     manager_id: elements.managerId.value.trim(),
     manager_name: elements.managerName.value.trim(),
     revision: Number(elements.managerRevision.value),
   };
   if (!metadata.batch_id || !metadata.manager_id || !metadata.manager_name) {
-    throw new Error("请先填写年度批次编号、项目经理编号和项目经理姓名");
+    throw new Error("请先填写项目经理编号和项目经理姓名");
   }
   if (!Number.isInteger(metadata.revision) || metadata.revision < 1) {
     throw new Error("修订号必须是大于等于1的整数");
@@ -365,13 +362,14 @@ async function receiveAnalysis(analysis) {
   state.selectedReportIndex = 0;
   state.warningsAcknowledged = false;
   if (state.workflowMode === "manager") {
-    state.currentBatchId = elements.managerBatchId.value.trim();
+    state.currentBatchId = managerMetadata().batch_id;
   }
   elements.warningAcknowledged.checked = false;
   const reportCount = analysis.reports?.length || 1;
   const candidateCount = analysis.batch_summary?.candidate_count ?? reportCount;
   elements.projectSummary.textContent = `${candidateCount}份候选报告 · ${analysis.sessions.length}场 · ${analysis.experts.length}位评审人`;
   renderBatchSummary();
+  renderAssessmentSetup();
   renderReportList();
   if (analysis.reports?.length) selectReport(0);
   else renderIssues(analysis.issues, analysis.source_name);
@@ -412,6 +410,7 @@ function startProgressDisplay(sourceNames = []) {
   elements.batchSummary.innerHTML = "";
   elements.warningConfirm.classList.add("is-hidden");
   elements.continueAnalysis.disabled = true;
+  syncAssessmentActions();
   renderReportList();
 }
 
@@ -560,9 +559,9 @@ function updateProgressHeader() {
     report.display_percent >= report.target_percent
   ));
   elements.checkTitle.textContent = state.importJobStatus === "completed" && playbackComplete
-    ? "评审报告检查完成"
+    ? ""
     : `正在逐份检查${reports.length}份评审报告`;
-  elements.checkState.textContent = `${completed}完成${failed ? ` · ${failed}失败` : ""}`;
+  elements.checkState.textContent = `${completed ? `第${completed}份完成` : '等待首份完成'}${failed ? ` · ${failed}份失败` : ""}`;
 }
 
 function selectedReport() {
@@ -580,6 +579,7 @@ function renderReportList() {
       return {
         ...(live || {}),
         source_name: report.source_name,
+        manager_identity: report.manager_identity,
         status: errors ? "error" : warnings ? "warning" : "completed",
         display_percent: live?.display_percent ?? (errors ? 0 : 100),
         target_percent: live?.target_percent ?? (errors ? 0 : 100),
@@ -630,13 +630,13 @@ function renderReportList() {
     }).join("");
     const tag = "button";
     return `<div class="report-scan-item"><${tag} class="report-progress-row ${statusClass} ${index === state.selectedReportIndex ? "is-active" : ""}" type="button" data-index="${index}">
-      <span class="report-progress-name"><strong class="inline-name-expand">${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small></span>
+      <span class="report-progress-name"><strong class="inline-name-expand">${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small>${report.manager_identity?.status ? `<small title="${escapeHtml(report.manager_identity.error || (report.manager_identity.source === 'explicit_assignment' ? '来源：明确指定的本地报告项目经理' : '来源：原文件owner_id；规则V' + (report.manager_identity.policy?.version || '未读取')))}">项目经理：${escapeHtml(report.manager_identity.status === 'resolved' ? report.manager_identity.name : '待识别')}${report.manager_identity.source === 'explicit_assignment' ? ' · 已明确指定' : report.manager_identity.policy ? ' · 所有者规则已读取' : ' · 未取得识别凭据'}</small>` : ''}</span>
       <span class="report-progress-reader ${activeCheckpointIndex >= 0 ? "is-reading" : ""}"><small>当前检查</small><strong>${escapeHtml(checkpointLabel)}</strong></span>
       <span class="report-progress-meter">
         <span class="report-progress-segments" role="progressbar" aria-label="${escapeHtml(report.source_name)}检查进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">${segments}</span>
         <span class="report-progress-value">${percent}%</span>
       </span>
-    </${tag}>${(!state.importActive || report.ready) && ["error", "warning"].includes(report.status) && state.importJobId ? `<button type="button" class="secondary-button retry-report" data-retry="${index}">重扫</button>` : ""}</div>`;
+    </${tag}>${(!state.importActive || report.ready) && (["error", "warning"].includes(report.status) || (report.manager_identity?.status && report.manager_identity.status !== 'resolved')) && state.importJobId ? `<button type="button" class="secondary-button retry-report" data-retry="${index}">重扫</button>` : ""}</div>`;
   });
   while (elements.reportList.children.length > rows.length) elements.reportList.lastElementChild.remove();
   rows.forEach((html, index) => {
@@ -694,7 +694,7 @@ function finishCheckWithRequestError(message) {
   elements.checkTitle.textContent = "评审报告读取失败";
   elements.checkState.textContent = "未通过";
   elements.checkState.className = "check-state is-error";
-  elements.issueSummary.innerHTML = `<div class="issue-item error"><span class="severity">错误</span><span class="issue-location">读取阶段</span><span>${escapeHtml(message)}</span></div>`;
+  elements.issueSummary.innerHTML = `<div class="issue-item error"><span class="severity">错误</span><span class="issue-location">读取阶段</span><span class="issue-content">${escapeHtml(message)}</span></div>`;
 }
 
 function renderIssues(issues, reportName = "") {
@@ -713,26 +713,23 @@ function renderIssues(issues, reportName = "") {
   const errors = visibleIssues.filter((issue) => issue.severity === "error").length;
   const warnings = visibleIssues.filter((issue) => issue.severity === "warning").length;
   const aggregate = validationCounts();
-  const label = reportName ? `“${reportName}”` : "评审报告";
   if (!visibleIssues.length) {
     if (!state.importActive) {
-      elements.checkTitle.textContent = `${label}检查完成`;
+      elements.checkTitle.textContent = "";
       elements.checkState.textContent = "检查通过";
       elements.checkState.className = "check-state is-ok";
     }
-    elements.issueSummary.innerHTML = `<p><strong>未发现格式错误或检查提醒。</strong>${state.importActive ? "本文件检查通过，仍需等待全批次完成。" : "可以继续进入统计。"}</p>`;
+    elements.issueSummary.innerHTML = `<p class="check-summary is-ok"><strong>未发现格式错误或检查提醒。</strong>${state.importActive ? "本文件检查通过，仍需等待全批次完成。" : "可以继续进入统计。"}</p>`;
   } else {
     if (!state.importActive) {
-      elements.checkTitle.textContent = errors
-        ? `${label}存在错误`
-        : warnings ? `${label}存在提醒` : `${label}检查完成`;
+      elements.checkTitle.textContent = "";
       elements.checkState.textContent = errors
         ? `${errors}项错误`
         : warnings ? `${warnings}项提醒` : "检查通过";
       elements.checkState.className = `check-state ${errors ? "is-error" : warnings ? "is-warning" : "is-ok"}`;
     }
     elements.issueSummary.innerHTML = `
-      <strong>${errors}项错误，${warnings}项提醒</strong>
+      <strong class="check-summary ${errors ? 'is-error' : warnings ? 'is-warning' : 'is-ok'}">${errors}项错误，${warnings}项提醒</strong>
       <ul>${visibleIssues.map((issue) => {
         const location = issue.sheet_name
           ? `${issue.sheet_name}${issue.cell_reference ? `!${issue.cell_reference}` : ""}`
@@ -752,7 +749,7 @@ function renderIssues(issues, reportName = "") {
     button.addEventListener("click", () => confirmReviewerNamesDistinct(button));
   });
   elements.warningConfirm.classList.toggle("is-hidden", aggregate.errors > 0 || aggregate.warnings === 0);
-  elements.continueAnalysis.disabled = !qualityGatePassed();
+  syncAssessmentActions();
   activateStep(1);
 }
 
@@ -815,40 +812,20 @@ async function downloadDimensionOne() {
   } else {
     const batchId = state.workflowMode === "merge"
       ? state.currentBatchId
-      : elements.centralBatchId.value.trim();
-    if (!batchId) {
-      window.alert("请填写年度批次编号");
-      return;
-    }
+      : state.analysis.assessment.batch_id;
     metadata = { batch_id: batchId, manager_id: "", manager_name: "", revision: 1 };
     packageKind = "annual_result";
   }
   setBusy(elements.exportDimensionOne, true, "正在生成Excel…");
   try {
-    const response = await fetch("/api/export/dimension-one", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        analysis_id: state.analysis.analysis_id,
-        package_kind: packageKind,
-        ...metadata,
-      }),
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.detail || `导出失败（${response.status}）`);
-    }
-    const disposition = response.headers.get("Content-Disposition") || "";
-    const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-    const filename = encodedName ? decodeURIComponent(encodedName) : "维度1年度结果.xlsx";
-    const url = URL.createObjectURL(await response.blob());
+    if (!await checkServiceHealth() || state.analysisStale) return;
+    const query = new URLSearchParams({analysis_id:state.analysis.analysis_id, package_kind:packageKind, ...metadata});
     const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
+    link.href = `/api/export/dimension-one?${query}`;
+    link.download = '';
     document.body.append(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
   } catch (error) {
     window.alert(error.message);
   } finally {
@@ -919,9 +896,10 @@ async function mergeDimensionOneSubmissions() {
     }
     state.warningsAcknowledged = true;
     state.currentBatchId = analysis.source_name.split(" · ")[0];
-    renderAnalysis();
-    showPanel(elements.analysisPanel);
-    activateStep(2);
+    sq("#import-mode-label").textContent = "方案 2 · 汇总完成 · 名单筛选";
+    elements.checkCard.classList.remove("is-hidden");
+    showPanel(elements.importPanel);
+    activateStep(1);
   } catch (error) {
     setMergeNotice(error.message, "error");
   } finally {
@@ -1110,11 +1088,11 @@ elements.authorizeFeishu.addEventListener("click", startFeishuAuthorization);
 elements.completeFeishuAuth.addEventListener("click", completeFeishuAuthorization);
 elements.warningAcknowledged.addEventListener("change", () => {
   state.warningsAcknowledged = elements.warningAcknowledged.checked;
-  elements.continueAnalysis.disabled = !qualityGatePassed();
+  syncAssessmentActions();
   activateStep(1);
   syncServiceActions();
 });
-elements.continueAnalysis.addEventListener("click", () => navigateStep(2));
+elements.continueAnalysis.addEventListener("click", enterAssessment);
 document.querySelector("#restart").addEventListener("click", reset);
 elements.mergeSubmissions.addEventListener("click", mergeDimensionOneSubmissions);
 elements.exportDimensionOne.addEventListener("click", downloadDimensionOne);
@@ -1125,6 +1103,7 @@ document.querySelector("#close-evidence").addEventListener("click", closeDimensi
 initializeFactsUI();
 initializeSubjectiveUI();
 initializeScoreStatisticsUI();
+initializeAssessmentUI();
 requestJson("/api/health").then((health) => {
   if (!applyServiceHealth(health)) return;
   showPanel(elements.modePanel);

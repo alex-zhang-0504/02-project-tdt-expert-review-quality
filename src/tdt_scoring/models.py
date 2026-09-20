@@ -87,6 +87,7 @@ class ReviewSession:
     issues: list[ValidationIssue] = field(default_factory=list)
     field_references: dict[str, str] = field(default_factory=dict)
     parser_profile: str = "legacy"
+    manager_identity: dict = field(default_factory=dict)
 
     @property
     def review_id(self) -> str:
@@ -156,6 +157,8 @@ class WorkbookAnalysis:
     rule_version: str = "facts-v0.6"
     ai_message: str = ""
     subjective_reviews: dict[str, dict] = field(default_factory=dict)
+    assessment: dict = field(default_factory=dict)
+    manager_reviews: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -166,3 +169,4 @@ class ReportAnalysis:
     session_count: int
     expert_count: int
     issues: list[ValidationIssue]
+    manager_identity: dict = field(default_factory=dict)

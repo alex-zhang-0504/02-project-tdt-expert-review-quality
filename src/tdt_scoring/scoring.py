@@ -32,6 +32,7 @@ def aggregate(sessions: list[SessionFact]) -> dict:
         "projects": len({s.project_code for s in sessions}),
         "attendance_rate": None if unknown else ratio(attended, expected),
         "signoff_rate": ratio(signed, expected),
+        "opinion_average": None if unknown or not attended else round(len(opinions) / attended, 4),
         "opinion_rate": None if unknown else ratio(len(opinions), attended),
         "solution_rate": None if pending or not solutions else ratio(solutions, len(opinions)),
         "proxy_rate": ratio(proxy, expected),

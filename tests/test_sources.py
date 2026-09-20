@@ -10,6 +10,11 @@ from tdt_scoring.sources.local_excel import LocalExcelSource
 
 
 class SourceTests(unittest.TestCase):
+    def setUp(self):
+        mock = patch('tdt_scoring.report_owner.read_owners', side_effect=lambda tokens: {t: {} for t in tokens})
+        mock.start()
+        self.addCleanup(mock.stop)
+
     def test_feishu_sheet_and_wiki_urls_are_supported(self) -> None:
         urls = (
             "https://example.feishu.cn/sheets/abc123",

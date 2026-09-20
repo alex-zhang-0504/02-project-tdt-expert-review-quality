@@ -48,6 +48,7 @@ class ReviewInput(BaseModel):
     expert_name: str = Field(min_length=1)
     evaluator: str = Field(min_length=1, max_length=80)
     ratings: dict[str, RatingInput]
+    manager_id: str = ""
 
 
 def require_analysis(analysis):
@@ -66,6 +67,14 @@ def save_review(analysis, payload: ReviewInput) -> dict:
     if payload.ratings.keys() - catalog.keys():
         raise ValueError("存在未知评分维度")
     projects = {s.project_code for s in expert.sessions}
+    if analysis.assessment.get('confirmed'):
+        from .assessment import manager_task, is_excluded
+        manager = manager_task(analysis, payload.manager_id, payload.expert_name)
+        if is_excluded(analysis, payload.manager_id, payload.expert_name):
+            raise ValueError('该评价任务已排除，请先恢复任务')
+        projects = set(manager['experts'][payload.expert_name])
+        if payload.evaluator.strip() != manager['name']:
+            raise ValueError('评价人必须与项目经理身份一致')
     evidence_missing = False
     ratings = {}
     for dimension_id, rating in payload.ratings.items():
@@ -83,7 +92,13 @@ def save_review(analysis, payload: ReviewInput) -> dict:
     record = {"rule_version": RULE_VERSION, "evaluator": payload.evaluator.strip(),
               "ratings": ratings, "status": status,
               "updated_at": datetime.now(timezone.utc).isoformat()}
-    analysis.subjective_reviews[payload.expert_name] = record
+    if analysis.assessment.get('confirmed'):
+        records = analysis.manager_reviews.setdefault(payload.manager_id, {})
+        record['revision'] = records.get(payload.expert_name, {}).get('revision', 0) + 1
+        record['manager_id'] = payload.manager_id
+        records[payload.expert_name] = record
+    else:
+        analysis.subjective_reviews[payload.expert_name] = record
     return record
 
 

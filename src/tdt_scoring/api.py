@@ -6,10 +6,9 @@ from io import BytesIO
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -23,8 +22,11 @@ from .service import ScoringService
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import MAX_WORKBOOK_BYTES
 from .submission import EXCEL_MEDIA_TYPE, build_dimension_one_workbook
+from .export_names import review_export_disposition
 from .subjective import DIMENSIONS, ReviewInput, save_review, build_workbook as build_subjective_workbook
 from .score_statistics import build_statistics, build_statistics_workbook
+from .assessment import require_selected, selected_experts
+from .assessment_api import create_router
 
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
@@ -78,6 +80,8 @@ class DimensionOneExportRequest(BaseModel):
 
 def _encoded(value: object) -> object:
     encoded = jsonable_encoder(asdict(value))
+    if hasattr(value, "assessment") and value.assessment.get("confirmed"):
+        encoded["experts"] = jsonable_encoder([asdict(e) for e in selected_experts(value)])
     if not isinstance(encoded, dict):
         return encoded
     _add_expert_search_terms(encoded)
@@ -137,6 +141,9 @@ def _job_payload(job_id: str) -> dict[str, object]:
     return payload
 
 
+app.include_router(create_router(service, _encoded))
+
+
 @app.get("/", include_in_schema=False)
 def index() -> HTMLResponse:
     html = WEB_ASSETS["index.html"].decode("utf-8")
@@ -168,7 +175,9 @@ def subjective_catalog() -> object:
 def score_statistics(analysis_id: str = Query(min_length=1), scope_confirmed: bool = False) -> object:
     try:
         with service._fact_lock:
-            return build_statistics(service.get_analysis(analysis_id), scope_confirmed)
+            analysis = service.get_analysis(analysis_id)
+            require_selected(analysis)
+            return build_statistics(analysis, scope_confirmed)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     except ValueError as exc:
@@ -176,23 +185,27 @@ def score_statistics(analysis_id: str = Query(min_length=1), scope_confirmed: bo
 
 
 @app.get("/api/statistics/scores/export")
-def export_score_statistics(analysis_id: str = Query(min_length=1), scope_confirmed: bool = False) -> StreamingResponse:
+def export_score_statistics(analysis_id: str = Query(min_length=1), scope_confirmed: bool = False, dimension: Literal["all", "objective", "subjective"] = "all") -> StreamingResponse:
     try:
         with service._fact_lock:
-            content = build_statistics_workbook(service.get_analysis(analysis_id), scope_confirmed)
+            analysis = service.get_analysis(analysis_id)
+            require_selected(analysis)
+            content = build_statistics_workbook(analysis, scope_confirmed, dimension)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StreamingResponse(BytesIO(content), media_type=EXCEL_MEDIA_TYPE,
-        headers={"Content-Disposition": "attachment; filename=score-statistics.xlsx", "Cache-Control": "no-store"})
+        headers={"Content-Disposition": review_export_disposition({'all': '分数统计', 'objective': '评审过程表现评分', 'subjective': '专业价值贡献评分'}[dimension], 'score-statistics.xlsx'), "Cache-Control": "no-store"})
 
 
 @app.post("/api/subjective/review")
 def subjective_review(payload: ReviewInput) -> object:
     try:
         with service._fact_lock:
-            return save_review(service.get_analysis(payload.analysis_id), payload)
+            analysis = service.get_analysis(payload.analysis_id)
+            require_selected(analysis)
+            return save_review(analysis, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     except ValueError as exc:
@@ -203,13 +216,15 @@ def subjective_review(payload: ReviewInput) -> object:
 def export_subjective(analysis_id: str = Query(min_length=1)) -> StreamingResponse:
     try:
         with service._fact_lock:
-            content = build_subjective_workbook(service.get_analysis(analysis_id))
+            analysis = service.get_analysis(analysis_id)
+            require_selected(analysis)
+            content = build_statistics_workbook(analysis, False, "subjective")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StreamingResponse(BytesIO(content), media_type=EXCEL_MEDIA_TYPE,
-        headers={"Content-Disposition": "attachment; filename=subjective-assessment.xlsx", "Cache-Control": "no-store"})
+        headers={"Content-Disposition": review_export_disposition('专业价值贡献评分', 'subjective-assessment.xlsx'), "Cache-Control": "no-store"})
 
 
 @app.get("/api/feishu/auth/status")
@@ -368,6 +383,10 @@ def import_job_status(job_id: str) -> dict[str, object]:
 def export_dimension_one(payload: DimensionOneExportRequest) -> StreamingResponse:
     try:
         analysis = service.get_analysis(payload.analysis_id)
+        require_selected(analysis)
+        from copy import copy
+        analysis = copy(analysis)
+        analysis.experts = selected_experts(analysis)
         content = build_dimension_one_workbook(
             analysis,
             package_kind=payload.package_kind,
@@ -383,18 +402,20 @@ def export_dimension_one(payload: DimensionOneExportRequest) -> StreamingRespons
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if payload.package_kind == "manager_submission":
-        filename = f"四维事实提交_{payload.batch_id}_{payload.manager_id}_R{payload.revision:02d}.xlsx"
+        title = f"四维事实提交_{payload.manager_id}_R{payload.revision:02d}"
     else:
-        filename = f"四维事实结果_{payload.batch_id}.xlsx"
-    disposition = (
-        'attachment; filename="dimension-one.xlsx"; '
-        f"filename*=UTF-8''{quote(filename)}"
-    )
+        title = "评审过程表现统计"
+    disposition = review_export_disposition(title, 'dimension-one.xlsx')
     return StreamingResponse(
         BytesIO(content),
         media_type=EXCEL_MEDIA_TYPE,
         headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
     )
+
+
+@app.get("/api/export/dimension-one")
+def download_dimension_one(payload: DimensionOneExportRequest = Depends()) -> StreamingResponse:
+    return export_dimension_one(payload)
 
 
 @app.post("/api/analysis/confirm-reviewer-names-distinct")
@@ -455,6 +476,10 @@ class IdentifySolutionsRequest(BaseModel):
 @app.post("/api/facts/solution-selection")
 def select_solution(payload: SolutionSelectionRequest) -> object:
     try:
+        analysis = service.get_analysis(payload.analysis_id)
+        require_selected(analysis)
+        if not any(o.opinion_id == payload.opinion_id for e in selected_experts(analysis) for s in e.sessions for o in s.opinions):
+            raise ValueError('该意见不在已确认考核名单内')
         return _encoded(service.select_solution(payload.analysis_id, payload.opinion_id, payload.included))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
@@ -465,6 +490,7 @@ def select_solution(payload: SolutionSelectionRequest) -> object:
 @app.post("/api/facts/identify-solutions")
 def identify_solutions(payload: IdentifySolutionsRequest) -> object:
     try:
+        require_selected(service.get_analysis(payload.analysis_id))
         return _encoded(service.identify_solutions(payload.analysis_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc

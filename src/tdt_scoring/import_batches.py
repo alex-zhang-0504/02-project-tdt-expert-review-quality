@@ -69,6 +69,11 @@ class ImportBatches:
             batch['summary'] = BatchImportSummary(len(items), len(candidates), 0, 0, len(excluded), False, excluded)
             batch['entries'] = [dict(name=name, content=None, url=f'https://{urlparse(batch["url"]).hostname}/sheets/{token}' if token else None,
                                      error=error, parsed=None) for name, token, error in candidates]
+            from .report_owner import read_owners
+            owners = read_owners([token for _, token, error in candidates if token and not error])
+            for entry, (_, token, _) in zip(batch['entries'], candidates):
+                if token in owners:
+                    entry['owner'] = owners[token]
         else:
             batch['entries'] = [dict(name='tdrx-review.xlsx', content=None, url=batch['url'], parsed=None)]
 
@@ -108,6 +113,10 @@ class ImportBatches:
                 progress=lambda event: self.jobs.record(job_id, ProgressEvent(entry['name'], event.checkpoint_id, event.status, event.duration_ms, event.message)))
             for session in result.sessions:
                 session.source_name = entry['name']
+            if entry['url']:
+                from .report_owner import read_owner_url, apply_owner
+                owner = entry.pop('owner', None)
+                apply_owner(result.sessions, owner if owner is not None else read_owner_url(entry['url']))
             issues = [i for i in result.issues if i.code != 'reviewer_name_similarity']
             for issue in issues:
                 issue.source_name = entry['name']

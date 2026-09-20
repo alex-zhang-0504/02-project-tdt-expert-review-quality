@@ -5,6 +5,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from .scoring import aggregate
+from .scoring_policy import snapshot
+from .assessment import selected_experts
 from .subjective import DIMENSIONS, require_analysis
 
 
@@ -14,23 +16,25 @@ COMPONENTS = (("attendance", "出勤", 5), ("signoff", "会签", 10),
               ("opinion", "意见", 10))
 
 
-def stage_score(sessions):
+def stage_score(sessions, policy=None):
+    policy = policy or snapshot()["parameters"]
+    points = policy["components"]
     facts = aggregate(sessions)
     expected, attended, opinions = facts["expected"], facts["attended"], facts["opinions"]
     result = {"applicable": bool(expected), "expected": expected, "attended": attended,
               "opinions": opinions, "suspected": facts["suspected"], "components": {},
-              "solutions": facts["solutions"], "solution_bonus": None if facts["pending"] else facts["solutions"] * 2,
+              "solutions": facts["solutions"], "solution_bonus": None if facts["pending"] else facts["solutions"] * policy["solution_points"],
               "raw_score": None, "opinion_bonus": 0 if not expected else None, "reasons": []}
     if not expected:
         return result
     reasons = result["reasons"]
-    attendance = None if facts["unknown"] else attended / expected * 5
-    signoff = facts["signed"] / expected * 10
+    attendance = None if facts["unknown"] else attended / expected * points["attendance"]
+    signoff = facts["signed"] / expected * points["signoff"]
     if facts["unknown"]:
         reasons.append("出勤状态未知")
-    opinion = 0.0 if not opinions else None if facts["unknown"] or not attended else min(opinions / attended, 1) * 10
+    opinion = 0.0 if not opinions else None if facts["unknown"] or not attended else min(opinions / attended / policy["opinion_threshold"], 1) * points["opinion"]
     if not facts["unknown"] and attended:
-        result["opinion_bonus"] = max(opinions - attended, 0)
+        result["opinion_bonus"] = max(opinions - attended * policy["opinion_threshold"], 0) * policy["excess_opinion_points"]
     elif not facts["unknown"]:
         reasons.append("实参为0，超额意见奖励待确认")
     if opinions and not attended and not facts["unknown"]:
@@ -43,7 +47,8 @@ def stage_score(sessions):
     return result
 
 
-def questionnaire_score(review):
+def questionnaire_score(review, policy=None):
+    policy = policy or snapshot()["parameters"]
     items, complete = [], bool(review.get("evaluator", "").strip())
     ratings = review.get("ratings", {})
     for dimension in DIMENSIONS:
@@ -53,25 +58,31 @@ def questionnaire_score(review):
         evidence_missing = bool(option and required and not (rating.get("note", "").strip() and rating.get("project_code", "")))
         complete &= bool(option and not evidence_missing)
         items.append({"dimension": dimension["title"], "option": option["title"] if option else "待评价",
-                      "score": option["score"] if option else None, "evidence_missing": evidence_missing})
+                      "score": policy["subjective"][dimension["id"]][option["id"]] if option else None, "evidence_missing": evidence_missing})
     return items, sum(item["score"] for item in items) if complete else None
 
 
 def build_statistics(analysis, scope_confirmed=False):
     require_analysis(analysis)
-    facts_by_name = {e.expert_name: aggregate(e.sessions) for e in analysis.experts}
+    receipt = snapshot(analysis)
+    policy = receipt["parameters"]
+    weights = policy["stage_weights"]
+    precision = policy["precision"]
+    minimum = policy["participation"]["minimum_sessions"]
+    cap = policy["total_cap"]
+    facts_by_name = {e.expert_name: aggregate(e.sessions) for e in selected_experts(analysis)}
     participation_ready = scope_confirmed and not any(f["unknown"] for f in facts_by_name.values())
-    tiers = sorted({f["attended"] for f in facts_by_name.values() if f["attended"] >= 3}, reverse=True)
+    tiers = sorted({f["attended"] for f in facts_by_name.values() if f["attended"] >= minimum}, reverse=True)
     rows = []
-    for expert in analysis.experts:
-        stages = {stage: stage_score([s for s in expert.sessions if s.stage == stage]) for stage in STAGE_WEIGHTS}
-        denominator = sum(STAGE_WEIGHTS[stage] for stage, result in stages.items() if result["applicable"])
+    for expert in selected_experts(analysis):
+        stages = {stage: stage_score([s for s in expert.sessions if s.stage == stage], policy) for stage in weights}
+        denominator = sum(weights[stage] for stage, result in stages.items() if result["applicable"])
         facts = facts_by_name[expert.expert_name]
         participation = None
         tier = None
         if participation_ready:
-            tier = tiers.index(facts["attended"]) + 1 if facts["attended"] >= 3 else None
-            participation = 5 if tier == 1 else 3 if tier == 2 else 0
+            tier = tiers.index(facts["attended"]) + 1 if facts["attended"] >= minimum else None
+            participation = policy["participation"]["tier_scores"][0 if tier == 1 else 1 if tier == 2 else 2]
         reasons, process, objective, bonus, solution_bonus = [], None, None, None, None
         if not scope_confirmed:
             reasons.append("待确认报告范围")
@@ -81,7 +92,7 @@ def build_statistics(analysis, scope_confirmed=False):
             reasons.append("批次存在未知出勤，评审参与度待统计")
         ready = bool(denominator) and all(not r["applicable"] or r["raw_score"] is not None for r in stages.values())
         if ready and scope_confirmed:
-            process = sum(r["raw_score"] * STAGE_WEIGHTS[stage] / denominator
+            process = sum(r["raw_score"] * weights[stage] / denominator
                             for stage, r in stages.items() if r["applicable"])
             if participation is not None:
                 objective = process + participation
@@ -90,46 +101,59 @@ def build_statistics(analysis, scope_confirmed=False):
         if scope_confirmed and denominator and all(r["solution_bonus"] is not None for r in stages.values()):
             solution_bonus = sum(r["solution_bonus"] for r in stages.values())
         for stage, result in stages.items():
-            weight = STAGE_WEIGHTS[stage] / denominator if result["applicable"] else 0
+            weight = weights[stage] / denominator if result["applicable"] else 0
             reasons.extend(f"{stage}：{reason}" for reason in result["reasons"])
             raw_score = result.pop("raw_score")
-            result.update(weight=round(weight * 100, 2), score=None if raw_score is None else round(raw_score, 2),
-                          contribution=None if raw_score is None else round(raw_score * weight, 2))
-            result["components"] = {key: None if value is None else round(value, 2) for key, value in result["components"].items()}
+            result.update(weight=round(weight * 100, precision), score=None if raw_score is None else round(raw_score, precision),
+                          contribution=None if raw_score is None else round(raw_score * weight, precision))
+            result["components"] = {key: None if value is None else round(value, precision) for key, value in result["components"].items()}
         review = analysis.subjective_reviews.get(expert.expert_name, {})
-        items, subjective = questionnaire_score(review)
+        items, subjective = questionnaire_score(review, policy)
+        progress = {}
+        if analysis.assessment.get('confirmed'):
+            from .manager_evaluation import average_review
+            items, subjective, progress = average_review(analysis, expert.expert_name, policy)
         if subjective is None:
             reasons.append("主观问卷未完成或必填依据未齐")
         suspected = sum(r["suspected"] for r in stages.values())
         if suspected:
             reasons.append(f"含{suspected}条待确认对策，疑似尚未计入")
         uncapped = None if any(v is None for v in (objective, subjective, bonus, solution_bonus)) else objective + subjective + bonus + solution_bonus
-        if uncapped is not None and uncapped > 100:
-            reasons.append(f"合计{uncapped:.2f}分，按100分封顶")
+        if uncapped is not None and uncapped > cap:
+            reasons.append(f"合计{uncapped:.2f}分，按{cap}分封顶")
         rows.append({"expert_name": expert.expert_name, "projects": len({s.project_code for s in expert.sessions}),
                      "sessions": len(expert.sessions), "stages": stages,
-                     "process_total": None if process is None else round(process, 2),
+                     "process_total": None if process is None else round(process, precision),
                      "participation_count": None if facts["unknown"] else facts["attended"],
                      "participation_tier": tier, "participation_score": participation,
-                     "objective_total": None if objective is None else round(objective, 2), "opinion_bonus": bonus,
+                     "objective_total": None if objective is None else round(objective, precision), "opinion_bonus": bonus,
                      "solution_bonus": solution_bonus,
-                     "subjective_items": items, "subjective_total": subjective, "evaluator": review.get("evaluator", ""),
-                     "uncapped_total": None if uncapped is None else round(uncapped, 2),
-                     "total": None if uncapped is None else round(min(uncapped, 100), 2),
+                     "objective_with_rewards": None if any(v is None for v in (objective, bonus, solution_bonus)) else round(objective + bonus + solution_bonus, precision),
+                     "proxy_count": sum(bool(s.proxy_name) for s in expert.sessions),
+                     "proxy_rate": facts["proxy_rate"], "subjective_progress": progress,
+                     "subjective_items": items, "subjective_total": None if subjective is None else round(subjective, precision), "evaluator": review.get("evaluator", ""),
+                     "uncapped_total": None if uncapped is None else round(uncapped, precision),
+                     "total": None if uncapped is None else round(min(uncapped, cap), precision),
                      "reasons": reasons, "suspected": suspected})
-    return {"rule_version": RULE_VERSION, "scope_confirmed": scope_confirmed, "rows": rows}
+    return {"rule_version": RULE_VERSION, "scope_confirmed": scope_confirmed, "rows": rows, "policy": receipt}
 
 
-def build_statistics_workbook(analysis, scope_confirmed=False):
+def build_statistics_workbook(analysis, scope_confirmed=False, dimension="all"):
     data = build_statistics(analysis, scope_confirmed)
+    if dimension in ('objective', 'subjective'):
+        return dimension_workbook(analysis, data, dimension)
+    p = data["policy"]["parameters"]
+    base = sum(p["components"].values())
+    participation_max = p["participation"]["tier_scores"][0]
+    subjective_max = sum(v["high"] for v in p["subjective"].values())
     wb = Workbook()
     summary = wb.active
     summary.title = "分数统计（试算）"
-    summary.append(["评审人", "项目数", "应参场次", "TDR1（25）", "TDR2（25）", "TDR3（25）",
-                    "阶段加权（25）", "总参与评审场次", "参与度数量档", "评审参与度（5）",
-                    "评审过程表现（30）", "专业价值贡献（70）", "超额意见奖励", "对策奖励", "封顶前合计", "总分（100）", "状态与说明"])
+    summary.append(["评审人", "项目数", "应参场次", f"TDR1（{base}）", f"TDR2（{base}）", f"TDR3（{base}）",
+                    f"阶段加权（{base}）", "总参与评审场次", "参与度数量档", f"评审参与度（{participation_max}）",
+                    f"评审过程表现（{base + participation_max}）", f"专业价值贡献（{subjective_max}）", "超额意见奖励", "输出对策奖励", "封顶前合计", f"总分（{p['total_cap']}）", "状态与说明"])
     stage_sheet = wb.create_sheet("阶段计分依据")
-    stage_sheet.append(["评审人", "阶段", "适用", "应参", "实参", "意见条数", "出勤分", "会签分", "意见基础分", "阶段分", "权重％", "加权贡献", "超额意见奖励（不加权）", "含对策意见条数", "对策奖励（不加权）", "说明"])
+    stage_sheet.append(["评审人", "阶段", "适用", "应参", "实参", "意见条数", "出勤分", "会签分", "意见基础分", "阶段分", "权重％", "加权贡献", "超额意见奖励（不加权）", "含对策意见条数", "输出对策奖励（不加权）", "说明"])
     questionnaire = wb.create_sheet("主观计分依据")
     questionnaire.append(["评审人", "评价人", "维度", "选项", "分值", "依据状态"])
     for row in data["rows"]:
@@ -148,11 +172,14 @@ def build_statistics_workbook(analysis, scope_confirmed=False):
                                   item["score"], "待补依据" if item["evidence_missing"] else ""])
     info = wb.create_sheet("使用说明")
     info.append(["规则", RULE_VERSION])
+    info.append(["配置版本", data['policy']['version']])
+    info.append(["配置指纹", data['policy']['sha256']])
+    info.append(["实际参数", __import__('json').dumps(data['policy']['parameters'], ensure_ascii=False)])
     info.append(["范围确认", "已确认" if scope_confirmed else "未确认，客观合计与总分留空"])
-    info.append(["计分", "阶段内出勤5／会签10／意见10分，TDR1／2／3权重4／2／4，不适用阶段权重归一；过程25＋参与度5＋专业价值70。"])
-    info.append(["奖励", "各阶段max（意见条数－实参场次，0）直接相加；含对策意见每条另加2分，两类奖励均不乘阶段权重；两维加奖励后最高100分，缺失数据不按0处理。"])
-    info.append(["参与度", "本批次有效参评至少3场；前两个不同数量档得5／3分，其余0分，并列同分；全体有效场次确认后统一计算。"])
-    info.append(["用途", "仅为试算留档；无自动回载、多人主观合并或排名。未知、待识别与不适用需按状态区分。"])
+    info.append(["计分", f"阶段基础{base}分，按配置权重归一加权，再加参与度；问卷经理等权平均。"])
+    info.append(["奖励", f"意见平均数达{p['opinion_threshold']}后，超额每条{p['excess_opinion_points']}分；含对策每条{p['solution_points']}分；总分最高{p['total_cap']}分。"])
+    info.append(["参与度", f"至少{p['participation']['minimum_sessions']}场；前两档及其他档分数为{p['participation']['tier_scores']}，并列同分。"])
+    info.append(["用途", "结果留档；经理问卷通过独立任务文件回收，不通过评分表回载。"])
     for sheet in wb:
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions
@@ -166,6 +193,63 @@ def build_statistics_workbook(analysis, scope_confirmed=False):
             cell.font = Font(bold=True, color="FFFFFF")
         for column in sheet.columns:
             sheet.column_dimensions[column[0].column_letter].width = 22
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
+def dimension_workbook(analysis, data, dimension):
+    import json
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = '客观评分' if dimension == 'objective' else '主观评分'
+    if dimension == 'objective':
+        sheet.append(['评审人', 'TDR1', 'TDR2', 'TDR3', '阶段加权', '评审参与度', '基础分', '超额意见奖励', '输出对策奖励', '客观合计', '状态'])
+        for r in data['rows']:
+            sheet.append([r['expert_name'], *[r['stages'][s]['score'] for s in STAGE_WEIGHTS],
+                r['process_total'], r['participation_score'], r['objective_total'], r['opinion_bonus'], r['solution_bonus'], r['objective_with_rewards'],
+                '；'.join(x for x in r['reasons'] if '主观' not in x)])
+        facts = wb.create_sheet('计分事实')
+        facts.append(['评审人', '阶段', '应参', '实参', '意见条数', '意见提出平均数', '含对策条数', '有效权重％', '出勤分', '会签分', '意见分'])
+        for r in data['rows']:
+            for stage, v in r['stages'].items():
+                facts.append([r['expert_name'], stage, v['expected'], v['attended'], v['opinions'],
+                    v['opinions']/v['attended'] if v['attended'] else None, v['solutions'], v['weight'],
+                    *[v['components'].get(k) for k in ('attendance','signoff','opinion')]])
+    else:
+        sheet.append(['评审人', *[d['title'] for d in DIMENSIONS], '最终主观分', '暂定平均', '已完成经理数', '应评价经理数'])
+        for r in data['rows']:
+            p = r['subjective_progress']
+            sheet.append([r['expert_name'], *[i['score'] for i in r['subjective_items']], r['subjective_total'], p.get('provisional'), p.get('completed'), p.get('expected')])
+        detail = wb.create_sheet('经理评价依据')
+        detail.append(['经理身份', '经理', '评审人', '维度', '档位', '项目', '依据', '修订', '排除理由'])
+        from .assessment import is_excluded
+        for mid, reviews in analysis.manager_reviews.items():
+            for name, review in reviews.items():
+                for dim, rating in review['ratings'].items():
+                    detail.append([mid, review['evaluator'], name, dim, rating['option'], rating['project_code'], rating['note'], review['revision'], is_excluded(analysis, mid, name)])
+    config = wb.create_sheet('配置及范围')
+    for key, value in data['policy'].items():
+        config.append([key, json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else value])
+    config.append(['考核批次', analysis.assessment.get('batch_id', '')])
+    config.append(['名单', '；'.join(analysis.assessment.get('included', []))])
+    config.append(['范围确认', data['scope_confirmed']])
+    config.append(['任务排除记录', json.dumps(analysis.assessment.get('exclusions', {}), ensure_ascii=False)])
+    for ws in wb:
+        ws.freeze_panes = 'A2'
+        ws.auto_filter.ref = ws.dimensions
+        for col in ws.columns: ws.column_dimensions[col[0].column_letter].width = 24
+        for row in ws:
+            for cell in row:
+                if isinstance(cell.value, str): cell.data_type = 's'
+                if isinstance(cell.value, float): cell.number_format = '0' + ('.' + '0' * data['policy']['parameters']['precision'] if data['policy']['parameters']['precision'] else '')
+                cell.alignment = Alignment(wrap_text=True, vertical='top')
+        for cell in ws[1]:
+            cell.fill = PatternFill('solid', fgColor='0A9BF5')
+            cell.font = Font(bold=True, color='FFFFFF')
+    if dimension == 'objective':
+        for row in wb['计分事实'].iter_rows(min_row=2):
+            row[5].number_format = '0.0'
     output = BytesIO()
     wb.save(output)
     return output.getvalue()

@@ -14,6 +14,7 @@ from .models import (
     WorkbookAnalysis,
 )
 from .progress import ProgressEvent
+from .report_owner import read_owner_url, apply_owner
 from .scoring import build_facts, refresh, decision_payload
 from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import LocalExcelSource
@@ -182,6 +183,7 @@ class ScoringService:
                     excluded_names=folder.excluded_names,
                 ),
                 progress=progress,
+                report_owners={e.source_name: e.manager_identity for e in folder.workbooks},
             )
         report_name = "tdrx-review.xlsx"
         if on_candidates:
@@ -218,6 +220,7 @@ class ScoringService:
             source_type="feishu_document",
             source_name=source_name,
             progress=progress,
+            report_owners={source_name: read_owner_url(url)},
         )
 
     def get_analysis(self, analysis_id: str) -> WorkbookAnalysis:
@@ -310,6 +313,7 @@ class ScoringService:
                         }
                     ),
                     issues=package.issues,
+                    manager_identity=dict(package.sessions[0].manager_identity) if package.sessions else {},
                 )
             )
 
@@ -409,7 +413,8 @@ class ScoringService:
             analysis = self.get_analysis(analysis_id)
             if any(i.severity == "error" for i in analysis.issues):
                 raise ValueError("请先处理报告中的阻断问题")
-            pending = [o for e in analysis.experts for s in e.sessions for o in s.opinions if o.ai_status == "pending"]
+            from .assessment import selected_experts
+            pending = [o for e in selected_experts(analysis) for s in e.sessions for o in s.opinions if o.ai_status == "pending"]
             if not pending:
                 return analysis
             if self.classifier is None:
@@ -435,6 +440,7 @@ class ScoringService:
         batch_summary: BatchImportSummary | None = None,
         progress: Callable[[ProgressEvent], None] | None = None,
         parsed_reports: dict | None = None,
+        report_owners: dict | None = None,
     ) -> WorkbookAnalysis:
         sessions = []
         issues: list[ValidationIssue] = []
@@ -585,6 +591,8 @@ class ScoringService:
                         else "",
                     )
                 )
+            if report_owners is not None and report_name in report_owners:
+                apply_owner(report_sessions, report_owners[report_name])
             sessions.extend(report_sessions)
             issues.extend(report_issues)
             reports.append(
@@ -595,6 +603,7 @@ class ScoringService:
                     session_count=len(report_sessions),
                     expert_count=len(report_experts),
                     issues=report_issues,
+                    manager_identity=dict(report_sessions[0].manager_identity) if report_sessions else {},
                 )
             )
         similarity_issues = validate_reviewer_name_similarity(sessions)

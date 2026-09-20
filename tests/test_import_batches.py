@@ -15,6 +15,9 @@ def report(code='B260001', stage='TDR1'):
 
 class ImportBatchTests(unittest.TestCase):
     def setUp(self):
+        mock = patch('tdt_scoring.report_owner.read_owners', side_effect=lambda tokens: {t: {} for t in tokens})
+        mock.start()
+        self.addCleanup(mock.stop)
         self.service=ScoringService()
         self.jobs=ImportJobStore()
         self.executor=ThreadPoolExecutor(max_workers=2)
@@ -130,6 +133,19 @@ class ImportBatchTests(unittest.TestCase):
             self.assertEqual(3,call.call_count)
             self.assertEqual(2,len(done.result.sessions))
             self.assertFalse([i for i in done.result.issues if i.severity=='error'])
+
+    def test_owner_is_attached_and_refreshed_on_rescan(self):
+        identity = dict(owner_id='ou_manager_a', name='虚拟经理甲', status='resolved')
+        replacement = dict(owner_id='ou_manager_b', name='虚拟经理乙', status='resolved')
+        candidates = ([{}], [('虚拟报告', 'token-a', None)], [0], [])
+        with patch('tdt_scoring.import_batches.FeishuDocumentSource.folder_candidates', return_value=candidates), patch('tdt_scoring.import_batches.FeishuDocumentSource.export_xlsx', return_value=(report(), 'x')), patch('tdt_scoring.report_owner.read_owners', return_value={'token-a': identity}), patch('tdt_scoring.report_owner.read_owner_url', return_value=replacement) as retry_owner:
+            job = self.runner.feishu('https://example.feishu.cn/drive/folder/folder-token')
+            first = self.finish(job)
+            self.assertEqual(identity, first.result.reports[0].manager_identity)
+            retry_owner.assert_not_called()
+            last = self.finish(self.runner.retry(job.job_id, 0))
+            self.assertEqual(replacement, last.result.reports[0].manager_identity)
+            retry_owner.assert_called_once()
 
     def test_cross_report_names_checked_at_final_and_refreshed_after_rescan(self):
         def named(name,code):
