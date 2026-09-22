@@ -24,7 +24,6 @@ const state = {
   droppedFiles: [],
   droppedSubmissionFiles: [],
   selectedReportIndex: 0,
-  warningsAcknowledged: false,
   serviceAvailable: false,
   serviceInstanceId: null,
   serviceVersion: "",
@@ -78,8 +77,6 @@ const elements = {
   checkState: document.querySelector("#check-state"),
   reportList: document.querySelector("#report-list"),
   batchSummary: document.querySelector("#batch-summary"),
-  warningConfirm: document.querySelector("#warning-confirm"),
-  warningAcknowledged: document.querySelector("#warning-acknowledged"),
   continueAnalysis: document.querySelector("#continue-analysis"),
   issueSummary: document.querySelector("#issue-summary"),
   evidenceDrawer: document.querySelector("#evidence-drawer"),
@@ -235,7 +232,7 @@ function qualityGatePassed() {
   if (state.importActive) return false;
   if (!state.analysis?.assessment?.confirmed) return false;
   const { errors, warnings } = validationCounts();
-  return errors === 0 && (warnings === 0 || state.warningsAcknowledged);
+  return errors === 0;
 }
 
 function canNavigate(step) {
@@ -360,11 +357,9 @@ async function receiveAnalysis(analysis) {
   state.analysisServiceInstanceId = state.serviceInstanceId;
   state.analysisStale = false;
   state.selectedReportIndex = 0;
-  state.warningsAcknowledged = false;
   if (state.workflowMode === "manager") {
     state.currentBatchId = managerMetadata().batch_id;
   }
-  elements.warningAcknowledged.checked = false;
   const reportCount = analysis.reports?.length || 1;
   const candidateCount = analysis.batch_summary?.candidate_count ?? reportCount;
   elements.projectSummary.textContent = `${candidateCount}份候选报告 · ${analysis.sessions.length}场 · ${analysis.experts.length}位评审人`;
@@ -398,7 +393,6 @@ function startProgressDisplay(sourceNames = []) {
     display_percent: 0,
     display_checkpoint_label: "等待检查",
   }));
-  state.warningsAcknowledged = false;
   elements.projectSummary.textContent = "正在检查评审表";
   activateStep(1);
   elements.checkCard.classList.remove("is-hidden");
@@ -408,7 +402,6 @@ function startProgressDisplay(sourceNames = []) {
   elements.issueSummary.innerHTML = "";
   elements.batchSummary.className = "batch-summary usage-note is-hidden";
   elements.batchSummary.innerHTML = "";
-  elements.warningConfirm.classList.add("is-hidden");
   elements.continueAnalysis.disabled = true;
   syncAssessmentActions();
   renderReportList();
@@ -487,7 +480,6 @@ async function retryReport(index, file = null) {
     elements.continueAnalysis.disabled = true;
     setNotice("");
     elements.issueSummary.innerHTML = "";
-    elements.warningConfirm.classList.add("is-hidden");
     const result = await pollImportJob(job.job_id);
     await receiveAnalysis(result);
     selectReport(index);
@@ -697,6 +689,22 @@ function finishCheckWithRequestError(message) {
   elements.issueSummary.innerHTML = `<div class="issue-item error"><span class="severity">错误</span><span class="issue-location">读取阶段</span><span class="issue-content">${escapeHtml(message)}</span></div>`;
 }
 
+function importHint(message) {
+  return `<button class="info-tip" type="button" aria-label="${escapeHtml(message)}"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">${escapeHtml(message)}</span></button>`;
+}
+
+function positionInfoTip(event) {
+  const button = event.target.closest?.('.info-tip');
+  if (!button) return;
+  const tip = button.querySelector('.info-tip-text');
+  const anchor = button.getBoundingClientRect();
+  const width = Math.min(290, window.innerWidth - 32);
+  tip.style.width = `${width}px`;
+  tip.style.left = `${Math.max(16, Math.min(anchor.left, window.innerWidth - width - 16))}px`;
+  const top = anchor.bottom + 6;
+  tip.style.top = `${top + tip.offsetHeight < window.innerHeight - 12 ? top : Math.max(12, anchor.top - tip.offsetHeight - 6)}px`;
+}
+
 function renderIssues(issues, reportName = "") {
   const batchIssues = (state.analysis?.issues || []).filter((issue) => (
     issue.requires_confirmation
@@ -712,14 +720,13 @@ function renderIssues(issues, reportName = "") {
   });
   const errors = visibleIssues.filter((issue) => issue.severity === "error").length;
   const warnings = visibleIssues.filter((issue) => issue.severity === "warning").length;
-  const aggregate = validationCounts();
   if (!visibleIssues.length) {
     if (!state.importActive) {
       elements.checkTitle.textContent = "";
       elements.checkState.textContent = "检查通过";
       elements.checkState.className = "check-state is-ok";
     }
-    elements.issueSummary.innerHTML = `<p class="check-summary is-ok"><strong>未发现格式错误或检查提醒。</strong>${state.importActive ? "本文件检查通过，仍需等待全批次完成。" : "可以继续进入统计。"}</p>`;
+    elements.issueSummary.innerHTML = `<p class="check-summary is-ok"><strong>未发现格式错误或检查提醒。</strong><span class="check-annotation">${state.importActive ? "本文件检查通过，仍需等待全批次完成。" : "可以继续进入统计。"}</span></p>`;
   } else {
     if (!state.importActive) {
       elements.checkTitle.textContent = "";
@@ -729,7 +736,7 @@ function renderIssues(issues, reportName = "") {
       elements.checkState.className = `check-state ${errors ? "is-error" : warnings ? "is-warning" : "is-ok"}`;
     }
     elements.issueSummary.innerHTML = `
-      <strong class="check-summary ${errors ? 'is-error' : warnings ? 'is-warning' : 'is-ok'}">${errors}项错误，${warnings}项提醒</strong>
+      <div class="issue-count-summary"><span class="issue-count"><strong class="check-summary ${errors ? 'is-error' : ''}">${errors}项错误</strong>${importHint('错误项需要先修改再继续。')}</span><span class="issue-count"><strong class="check-summary ${warnings ? 'is-warning' : ''}">${warnings}项提醒</strong>${importHint('提醒项建议确认和修改，但不影响继续进行。')}</span></div>
       <ul>${visibleIssues.map((issue) => {
         const location = issue.sheet_name
           ? `${issue.sheet_name}${issue.cell_reference ? `!${issue.cell_reference}` : ""}`
@@ -742,13 +749,12 @@ function renderIssues(issues, reportName = "") {
         const confirmation = issue.code === "reviewer_name_similarity" && issue.confirmation_key
           ? `<button class="secondary-button issue-confirm-button" type="button" data-confirm-reviewer-names="${escapeHtml(issue.confirmation_key)}">确认均为不同人员</button>`
           : "";
-        return `<li class="issue-item ${issue.severity}"><span class="severity">${severityLabel}</span><span class="issue-location">${escapeHtml(location)}</span><span class="issue-content">${escapeHtml(issue.message + expert)}${relatedLocations}${confirmation}</span></li>`;
+        return `<li class="issue-item ${issue.severity}"><span class="severity">${severityLabel}</span><span class="issue-location">${escapeHtml(location)}</span><span class="issue-content">${escapeHtml(issue.message + expert)}${relatedLocations}</span>${confirmation}</li>`;
       }).join("")}</ul>`;
   }
   elements.issueSummary.querySelectorAll("[data-confirm-reviewer-names]").forEach((button) => {
     button.addEventListener("click", () => confirmReviewerNamesDistinct(button));
   });
-  elements.warningConfirm.classList.toggle("is-hidden", aggregate.errors > 0 || aggregate.warnings === 0);
   syncAssessmentActions();
   activateStep(1);
 }
@@ -768,8 +774,6 @@ async function confirmReviewerNamesDistinct(button) {
       }),
     });
     state.analysis = analysis;
-    state.warningsAcknowledged = false;
-    elements.warningAcknowledged.checked = false;
     renderBatchSummary();
     renderReportList();
     if (analysis.reports?.length) selectReport(state.selectedReportIndex);
@@ -848,7 +852,7 @@ function useSubmissionFiles(fileList) {
   const files = [...fileList];
   if (!files.length || files.some((file) => !file.name.toLowerCase().endsWith(".xlsx"))) {
     state.droppedSubmissionFiles = [];
-    elements.submissionFileName.textContent = "只接受由本系统生成的“四维事实提交”Excel";
+    elements.submissionFileName.textContent = "尚未选择文件";
     setMergeNotice("请选择系统导出的.xlsx维度1提交表", "error");
     syncServiceActions();
     return;
@@ -894,7 +898,6 @@ async function mergeDimensionOneSubmissions() {
       activateStep(0);
       return;
     }
-    state.warningsAcknowledged = true;
     state.currentBatchId = analysis.source_name.split(" · ")[0];
     sq("#import-mode-label").textContent = "方案 2 · 汇总完成 · 名单筛选";
     elements.checkCard.classList.remove("is-hidden");
@@ -913,12 +916,11 @@ function clearAnalysisState() {
   state.analysisStale = false;
   state.droppedFiles = [];
   state.selectedReportIndex = 0;
-  state.warningsAcknowledged = false;
   state.importJobId = null;
   state.importProgressReports = [];
   state.dimensionOneVisibleRows = [];
   elements.file.value = "";
-  elements.fileName.textContent = "支持一次上传多个项目，不修改、不覆盖原始评审表";
+  elements.fileName.textContent = "尚未选择文件";
   elements.projectSummary.textContent = "尚未读取评审表";
   elements.checkCard.classList.add("is-hidden");
   elements.reportList.innerHTML = "";
@@ -937,8 +939,9 @@ function reset() {
   }
 }
 
-function navigateStep(step) {
+async function navigateStep(step) {
   if (!canNavigate(step)) return;
+  if (!await flushSubjectiveChanges()) return;
   if (step === 1) {
     showPanel(elements.importPanel);
     activateStep(1);
@@ -1006,7 +1009,7 @@ function useDroppedFiles(fileList) {
   const files = [...fileList];
   if (!files.length || files.some((file) => !file.name.toLowerCase().endsWith(".xlsx"))) {
     state.droppedFiles = [];
-    elements.fileName.textContent = "支持一次上传多个项目，不修改、不覆盖原始评审表";
+    elements.fileName.textContent = "尚未选择文件";
     setNotice("请选择或拖入.xlsx格式的TDRX评审报告", "error");
     return;
   }
@@ -1086,12 +1089,6 @@ elements.importLocal.addEventListener("click", importLocal);
 elements.importFeishu.addEventListener("click", importFeishu);
 elements.authorizeFeishu.addEventListener("click", startFeishuAuthorization);
 elements.completeFeishuAuth.addEventListener("click", completeFeishuAuthorization);
-elements.warningAcknowledged.addEventListener("change", () => {
-  state.warningsAcknowledged = elements.warningAcknowledged.checked;
-  syncAssessmentActions();
-  activateStep(1);
-  syncServiceActions();
-});
 elements.continueAnalysis.addEventListener("click", enterAssessment);
 document.querySelector("#restart").addEventListener("click", reset);
 elements.mergeSubmissions.addEventListener("click", mergeDimensionOneSubmissions);
@@ -1114,3 +1111,6 @@ requestJson("/api/health").then((health) => {
 });
 
 window.setInterval(checkServiceHealth, SERVICE_HEALTH_INTERVAL_MS);
+
+document.addEventListener('pointerover', positionInfoTip);
+document.addEventListener('focusin', positionInfoTip);

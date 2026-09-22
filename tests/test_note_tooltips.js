@@ -1,0 +1,20 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync('src/web/index.html','utf8'),app=fs.readFileSync('src/web/app.js','utf8');
+const nodes={};
+for(const match of html.matchAll(/id="([^"]+)"/g))nodes['#'+match[1]]={innerHTML:'',textContent:'',querySelectorAll(){return [];}};
+const root={state:{analysis:{}},sq:s=>{assert.ok(nodes[s],`Missing DOM target ${s}`);return nodes[s];},
+ escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),makeTableScrollable(){}};
+vm.createContext(root);
+vm.runInContext(app.slice(app.indexOf('function importHint('),app.indexOf('function renderIssues(')),root);
+assert.ok(root.importHint('虚拟<说明>"').includes('&lt;说明>&quot;'));
+vm.runInContext(fs.readFileSync('src/web/score-statistics.js','utf8'),root);
+vm.runInContext("scoreStatistics.data={policy:{version:'0.1',sha256:'virtual',parameters:{total_cap:88}},rows:[]};renderScoreStatistics();",root);
+assert.match(nodes['#score-method-note'].innerHTML,/最高88分/);
+assert.match(nodes['#score-statistics-message'].textContent,/0位评审人/);
+assert.match(html,/for="assessment-names">待考核姓名/);
+assert.match(html,/id="assessment-names-hint" class="info-tip-text"/);
+assert.match(fs.readFileSync('src/web/subjective.js','utf8'),/class="subjective-description">\$\{escapeHtml\(o.description\)\}/);
+const tip={style:{},offsetHeight:80};root.window={innerWidth:360,innerHeight:640};
+root.positionInfoTip({target:{closest:()=>({querySelector:()=>tip,getBoundingClientRect:()=>({left:320,top:600,bottom:628})})}});
+assert.equal(tip.style.left,'54px');assert.equal(tip.style.top,'514px');
+console.log('备注回归：总分动态说明、真实DOM目标、转义、姓名提示、选项解释保留及边缘定位通过');

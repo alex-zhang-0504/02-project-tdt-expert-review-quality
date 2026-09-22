@@ -21,7 +21,7 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
     def snapshot(job):
         with service._fact_lock:
             analysis = service.get_analysis(job["analysis_id"])
-            result = {k: job[k] for k in ("id", "analysis_id", "status", "total", "completed", "failed", "suspected", "message")}
+            result = {k: job[k] for k in ("id", "analysis_id", "status", "total", "completed", "failed", "suspected", "message", "mode")}
             result["remaining"] = job["total"] - job["completed"] - job["failed"]
             result["policy"] = job["policy"]["receipt"]
             result["analysis"] = jsonable_encoder(encode(analysis))
@@ -54,11 +54,12 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
                         if fatal or attempt == 1 or job["stop"].wait(1):
                             break
                 with lock:
-                    if not active(job, entry):
+                    if sessions.get(job["owner"]) is not entry:
                         return
                     with service._fact_lock:
                         if error:
-                            opinion.reason = "识别失败：" + error
+                            if opinion.ai_status == 'pending':
+                                opinion.reason = "识别失败：" + error
                             job["failed"] += 1
                         else:
                             opinion.ai_status = result["status"]
@@ -67,6 +68,7 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
                             receipt = job["policy"]["receipt"]
                             opinion.rule_version = "countermeasure-policy-v" + receipt["version"] + "/sha256:" + receipt["sha256"] + "/" + entry.model
                             job["completed"] += 1
+                            job["completed_ids"].add(opinion.opinion_id)
                             job["suspected"] += result["status"] == "suspected"
                         analysis = service.get_analysis(job["analysis_id"])
                         refresh(analysis.experts)
@@ -84,6 +86,9 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
                 if not active(job, entry):
                     job["status"] = "cancelled"
                     job["message"] = "已停止，成功结果已保留，未完成意见可继续识别。"
+                    if job['completed'] == job['total']:
+                        job['status'] = 'completed'
+                        job['message'] = '全部意见已完成识别。'
                 entry.busy = False
                 entry.expires = monotonic() + ttl
                 with service._fact_lock:
@@ -116,14 +121,27 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
         with lock:
             token, entry = current(request)
             for job in jobs.values():
-                if job["analysis_id"] == analysis.analysis_id and job["status"] == "running":
+                if job["analysis_id"] == analysis.analysis_id and job["status"] in {"running", "stopping"}:
                     if job["owner"] != token:
                         raise HTTPException(409, "该报告已有AI分析任务，请等待完成。")
                     return JSONResponse(snapshot(job), headers={"Cache-Control": "no-store"})
             if entry.busy or not entry.verified:
                 raise HTTPException(409, "请先完成AI连接验证，或等待当前调用结束。")
+            mode = data.get('mode', 'pending')
+            if mode not in {'pending', 'all', 'resume'}:
+                raise HTTPException(400, '识别范围无效')
+            completed_ids = set()
             with service._fact_lock:
-                opinions = [o for e in selected_experts(analysis) for s in e.sessions for o in s.opinions if o.ai_status == "pending"]
+                all_opinions = [o for e in selected_experts(analysis) for s in e.sessions for o in s.opinions]
+                if mode == 'resume':
+                    previous = jobs.get(data.get('resume_id'))
+                    if not previous or previous['owner'] != token or previous['analysis_id'] != analysis.analysis_id:
+                        raise HTTPException(409, '未找到本会话可继续的任务，请重新识别')
+                    targets = previous['target_ids']
+                    completed_ids = set(previous['completed_ids'])
+                else:
+                    targets = {o.opinion_id for o in all_opinions if mode == 'all' or o.ai_status == 'pending'}
+                opinions = [o for o in all_opinions if o.opinion_id in targets - completed_ids]
             if not opinions:
                 raise HTTPException(409, "全部意见已有识别结果，无需重复调用。")
             policy["roles"] = {}
@@ -138,11 +156,13 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
             # Keep only the latest finished task for this analysis and session.
             for oid in list(jobs):
                 old = jobs[oid]
-                if old["status"] != "running" and (old["owner"] == token or old["owner"] not in sessions):
+                if old["status"] not in {"running", "stopping"} and old['analysis_id'] == analysis.analysis_id and (old["owner"] == token or old["owner"] not in sessions):
                     del jobs[oid]
             job = dict(id=uuid4().hex, owner=token, analysis_id=analysis.analysis_id,
-                       status="running", total=len(opinions), completed=0, failed=0,
-                       suspected=0, message="", stop=Event(), policy=policy)
+                       status="running", total=len(targets), completed=len(completed_ids), failed=0,
+                       suspected=sum(o.ai_status == 'suspected' for o in all_opinions if o.opinion_id in completed_ids),
+                       message="", stop=Event(), policy=policy, mode=mode,
+                       target_ids=targets, completed_ids=completed_ids)
             jobs[job["id"]] = job
             entry.busy = True
             analysis.ai_message = "AI逐条分析进行中，成功结果实时保存。"
@@ -165,6 +185,7 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
     def cancel(request: Request, job_id: str):
         with lock:
             job = owned(request, job_id)
-            if job["status"] == "running":
+            if job["status"] in {"running", "stopping"}:
                 job["stop"].set()
-            return {"message": "正在停止后续调用；已发出的请求无法撤回。"}
+                job['status'] = 'stopping'
+            return JSONResponse(snapshot(job), headers={"Cache-Control": "no-store"})

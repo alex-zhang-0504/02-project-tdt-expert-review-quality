@@ -37,7 +37,7 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('id="batch-summary"', INDEX_HTML)
         self.assertIn("飞书批次不完整，禁止生成完整年度结果", APP_JS)
         self.assertIn("summary.failed_count", APP_JS)
-        self.assertIn("aggregate.errors > 0", APP_JS)
+        self.assertIn("return errors === 0;", APP_JS)
 
     def test_similar_reviewer_names_require_a_dedicated_confirmation(self) -> None:
         self.assertIn("reviewer_name_similarity", APP_JS)

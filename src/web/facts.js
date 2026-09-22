@@ -47,11 +47,8 @@ function renderDimensionOneTable() {
   const experts = state.analysis.experts.filter(e => reviewerMatchesSearch(e, query));
   state.dimensionOneVisibleRows = experts;
   const groups = visibleFactGroups(elements.dimensionOneStage.value);
-  elements.analysisSummary.textContent = experts.length + "位评审人 · 点击数字查看公式，详情查看项目与意见证据。";
-  const pending = state.analysis.experts.reduce((n, e) => n + e.overall.pending, 0);
-  const totalOpinions = state.analysis.experts.reduce((n, e) => n + e.overall.opinions, 0);
-  const unresolvedCount = state.analysis.experts.reduce((n, e) => n + e.overall.suspected, 0);
-  document.querySelector("#facts-ai-status").textContent = `已识别${totalOpinions - pending}／${totalOpinions}条 · 疑似待确认${unresolvedCount}条`;
+  elements.analysisSummary.textContent = experts.length + "位评审人";
+  window.reviewAI?.refresh();
   if (!experts.length) {
     elements.dimensionOneTableWrap.innerHTML = '<div class="dimension-one-empty">没有匹配的评审人。</div>';
     return;

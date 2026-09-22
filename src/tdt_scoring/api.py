@@ -27,6 +27,7 @@ from .subjective import DIMENSIONS, ReviewInput, save_review, build_workbook as 
 from .score_statistics import build_statistics, build_statistics_workbook
 from .assessment import require_selected, selected_experts
 from .assessment_api import create_router
+from .policy_admin import create_policy_admin_router
 
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
@@ -142,6 +143,7 @@ def _job_payload(job_id: str) -> dict[str, object]:
 
 
 app.include_router(create_router(service, _encoded))
+app.include_router(create_policy_admin_router())
 
 
 @app.get("/", include_in_schema=False)

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="870" viewBox="0 0 1120 870">
+<style>text{font-family:'Microsoft YaHei',sans-serif;font-size:15px;fill:#363636}.title{font-size:24px;font-weight:700}.heading{font-size:19px;font-weight:600}.button{font-size:16px;font-weight:600}.white{fill:white}.small{font-size:14px}.line{stroke:#e2e2e2;stroke-width:1}</style>
+<rect width="1120" height="870" fill="#f6f6f6"/>
+<text x="30" y="40" class="title">客观数据评价 · 交互示意 V0.1</text>
+<text x="30" y="69">两页各保留一个底部跳转按钮；识别标题、状态与操作合并为长按钮。</text>
+<rect x="24" y="91" width="1072" height="287" fill="white" stroke="#e2e2e2"/>
+<text x="48" y="129" class="heading">数据统计页</text>
+<text x="48" y="177">搜索评审人</text><rect x="141" y="150" width="182" height="42" fill="white" stroke="#b8b8b8"/><text x="154" y="177">姓名／全拼／首字母</text>
+<text x="343" y="177">统计视图</text><rect x="419" y="150" width="132" height="42" fill="white" stroke="#b8b8b8"/><text x="437" y="177">分阶段　⌄</text>
+<rect x="568" y="150" width="326" height="42" rx="2" fill="#e6f4fe" stroke="#0a9bf5"/><text x="731" y="177" text-anchor="middle" class="button">对策有效性识别</text>
+<rect x="910" y="150" width="162" height="42" rx="2" fill="#0a9bf5"/><text x="991" y="177" text-anchor="middle" class="button white">导出统计结果</text>
+<rect x="48" y="211" width="1024" height="38" fill="#0a9bf5"/><text x="100" y="236" class="white">评审人</text><text x="370" y="236" class="white">TDR1</text><text x="647" y="236" class="white">TDR2</text><text x="936" y="236" class="white">TDR3</text>
+<rect x="48" y="249" width="1024" height="44" fill="#f6f6f6"/><text x="560" y="277" text-anchor="middle">保留现有数据统计表、公式与详情入口</text>
+<rect x="450" y="313" width="220" height="44" rx="2" fill="#0a9bf5"/><text x="560" y="341" text-anchor="middle" class="button white">查看客观评分</text>
+<rect x="24" y="396" width="1072" height="249" fill="white" stroke="#e2e2e2"/>
+<text x="48" y="434" class="heading">客观评分页</text>
+<rect x="48" y="458" width="1024" height="39" fill="#0a9bf5"/><text x="100" y="483" class="white">评审人</text><text x="306" y="483" class="white">阶段评分</text><text x="546" y="483" class="white">参与度</text><text x="734" y="483" class="white">奖励</text><text x="958" y="483" class="white">客观合计</text>
+<rect x="48" y="497" width="1024" height="54" fill="#f6f6f6"/><text x="560" y="529" text-anchor="middle">保留现有评分内容、范围确认与导出功能</text>
+<rect x="440" y="575" width="240" height="46" rx="2" fill="#e6f4fe" stroke="#0a9bf5"/><text x="560" y="604" text-anchor="middle" class="button">返回客观数据统计</text>
+<text x="30" y="684" class="heading">长按钮的三个状态（依次变化，不会同时出现）</text>
+<text x="30" y="718" class="small">等待识别</text><text x="400" y="718" class="small">正在识别</text><text x="770" y="718" class="small">识别完成，再点可重新识别</text>
+<rect x="30" y="735" width="320" height="50" rx="2" fill="#e6f4fe" stroke="#0a9bf5"/><text x="190" y="766" text-anchor="middle" class="button">对策有效性识别</text>
+<rect x="400" y="735" width="320" height="50" rx="2" fill="#f6f6f6" stroke="#b8b8b8"/><text x="560" y="766" text-anchor="middle">已识别18／46条 · 疑似3条</text>
+<rect x="770" y="735" width="320" height="50" rx="2" fill="#e6f4fe" stroke="#0a9bf5"/><text x="930" y="766" text-anchor="middle" class="button">已识别46／46条 · 疑似3条 ↻</text>
+<text x="30" y="816" class="small">识别中避免重复启动，旁侧仅此时保留「停止识别」；失败、停止或进度断连时显示真实状态。</text>
+<text x="30" y="846" class="small">待确认草案 · 重识别按最新规则重新分析，人工确认结论建议保留；继续沿用发送内容及费用确认。</text>
+</svg>

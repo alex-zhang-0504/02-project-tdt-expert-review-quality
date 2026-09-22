@@ -8,9 +8,8 @@ from pathlib import Path
 POLICY_PATH = Path(__file__).resolve().parents[2] / 'config/scoring-policy-v0.1.json'
 
 
-def load_policy():
+def parse_policy(raw):
     try:
-        raw = POLICY_PATH.read_bytes()
         data = json.loads(raw)
         from .subjective import DIMENSIONS
         if not (data['version'] == '0.1'): raise ValueError()
@@ -33,9 +32,16 @@ def load_policy():
         for opts in data['subjective'].values():
             if not (opts['high'] >= opts.get('medium', opts['low']) >= opts['low']): raise ValueError()
     except (OSError, ValueError, KeyError, TypeError, AssertionError):
-        raise ValueError('评分配置未读取或参数无效，考核已阻止') from None
+        raise ValueError('评分参数未读取或参数无效，考核已阻止') from None
     return {'parameters': data, 'version': data['version'], 'sha256': sha256(raw).hexdigest(),
             'file': 'config/' + POLICY_PATH.name, 'loaded_at': datetime.now(timezone.utc).isoformat()}
+
+
+def load_policy():
+    try:
+        return parse_policy(POLICY_PATH.read_bytes())
+    except OSError:
+        raise ValueError('评分参数未读取或参数无效，考核已阻止') from None
 
 
 def snapshot(analysis=None):

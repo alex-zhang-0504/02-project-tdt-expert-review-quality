@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="780" viewBox="0 0 1120 780">
+<rect width="1120" height="780" fill="#f6f6f6"/>
+<style>text{font-family:'Microsoft YaHei',sans-serif;fill:#363636;font-size:16px}.title{font-size:23px;font-weight:700}.label{font-weight:600}.small{font-size:14px}.white{fill:white;font-weight:600}.line{stroke:#e2e2e2;stroke-width:1}.box{fill:white;stroke:#b5b5b5;stroke-width:1}</style>
+<rect x="24" y="20" width="1072" height="64" fill="white"/>
+<text x="44" y="60" class="title">读取评审表 · 交互草案 V0.2</text>
+<rect x="790" y="33" width="112" height="38" rx="2" fill="#e6f4fe"/><text x="815" y="58" class="label">AI设置</text>
+<rect x="914" y="33" width="158" height="38" rx="2" class="box"/><text x="934" y="58" class="label">评分配置 · 锁定</text>
+<rect x="24" y="100" width="1072" height="640" fill="white" stroke="#e2e2e2"/>
+<text x="48" y="140" class="label">文档检查结果</text>
+<text x="48" y="178">0项错误，2项提醒（建议确认并修改报告，但不影响任务进行）</text>
+<rect x="48" y="195" width="1024" height="48" rx="2" fill="#f6f6f6"/><text x="64" y="225" class="small">报告检查列表及提醒详情沿用现有区域，此处省略。</text>
+<line x1="48" y1="262" x2="1072" y2="262" class="line"/>
+<text x="48" y="303" class="title">考核评审人名单</text><text x="279" y="301">只考核名单上的评审人</text>
+<text x="48" y="351" class="label">导入名单</text>
+<rect x="152" y="322" width="456" height="46" rx="2" class="box"/><text x="171" y="351">考核评审人名单.xlsx</text>
+<rect x="620" y="322" width="120" height="46" rx="2" class="box"/><text x="648" y="351" class="label">对比名单</text>
+<rect x="752" y="322" width="154" height="46" rx="2" class="box"/><text x="773" y="351" class="label">还原导入名单</text>
+<text x="152" y="391" class="small">未上传时显示「上传名单单击此处」；上传后点击文件名可替换。</text>
+<text x="48" y="432" class="label">待考核姓名</text>
+<text x="168" y="432" class="small">支持换行、空格、顿号及中英文逗号、句号、分号分隔，重复姓名自动合并。</text>
+<rect x="48" y="447" width="1024" height="78" rx="2" class="box"/><text x="64" y="478">虚拟专家甲、虚拟专家乙、虚拟专家丙</text>
+<text x="48" y="561" class="label">已匹配 2人</text><text x="180" y="561">虚拟专家甲、虚拟专家乙</text>
+<text x="48" y="592" class="label">未匹配 1人</text><text x="180" y="592">虚拟专家丙</text>
+<text x="48" y="623" class="label">未纳入 1人</text><text x="180" y="623">虚拟专家丁</text>
+<line x1="48" y1="642" x2="1072" y2="642" class="line"/>
+<rect x="470" y="664" width="180" height="48" rx="2" fill="#0a9bf5"/><text x="512" y="695" class="white">读取评分配置</text>
+<text x="668" y="690" class="small">读取成功：按钮变为「下一步」</text><text x="668" y="714" class="small">旁边显示版本、读取时间及凭据入口</text>
+<text x="24" y="765" class="small">待确认草案 · 示例为虚拟姓名 · 提醒不阻断，错误仍须处理 · 配置真实读取成功后才可进入下一步</text>
+</svg>

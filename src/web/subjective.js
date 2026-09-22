@@ -51,11 +51,11 @@ async function openSubjective() {
 function renderSubjectiveRail() {
   const experts = managerExperts();
   const completed = experts.filter(e => managerSaved(e.expert_name)?.status === "已完成").length;
-  sq("#subjective-progress").textContent = `已保存完成 ${completed}／${experts.length}人`;
+  sq("#subjective-progress").textContent = `已完成 ${completed}／${experts.length}人`;
   const visible = experts.filter(e => reviewerMatchesSearch(e, normalizedReviewerSearch(sq("#subjective-search").value)));
   sq("#subjective-experts").innerHTML = visible.map(e => {
     const draft = subjective.drafts.get(managerDraftKey(e.expert_name));
-    const label = subjectiveExclusion(e.expert_name) ? "已排除" : draft?.dirty ? "未保存" : managerSaved(e.expert_name)?.status || "待评价";
+    const label = subjectiveExclusion(e.expert_name) ? "已排除" : draft?.dirty ? "编辑中" : managerSaved(e.expert_name)?.status || "待评价";
     return `<button type="button" class="subjective-person" data-person="${escapeHtml(e.expert_name)}"
       aria-pressed="${e.expert_name === subjective.expert}" ${subjective.busy ? "disabled" : ""}>
       <strong>${escapeHtml(e.expert_name)}</strong><span>${label}</span></button>`;
@@ -75,7 +75,7 @@ function syncSubjectiveTaskManagement() {
   const reason = subjectiveExclusion();
   const key = managerDraftKey();
   if (host.dataset.task !== key) { host.open = false; sq('#exclude-task-reason').value = reason; host.dataset.task = key; }
-  sq('#subjective-task-status').textContent = reason ? '已排除 · ' + reason : '无需评价时，可填写理由排除';
+  sq('#subjective-task-status').textContent = reason ? '已排除 · ' + reason : '（可排除）';
   sq('#exclude-manager-task').hidden = !!reason;
   sq('#restore-manager-task').hidden = !reason;
   sq('#exclude-task-reason').disabled = !!reason;
@@ -117,7 +117,7 @@ function renderSubjectiveEditor() {
             <button type="button" class="secondary-button subjective-reset" data-clear="${d.id}">恢复待评价</button></div>` : ""}
         </fieldset>`;
       }).join("")}
-      <div class="subjective-footer"><div class="subjective-save-progress"><div class="subjective-completion" id="subjective-completion" aria-live="polite"></div><progress id="subjective-completion-bar" max="6" value="0" aria-label="问卷填答进度"></progress></div><span id="subjective-save-state" class="muted"></span><button class="primary-button" id="save-subjective" type="submit">保存当前问卷</button></div>
+      <div class="subjective-footer"><div class="subjective-save-progress"><div class="subjective-completion" id="subjective-completion" aria-live="polite"></div><progress id="subjective-completion-bar" max="6" value="0" aria-label="问卷填答进度"></progress></div><span id="subjective-save-state" class="muted"></span><button class="primary-button" id="save-subjective" type="submit">下一步</button></div>
     </fieldset></form>`;
   updateSubjectiveSummary();
 }
@@ -127,7 +127,15 @@ function updateSubjectiveSummary() {
   const summary = subjectiveSummary(draft);
   sq("#subjective-completion").textContent = `${summary.count}／6项 · ${summary.status}`;
   sq('#subjective-completion-bar').value = summary.count;
-  sq("#subjective-save-state").textContent = draft.dirty ? "有未保存修改" : managerSaved(subjective.expert) ? "已保存至本次分析" : "尚未保存";
+  const next = nextSubjectiveExpert();
+  sq("#subjective-save-state").textContent = subjective.busy ? "正在提交…" :
+    `${draft.dirty ? '修改将在下一步或切换时自动提交；' : ''}${next ? '下一位：' + next.expert_name : '下一步查看主观评分'}${summary.status !== '已完成' ? '；未完成项保留待评价' : ''}`;
+}
+
+function nextSubjectiveExpert() {
+  const experts = managerExperts();
+  return experts.slice(experts.findIndex(e => e.expert_name === subjective.expert) + 1)
+    .find(e => !subjectiveExclusion(e.expert_name));
 }
 
 function subjectiveChanged() {
@@ -137,33 +145,66 @@ function subjectiveChanged() {
   renderSubjectiveRail();
 }
 
-async function saveSubjective(event) {
-  event.preventDefault();
-  if (subjective.busy || !await checkServiceHealth() || state.analysisStale) return;
-  const draft = subjectiveDraft();
-  if (!draft.evaluator.trim()) { sq("#assessment-manager").focus(); return; }
-  const name = subjective.expert, analysis = state.analysis, managerId = assessmentUI.managerId;
+async function flushSubjectiveChanges() {
+  if (subjective.busy) return false;
+  if (subjective.analysisId !== state.analysis?.analysis_id) return true;
+  const pending = [...subjective.drafts.entries()].filter(([, draft]) => draft.dirty);
+  if (!pending.length) return true;
+  const analysis = state.analysis;
+  let failedKey = pending[0][0];
   subjective.busy = true;
-  sq(".subjective-fields").disabled = true;
+  sq('#assessment-manager').disabled = true;
+  if (sq('.subjective-fields')) sq('.subjective-fields').disabled = true;
+  if (sq('#subjective-save-state')) sq('#subjective-save-state').textContent = '正在提交…';
   renderSubjectiveRail();
   try {
-    const review = await requestJson("/api/subjective/review", {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({analysis_id: analysis.analysis_id, expert_name: name, evaluator: draft.evaluator, manager_id:managerId, ratings: draft.ratings})});
-    analysis.manager_reviews ||= {};
-    analysis.manager_reviews[managerId] ||= {};
-    analysis.manager_reviews[managerId][name] = review;
-    draft.dirty = false;
-    sq("#subjective-message").textContent = `问卷已保存：${review.status}。分数可在本模块「主观评分」页查看。`;
-  } catch (error) { sq("#subjective-message").textContent = error.message; }
-  finally { subjective.busy = false; renderSubjectiveRail(); renderSubjectiveEditor(); }
+    if (!await checkServiceHealth() || state.analysisStale) throw new Error('服务不可用或分析已失效');
+    for (const [key, draft] of pending) {
+      failedKey = key;
+      const [managerId, name] = JSON.parse(key);
+      const review = await requestJson("/api/subjective/review", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({analysis_id: analysis.analysis_id, expert_name: name, evaluator: draft.evaluator, manager_id: managerId, ratings: draft.ratings})});
+      analysis.manager_reviews ||= {};
+      analysis.manager_reviews[managerId] ||= {};
+      analysis.manager_reviews[managerId][name] = review;
+      draft.dirty = false;
+    }
+    sq('#subjective-message').textContent = '';
+    return true;
+  } catch (error) {
+    [assessmentUI.managerId, subjective.expert] = JSON.parse(failedKey);
+    sq('#assessment-manager').value = assessmentUI.managerId;
+    showPanel(sq('#subjective-panel')); activateStep(3);
+    sq('#subjective-page-one').hidden = false; sq('#subjective-page-two').hidden = true;
+    sq('#export-subjective').hidden = false;
+    document.querySelectorAll('[data-dimension-page^="subjective:"]').forEach(b => b.setAttribute('aria-pressed', b.dataset.dimensionPage === 'subjective:1'));
+    const message = `自动提交失败：${currentManager()?.name || '当前经理'}／${subjective.expert}。${error.message}。内容已保留，请重试「下一步」。`;
+    sq('#subjective-message').textContent = message;
+    window.alert(message);
+    return false;
+  } finally {
+    subjective.busy = false; sq('#assessment-manager').disabled = false;
+    renderSubjectiveRail(); renderSubjectiveEditor();
+  }
+}
+
+async function nextSubjective(event) {
+  event.preventDefault();
+  if (!await flushSubjectiveChanges()) return;
+  const next = nextSubjectiveExpert();
+  if (next) {
+    subjective.expert = next.expert_name;
+    renderSubjectiveRail(); renderSubjectiveEditor();
+    sq('.subjective-heading')?.scrollIntoView({block:'start', behavior:'smooth'});
+  } else {
+    await showDimensionPage('subjective', 2);
+    sq('#subjective-panel').scrollIntoView({block:'start', behavior:'smooth'});
+  }
 }
 
 async function exportSubjective() {
   if (subjective.busy || !await checkServiceHealth() || state.analysisStale) return;
-  if ([...subjective.drafts.values()].some(d => d.dirty)) {
-    sq("#subjective-message").textContent = "仍有未保存评价，请逐人保存后导出。";
-    return;
-  }
+  if (!await flushSubjectiveChanges()) return;
   const button = sq("#export-subjective");
   button.disabled = true;
   try {
@@ -179,16 +220,17 @@ async function exportSubjective() {
 function initializeSubjectiveUI() {
   sq("#subjective-search").addEventListener("input", renderSubjectiveRail);
   sq("#export-subjective").addEventListener("click", exportSubjective);
-  sq("#subjective-experts").addEventListener("click", event => {
+  sq("#subjective-experts").addEventListener("click", async event => {
     const button = event.target.closest("[data-person]");
     if (!button || subjective.busy) return;
+    if (!await flushSubjectiveChanges()) return;
     subjective.expert = button.dataset.person;
     sq("#subjective-message").textContent = "";
     renderSubjectiveRail(); renderSubjectiveEditor();
     sq('.subjective-heading')?.scrollIntoView({block:'start', behavior:'smooth'});
   });
   const editor = sq("#subjective-editor");
-  editor.addEventListener("submit", saveSubjective);
+  editor.addEventListener("submit", nextSubjective);
   editor.addEventListener("input", event => {
     const input = event.target;
     if (input.dataset.note) subjectiveDraft().ratings[input.dataset.note].note = input.value;

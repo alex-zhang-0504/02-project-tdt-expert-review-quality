@@ -59,7 +59,7 @@ def confirm_roster(analysis, names, batch_id, policy_hash=None):
         raise ValueError('名单与报告没有交集，不能开始考核')
     policy = load_policy()
     if policy_hash is not None and policy_hash != policy['sha256']:
-        raise ValueError('评分配置已变化，请重新读取评分配置后再进入')
+        raise ValueError('评分参数已变化，请重新读取评分参数后再进入')
     result.update(confirmed=True, batch_id=batch_id.strip(), policy=policy, exclusions={})
     result['roster_hash'] = sha256(json.dumps(sorted(result['included']), ensure_ascii=False).encode()).hexdigest()
     analysis.assessment = result

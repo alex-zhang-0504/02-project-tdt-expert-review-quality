@@ -3,8 +3,10 @@
   const key = document.querySelector('#experiment-key');
   const status = document.querySelector('#experiment-status');
   const consent = document.querySelector('#ai-consent-dialog');
-  const cancel = document.querySelector('#cancel-ai-analysis');
+  const identify = document.querySelector('#identify-solutions');
   let token = '', busy = false, verified = false, expiresAt = 0, jobId = '', analysisId = '';
+  let stopping = false, reconnecting = false, mode = 'pending', resumeId = '';
+  const results = new Map();
   let policyReceipt = null;
   function showPolicy(receipt, message = '') {
     for (const id of ['ai-policy-settings', 'ai-policy-consent']) {
@@ -26,10 +28,6 @@
     } catch (error) { showPolicy(null, '判定配置未就绪：' + error.message); return false; }
   }
   document.querySelector('#reload-ai-policy').addEventListener('click', readPolicy);
-  const button = document.createElement('button');
-  button.type = 'button'; button.className = 'ghost-button'; button.id = 'open-experiment';
-  button.textContent = 'AI设置';
-  document.querySelector('.topbar').append(button);
   function sync() {
     const enabled = Boolean(token) && Date.now() < expiresAt;
     for (const name of ['save', 'test', 'disable']) {
@@ -37,10 +35,27 @@
     }
     document.querySelector('#experiment-model').disabled = busy || Boolean(jobId) || enabled;
     key.disabled = busy || Boolean(jobId);
-    button.textContent = verified && enabled ? 'AI已配置' : 'AI设置';
-    cancel.hidden = !jobId;
-    document.querySelector('.ai-action-group').classList.toggle('is-running', Boolean(jobId));
-    document.querySelector('#facts-ai-label').textContent = jobId ? 'AI分析中' : 'AI对策分析';
+    renderIdentify();
+  }
+  function renderIdentify() {
+    const analysis=state.analysis;
+    if(!analysis)return;
+    const data=results.get(analysis.analysis_id);
+    const total=analysis.experts.reduce((n,e)=>n+e.overall.opinions,0);
+    const pending=analysis.experts.reduce((n,e)=>n+e.overall.pending,0);
+    const suspected=analysis.experts.reduce((n,e)=>n+e.overall.suspected,0);
+    const active=jobId && analysisId===analysis.analysis_id;
+    const count=data?`${data.completed}／${data.total}`:`${total-pending}／${total}`;
+    identify.dataset.busy=active && stopping?'true':'false';
+    if(active && stopping)identify.textContent='正在停止…';
+    else if(active && reconnecting)identify.textContent='进度重连中 · 点击停止';
+    else if(active)identify.textContent=`已识别${count}条 · 点击停止`;
+    else if(data?.status==='cancelled')identify.textContent=`已停止${count}条 · 点击继续`;
+    else if(data?.status==='partial')identify.textContent=`已识别${count}条 · 失败${data.failed}条 · 点击继续`;
+    else if(!total || (!data && total===pending))identify.textContent='对策有效性识别';
+    else identify.textContent=`已识别${count}条 · 疑似${suspected}条 · ${pending?'点击继续':'点击重新识别'}`;
+    identify.title=data?.message || '按当前判定配置识别对策有效性，人工确认的选择予以保留。';
+    syncServiceActions();
   }
   async function request(path, body = {}) {
     const response = await fetch('/api/experiment/' + path, {
@@ -72,23 +87,25 @@
     verified = true; expiresAt = Date.now() + 3600000;
     status.textContent = '配置成功 · ' + data.model + '，连接及结果格式验证通过。可关闭此窗口开始全量分析。';
   }
-  button.addEventListener('click', () => { sync(); dialog.showModal(); readPolicy(); });
+  document.querySelector('#configure-identification').addEventListener('click', () => { consent.close(); sync(); dialog.showModal(); readPolicy(); });
   document.querySelector('#close-experiment').addEventListener('click', () => dialog.close());
   dialog.addEventListener('close', () => { key.value = ''; });
   document.querySelector('#save-experiment').addEventListener('click', () => action(async () => {
     const secret = key.value.trim(); key.value = ''; verified = false;
     const data = await request('settings', {api_key: secret, model: document.querySelector('#experiment-model').value});
-    token = data.session; expiresAt = Date.now() + data.expires_in * 1000;
+    token = data.session; expiresAt = Date.now() + data.expires_in * 1000; results.clear();
     await verify();
   }));
   document.querySelector('#test-experiment').addEventListener('click', () => action(verify));
   document.querySelector('#disable-experiment').addEventListener('click', () => action(async () => {
-    await request('disable'); token = ''; expiresAt = 0; verified = false;
+    await request('disable'); token = ''; expiresAt = 0; verified = false; results.clear();
     status.textContent = '已关闭AI并清除内存密钥。';
   }));
   function showProgress(data) {
     if (state.analysis?.analysis_id !== data.analysis_id) return;
-    const label = {running: '正在分析', completed: '全部分析完成', partial: '分析结束，部分未完成', cancelled: '已停止'}[data.status];
+    results.set(data.analysis_id, data);
+    stopping=data.status==='stopping';
+    const label = {running: '正在识别', stopping: '正在停止', completed: '全部识别完成', partial: '识别结束，部分未完成', cancelled: '已停止'}[data.status];
     const total = data.analysis.experts.reduce((n, e) => n + e.overall.opinions, 0);
     const pending = data.analysis.experts.reduce((n, e) => n + e.overall.pending, 0);
     showPolicy(data.policy);
@@ -101,10 +118,11 @@
     if (!jobId) return;
     try {
       const data = await request('jobs/' + jobId);
+      reconnecting=false;
       showProgress(data);
-      if (data.status !== 'running') {
+      if (!['running','stopping'].includes(data.status)) {
         jobId = ''; expiresAt = Date.now() + 3600000;
-        setBusy(document.querySelector('#identify-solutions'), false); sync();
+        stopping=false; sync();
         if (state.analysis?.analysis_id === data.analysis_id) {
           if (state.activeStep === 4) await refreshScoreStatistics();
           if (state.activeStep === 3) renderSubjectiveEditor();
@@ -118,23 +136,34 @@
       }
     } catch (error) {
       if (error.status === 404) {
-        jobId = ''; sync(); setBusy(document.querySelector('#identify-solutions'), false);
-        document.querySelector('#facts-ai-status').textContent = '当前服务中已无此任务，请重新读取报告后识别。';
+        results.delete(analysisId); jobId = ''; stopping=false; sync();
+        identify.textContent = '任务已失效 · 请重新识别';
         return;
       }
-      document.querySelector('#facts-ai-status').textContent = '暂时无法读取进度，正在重连。' + error.message;
+      reconnecting=true; renderIdentify(); identify.title='暂时无法读取进度，正在重连。'+error.message;
     }
     window.setTimeout(poll, 1200);
   }
-  window.reviewAI = {async start() {
-    if (jobId) { document.querySelector('#facts-ai-status').textContent = '当前任务正在分析，请等待完成。'; return; }
+  window.reviewAI = {refresh:renderIdentify, async start() {
+    if (jobId) {
+      if(stopping)return;
+      stopping=true;renderIdentify();
+      try {showProgress(await request('jobs/'+jobId+'/cancel'));}
+      catch(error){stopping=false;renderIdentify();identify.textContent='停止请求未成功 · 点击重试';identify.title=error.message;}
+      return;
+    }
     if (!verified || Date.now() >= expiresAt) {
       status.textContent = '请先保存并验证AI配置。'; sync(); dialog.showModal(); await readPolicy(); return;
     }
-    const count = state.analysis.experts.reduce((n, e) => n + e.overall.pending, 0);
-    if (!count) { document.querySelector('#facts-ai-status').textContent = '全部意见已有结果，无需重复分析。'; return; }
+    const total = state.analysis.experts.reduce((n,e)=>n+e.overall.opinions,0);
+    if(!total){identify.textContent='无待识别意见';return;}
+    const previous=results.get(state.analysis.analysis_id);
+    const pending = state.analysis.experts.reduce((n, e) => n + e.overall.pending, 0);
+    mode=previous && ['cancelled','partial'].includes(previous.status) && previous.completed<previous.total?'resume':pending?'pending':'all';
+    resumeId=mode==='resume'?previous.id:'';
+    const count=mode==='resume'?previous.total-previous.completed:mode==='all'?total:pending;
     analysisId = state.analysis.analysis_id;
-    document.querySelector('#ai-consent-summary').textContent = `本次将逐条分析全部${count}条待处理意见。`;
+    document.querySelector('#ai-consent-summary').textContent = `本次将${mode==='all'?'重新识别全部':'继续识别'}${count}条意见，按最新配置判定，保留人工确认选择。`;
     consent.showModal();
     await readPolicy();
   }};
@@ -143,16 +172,11 @@
     if (analysisId !== state.analysis?.analysis_id || state.analysisStale || jobId || !policyReceipt) return;
     const startButton = event.currentTarget; startButton.disabled = true;
     try {
-      const data = await request('jobs', {analysis_id: analysisId, confirmed: true, policy_hash: policyReceipt.sha256});
+      const data = await request('jobs', {analysis_id: analysisId, confirmed: true, policy_hash: policyReceipt.sha256, mode, resume_id:resumeId});
       jobId = data.id; consent.close(); showProgress(data);
-      setBusy(document.querySelector('#identify-solutions'), true, '正在逐条分析…'); sync(); poll();
+      stopping=false; reconnecting=false; sync(); poll();
     } catch (error) { document.querySelector('#ai-consent-summary').textContent = error.message; policyReceipt = null; showPolicy(null, '任务未启动：' + error.message + ' 请重新打开窗口读取配置。'); }
     finally { startButton.disabled = !policyReceipt; }
-  });
-  cancel.addEventListener('click', async () => {
-    if (!jobId) return;
-    try { const data = await request('jobs/' + jobId + '/cancel'); document.querySelector('#facts-ai-status').textContent = data.message; }
-    catch (error) { document.querySelector('#facts-ai-status').textContent = error.message; }
   });
   window.setInterval(() => {
     if (token && Date.now() >= expiresAt && !busy && !jobId) {

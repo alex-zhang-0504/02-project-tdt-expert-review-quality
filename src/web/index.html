@@ -23,9 +23,9 @@
           <div class="toolrow">
             <nav class="module-tabs" aria-label="统计流程">
               <button class="module-tab" data-step="1" aria-label="读取评审表" disabled><span class="module-label-full">读取评审表</span><span class="module-label-short">读取</span></button>
-              <button class="module-tab" data-step="2" aria-label="评审过程表现"><span class="module-label-full">评审过程表现</span><span class="module-label-short">过程</span></button>
-              <button class="module-tab" data-step="3" aria-label="专业价值贡献" disabled><span class="module-label-full">专业价值贡献</span><span class="module-label-short">价值</span></button>
-              <button class="module-tab" data-step="4" aria-label="分数统计" disabled><span class="module-label-full">分数统计</span><span class="module-label-short">分数</span></button>
+              <button class="module-tab" data-step="2" aria-label="客观数据评价"><span class="module-label-full">客观数据评价</span><span class="module-label-short">客观</span></button>
+              <button class="module-tab" data-step="3" aria-label="主观评价" disabled><span class="module-label-full">主观评价</span><span class="module-label-short">主观</span></button>
+              <button class="module-tab" data-step="4" aria-label="总分统计" disabled><span class="module-label-full">总分统计</span><span class="module-label-short">总分</span></button>
             </nav>
           </div>
         </div>
@@ -37,23 +37,20 @@
             <div class="panel-heading">
               <div>
                 <p class="section-index">四维事实方式</p>
-                <h2>选择维度一数据处理方式</h2>
-                <p>两种方式共用同一套TDRX解析、校验、年度重算和结果大表。</p>
+                <div class="heading-with-note"><h2>选择维度一数据处理方式</h2><button class="info-tip" type="button" aria-label="两种方式共用同一套TDRX解析、校验、年度重算和结果大表。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">两种方式共用同一套TDRX解析、校验、年度重算和结果大表。</span></button></div>
               </div>
             </div>
             <div class="mode-grid">
               <article class="mode-card is-available">
                 <div class="mode-card-meta"><span>方案 1</span><span>集中统计</span></div>
-                <h3>一次性导入全部项目</h3>
-                <p>由一人统一读取全部TDRX报告，完成维度一检查、年度汇总和结果导出。</p>
+                <div class="heading-with-note"><h3>一次性导入全部项目</h3><button class="info-tip" type="button" aria-label="由一人统一读取全部TDRX报告，完成维度一检查、年度汇总和结果导出。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">由一人统一读取全部TDRX报告，完成维度一检查、年度汇总和结果导出。</span></button></div>
                 <ul><li>本地Excel或飞书归档文件夹</li><li>直接生成完整年度维度一结果</li></ul>
                 <button class="primary-button" id="choose-central" type="button">开始集中统计</button>
               </article>
               <article class="mode-card is-available">
                 <div class="mode-card-meta"><span>方案 2</span><span>分散提交／统一汇总</span></div>
-                <h3>多位项目经理分别处理</h3>
-                <p>每位项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。</p>
-                <ul><li>维度一提交与汇总已开放</li><li>专业价值贡献独立填写与导出</li></ul>
+                <div class="heading-with-note"><h3>多位项目经理分别处理</h3><button class="info-tip" type="button" aria-label="每位项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">每位项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。</span></button></div>
+                <ul><li>维度一提交与汇总已开放</li><li>主观评价独立填写与导出</li></ul>
                 <div class="mode-actions">
                   <button class="primary-button" id="choose-manager" type="button">生成个人提交表</button>
                   <button class="secondary-button" id="choose-merge" type="button">汇总提交表</button>
@@ -66,17 +63,16 @@
             <div class="panel-heading">
               <div>
                 <p class="section-index">方案 2 · 年度汇总人</p>
-                <h2>汇总项目经理维度一提交表</h2>
-                <p>选择全部系统导出的提交表；系统先校验批次、项目经理、项目归属和重复阶段，再统一重算年度结果。</p>
+                <div class="heading-with-note"><h2>汇总项目经理维度一提交表</h2><button class="info-tip" type="button" aria-label="选择全部系统导出的提交表；系统先校验批次、项目经理、项目归属和重复阶段，再统一重算年度结果。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">选择全部系统导出的提交表；系统先校验批次、项目经理、项目归属和重复阶段，再统一重算年度结果。</span></button></div>
               </div>
               <button class="ghost-button back-to-mode" type="button">返回方案选择</button>
             </div>
-            <div class="merge-form">
+            <div class="merge-form"><div class="note-row">提交表格式<button class="info-tip" type="button" aria-label="只接受由本系统生成的“四维事实提交”Excel。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">只接受由本系统生成的“四维事实提交”Excel。</span></button></div>
               <label class="upload-box" id="submission-upload-box" for="submission-files">
                 <input id="submission-files" type="file" multiple accept=".xlsx" />
                 <span class="upload-icon">↑</span>
                 <strong>选择或拖入全部项目经理提交表</strong>
-                <small id="submission-file-name">只接受由本系统生成的“四维事实提交”Excel</small>
+                <small id="submission-file-name">尚未选择文件</small>
               </label>
               <div class="identity-grid merge-counts">
                 <label class="field"><span>预计项目经理人数</span><input id="expected-manager-count" type="number" min="1" value="16" /></label>
@@ -91,8 +87,7 @@
             <div class="panel-heading">
               <div>
                 <p class="section-index" id="import-mode-label">方案 1 · 集中统计 · 步骤 1</p>
-                <h2>读取TDRX评审表</h2>
-                <p>两种来源进入同一套解析、校验与统计流程。</p>
+                <div class="heading-with-note"><h2>读取TDRX评审表</h2><button class="info-tip" type="button" aria-label="两种来源进入同一套解析、校验与统计流程。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">两种来源进入同一套解析、校验与统计流程。</span></button></div>
               </div>
               <button class="ghost-button back-to-mode" type="button">返回方案选择</button>
             </div>
@@ -108,12 +103,12 @@
               <button class="source-tab" data-source="feishu">飞书归档文件夹</button>
             </div>
 
-            <div class="source-pane" id="local-pane">
+            <div class="source-pane" id="local-pane"><div class="note-row">上传说明<button class="info-tip" type="button" aria-label="支持一次上传多个项目，不修改、不覆盖原始评审表。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">支持一次上传多个项目，不修改、不覆盖原始评审表。</span></button></div>
               <label class="upload-box" id="upload-box" for="workbook-file">
                 <input id="workbook-file" type="file" multiple accept=".xlsx" />
                 <span class="upload-icon">↑</span>
                 <strong>选择或拖入一份或多份 .xlsx 评审报告</strong>
-                <small id="file-name">支持一次上传多个项目，不修改、不覆盖原始评审表</small>
+                <small id="file-name">尚未选择文件</small>
               </label>
               <button class="primary-button" id="import-local" data-service-action="true" disabled>读取并检查评审表</button>
             </div>
@@ -123,10 +118,7 @@
                 <span>飞书归档文件夹URL</span>
                 <input id="feishu-url" type="url" placeholder="https://example.feishu.cn/drive/folder/..." />
               </label>
-              <div class="usage-note">
-                <strong>文件夹批量读取</strong>
-                <p>粘贴一个归档文件夹URL。系统只读取第一层电子表格和表格快捷方式；任一候选报告失败都会阻止完整年度结果。单个表格或Wiki URL仍兼容。</p>
-              </div>
+              <div class="note-row">文件夹批量读取<button class="info-tip" type="button" aria-label="粘贴一个归档文件夹URL。系统只读取第一层电子表格和表格快捷方式；任一候选报告失败都会阻止完整年度结果。单个表格或Wiki URL仍兼容。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">粘贴一个归档文件夹URL。系统只读取第一层电子表格和表格快捷方式；任一候选报告失败都会阻止完整年度结果。单个表格或Wiki URL仍兼容。</span></button></div>
               <div class="auth-row">
                 <span id="feishu-auth-status">正在检查飞书授权</span>
                 <button class="secondary-button" id="authorize-feishu" data-service-action="true" type="button" disabled>授权飞书读取</button>
@@ -145,17 +137,13 @@
               <div class="batch-summary usage-note is-hidden" id="batch-summary"></div>
               <div class="report-progress-list" id="report-list"></div>
               <div class="issue-list" id="issue-summary"></div>
-              <label class="warning-confirm is-hidden" id="warning-confirm">
-                <input id="warning-acknowledged" type="checkbox" />
-                <span>我已阅读并确认上述检查提醒，继续进入统计。</span>
-              </label>
               <section class="assessment-setup" id="assessment-setup">
-                <div class="assessment-setup-heading"><h3>考核名单</h3><p class="muted">只考核名单与报告的交集，进入下一步即确认。</p></div>
-                <div class="assessment-input-grid"><label class="field"><span>导入名单 Excel（含姓名列）</span><input id="assessment-roster-file" type="file" accept=".xlsx" /></label><button id="assessment-restore-roster" type="button" class="secondary-button" disabled>还原导入名单</button></div>
-                <label class="field roster-names-field"><span class="roster-names-heading">待考核姓名 <small id="assessment-names-hint" class="muted">支持换行、空格、顿号及中英文逗号、句号、分号分隔，重复姓名自动合并。</small></span><textarea id="assessment-names" rows="3" placeholder="虚拟专家甲、虚拟专家乙、虚拟专家丙" aria-describedby="assessment-names-hint"></textarea></label>
+                <div class="assessment-setup-heading"><h3>考核评审人名单</h3><button class="info-tip" type="button" aria-label="只考核名单上的评审人"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">只考核名单上的评审人</span></button></div>
+                <div class="assessment-input-grid"><span>导入名单 Excel（含姓名列）</span><button id="assessment-upload-roster" type="button" class="secondary-button">上传名单单击此处</button><input id="assessment-roster-file" type="file" accept=".xlsx" hidden /><button id="assessment-preview" type="button" class="secondary-button">手动匹配名单</button><button id="assessment-restore-roster" type="button" class="secondary-button" disabled>还原导入名单</button></div>
+                <div class="field roster-names-field"><div class="roster-names-heading"><label for="assessment-names">待考核姓名</label><button class="info-tip" type="button" aria-label="支持换行、空格、顿号及中英文逗号、句号、分号分隔，重复姓名自动合并。"><span class="info-tip-icon" aria-hidden="true">!</span><span id="assessment-names-hint" class="info-tip-text" role="tooltip">支持换行、空格、顿号及中英文逗号、句号、分号分隔，重复姓名自动合并。</span></button></div><textarea id="assessment-names" rows="3" placeholder="虚拟专家甲、虚拟专家乙、虚拟专家丙" aria-describedby="assessment-names-hint"></textarea></div>
                 <div id="assessment-local-managers"></div>
-                <div id="assessment-result" role="status"></div><div id="assessment-policy" class="muted" role="status">评分配置尚未读取。</div>
-                <div class="assessment-actions"><button id="assessment-preview" type="button" class="secondary-button">对比名单</button><button id="assessment-read-policy" type="button" class="secondary-button">读取评分配置</button><button class="primary-button" id="continue-analysis" type="button" disabled>进入评审过程</button></div>
+                <div id="assessment-result" role="status"></div>
+                <div class="assessment-actions"><button class="primary-button" id="continue-analysis" type="button" disabled>读取评分参数</button><div id="assessment-policy" role="status">评分参数尚未读取。</div></div>
               </section>
             </section>
           </section>
@@ -165,8 +153,8 @@
               <div>
                 <p class="section-index">步骤 2</p>
                 <div class="analysis-title-line">
-                  <h2>评审过程表现</h2>
-                  <p id="analysis-summary"></p>
+                  <h2>客观数据评价</h2>
+                  <p id="analysis-summary"></p><button class="info-tip" type="button" aria-label="点击数字查看公式，详情查看项目与意见证据。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">点击数字查看公式，详情查看项目与意见证据。</span></button>
                 </div>
               </div>
               <div class="heading-actions"><button class="ghost-button" id="restart">重新读取</button><button class="ghost-button back-to-mode" type="button">返回方案选择</button></div>
@@ -176,29 +164,23 @@
               <label class="field control-search"><span>搜索评审人</span><input id="dimension-one-search" type="search" placeholder="姓名／全拼／首字母" /></label>
               <label class="field control-stage"><span>统计视图</span><select id="dimension-one-stage"><option value="">分阶段</option><option value="overall">全部阶段汇总</option><option value="TDR1">仅TDR1</option><option value="TDR2">仅TDR2</option><option value="TDR3">仅TDR3</option></select></label>
               <div class="dimension-one-export">
-                <div class="ai-action-group">
-                  <div class="facts-ai-tools"><strong id="facts-ai-label">AI对策分析</strong><span id="facts-ai-status" role="status"></span></div>
-                  <div class="facts-ai-actions">
-                    <button class="secondary-button" id="identify-solutions" data-service-action="true" type="button">对策有效性识别</button>
-                    <button id="cancel-ai-analysis" type="button" class="secondary-button" hidden>停止分析</button>
-                  </div>
-                </div>
+                <button class="secondary-button solution-identify-button" id="identify-solutions" data-service-action="true" type="button" aria-live="polite">对策有效性识别</button>
                 <button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled>导出维度一结果</button>
               </div>
             </div>
 
             <div class="dimension-one-table-wrap" id="dimension-one-table-wrap"></div>
             <div class="expert-detail is-hidden" id="expert-detail"></div>
-            <p class="muted">「—」表示本批次无应参记录或该项不适用；「0」表示有统计依据，但数量为零。</p>
+            <div id="objective-table-footer" class="objective-table-footer"><div class="note-row">表格符号<button class="info-tip" type="button" aria-label="「—」表示本批次无应参记录或该项不适用；「0」表示有统计依据，但数量为零。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">「—」表示本批次无应参记录或该项不适用；「0」表示有统计依据，但数量为零。</span></button></div></div>
             </div>
             <div id="objective-page-two" hidden></div>
-            <div class="assessment-pager"><button class="secondary-button" type="button" data-dimension-page="objective:1">1 数据统计</button><button class="secondary-button" type="button" data-dimension-page="objective:2">2 客观评分 →</button></div>
+            <div class="assessment-pager objective-pager"><button class="primary-button" id="objective-page-toggle" type="button" data-dimension-page="objective:2">查看客观评分</button></div>
           </section>
 
           <section class="panel is-hidden" id="subjective-panel">
             <div class="panel-heading">
-              <div><p class="section-index">步骤 3 · 维度二</p><h2>专业价值贡献</h2></div>
-              <p class="subjective-intro">按项目经理分别评价 · 完整问卷等权平均</p>
+              <div><p class="section-index">步骤 3 · 维度二</p><h2>主观评价</h2></div>
+        <div class="note-row">评价流程<button class="info-tip" type="button" aria-label="选择经理 → 填写评价 → 下一步。修改自动提交，完整问卷等权平均。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">选择经理 → 填写评价 → 下一步。修改自动提交，完整问卷等权平均。</span></button></div>
             </div>
             <div id="subjective-page-one">
             <div class="subjective-manager-toolbar"><label class="field"><span>评价经理</span><select id="assessment-manager"></select></label>
@@ -207,13 +189,7 @@
               <button id="import-manager-task-trigger" class="secondary-button" type="button">回收经理问卷</button>
               <input id="import-manager-task" type="file" accept=".xlsx" aria-label="回收经理问卷文件" hidden /></div></div>
             <p id="manager-task-message" role="status"></p>
-            <details class="subjective-guidance"><summary>评分说明<span>按事实选档，证据不足可先待评价</span></summary>
-            <ul class="subjective-guide" aria-label="评分指导">
-              <li>参考客观事实，由评价人自主选档。</li>
-              <li>低档或突出贡献加分，须写明事实并关联项目。</li>
-              <li>证据不足先待评价，不默认打分。</li>
-              <li>不因结论严厉扣分，按当时证据评价。</li>
-            </ul></details>
+            <div class="note-row">评分说明<button class="info-tip" type="button" aria-label="参考客观事实，由评价人自主选档。低档或突出贡献加分，须写明事实并关联项目。证据不足先待评价，不默认打分。不因结论严厉扣分，按当时证据评价。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">参考客观事实，由评价人自主选档。低档或突出贡献加分，须写明事实并关联项目。证据不足先待评价，不默认打分。不因结论严厉扣分，按当时证据评价。</span></button></div>
             <div class="subjective-layout">
               <aside class="subjective-rail" aria-label="选择评审人">
                 <label class="field"><span>搜索评审人</span><input id="subjective-search" type="search" placeholder="姓名／全拼／首字母" /></label>
@@ -224,24 +200,23 @@
                 <div id="subjective-editor"></div>
                 <p id="subjective-message" role="status" aria-live="polite"></p>
                 <details class="subjective-task-management" id="subjective-task-management">
-                  <summary>任务管理<span id="subjective-task-status">无需评价时，可填写理由排除</span></summary>
-                  <div class="subjective-task-actions"><label class="field"><span>排除理由</span><input id="exclude-task-reason" placeholder="写明本经理无需评价此人的原因" /></label><button id="exclude-manager-task" type="button" class="secondary-button">排除当前任务</button><button id="restore-manager-task" type="button" class="secondary-button" hidden>恢复任务</button></div>
+                  <summary>任务管理<span id="subjective-task-status">（可排除）</span></summary>
+                  <div class="note-row">排除说明<button class="info-tip" type="button" aria-label="无需评价时，可填写理由排除。排除与恢复均保留记录。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">无需评价时，可填写理由排除。排除与恢复均保留记录。</span></button></div><div class="subjective-task-actions"><label class="field"><span>排除理由</span><input id="exclude-task-reason" placeholder="写明本经理无需评价此人的原因" /></label><button id="exclude-manager-task" type="button" class="secondary-button">排除当前任务</button><button id="restore-manager-task" type="button" class="secondary-button" hidden>恢复任务</button></div>
                 </details>
               </div>
             </div>
-            <div class="subjective-archive"><p class="subjective-storage">数据保留在本次服务中，离开前请导出留档。</p></div>
+            <div class="subjective-archive"><div class="note-row">数据留存<button class="info-tip" type="button" aria-label="数据保留在本次服务中，离开前请导出留档。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">数据保留在本次服务中，离开前请导出留档。</span></button></div></div>
             </div>
             <div id="subjective-page-two" hidden></div>
-            <div class="subjective-page-footer"><div class="assessment-pager" aria-label="专业价值贡献分页"><button class="secondary-button" type="button" data-dimension-page="subjective:1" aria-pressed="true">1 主观问卷</button><button class="secondary-button" type="button" data-dimension-page="subjective:2" aria-pressed="false">2 主观评分 →</button></div><button class="secondary-button" id="export-subjective" type="button">导出评价结果</button></div>
+            <div class="subjective-page-footer"><div class="assessment-pager" aria-label="主观评价分页"><button class="secondary-button" type="button" data-dimension-page="subjective:1" aria-pressed="true">1 主观问卷</button><button class="secondary-button" type="button" data-dimension-page="subjective:2" aria-pressed="false">2 主观评分 →</button></div><button class="secondary-button" id="export-subjective" type="button">导出评价结果</button></div>
           </section>
           <section class="panel is-hidden" id="score-statistics-panel">
-            <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><h2>分数统计</h2>
-              <p>过程表现30分＋专业价值70分；超额意见每条＋1分，含对策意见每条另＋2分，最高100分。阶段基础分按4∶2∶4加权。</p></div>
+            <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><div class="heading-with-note"><h2>总分统计</h2><span id="score-method-note"></span></div></div>
               <div class="heading-actions"><button class="secondary-button" id="refresh-score-statistics" type="button">刷新统计</button>
-                <button class="primary-button" id="export-score-statistics" type="button" disabled>导出分数统计</button></div></div>
+                <button class="primary-button" id="export-score-statistics" type="button" disabled>导出总分统计</button></div></div>
             <label class="warning-confirm"><input id="score-scope-confirmed" type="checkbox" />
               <span>我已确认本批次包含应纳入的报告，未发生阶段无需补齐。</span></label>
-            <p class="muted">尚待验证专业差异、对策识别与样本量；当前结果仅供试算。</p>
+            <div class="note-row">试算说明<button class="info-tip" type="button" aria-label="尚待验证专业差异、对策识别与样本量；当前结果仅供试算。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">尚待验证专业差异、对策识别与样本量；当前结果仅供试算。</span></button></div>
             <div id="score-statistics-message" role="status"></div>
             <div class="score-statistics-table-wrap" id="score-statistics-table"></div>
             <div id="score-statistics-details"></div>
@@ -259,7 +234,7 @@
     </dialog>
     <dialog id="experiment-dialog" aria-labelledby="experiment-title">
       <div class="formula-heading"><h3 id="experiment-title">AI设置</h3><button class="ghost-button" id="close-experiment" type="button">关闭</button></div>
-      <p class="muted">配置成功后，在评审过程表现中识别全部待处理意见，结果自动写回统计。</p>
+      <div class="note-row">使用说明<button class="info-tip" type="button" aria-label="配置成功后，在客观数据评价中识别全部待处理意见，结果自动写回统计。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">配置成功后，在客观数据评价中识别全部待处理意见，结果自动写回统计。</span></button></div>
       <label class="field"><span>服务地址（固定官方地址）</span><input value="https://api.deepseek.com" readonly /></label>
       <label class="field"><span>模型</span><select id="experiment-model"><option value="deepseek-flash">DeepSeek V4.1 Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro（过渡入口）</option></select></label>
       <label class="field"><span>API Key</span><input id="experiment-key" type="password" autocomplete="off" spellcheck="false" placeholder="自行输入，不会回显或写入项目文件" /></label>
@@ -274,18 +249,36 @@
       <button class="secondary-button" id="reload-ai-policy" type="button">重新读取判定配置</button>
     </dialog>
     <dialog id="ai-consent-dialog" aria-labelledby="ai-consent-title">
-      <div class="formula-heading"><h3 id="ai-consent-title">分析全部待处理意见</h3><button id="close-ai-consent" class="ghost-button" type="button">取消</button></div>
+      <div class="formula-heading"><h3 id="ai-consent-title">确认对策有效性识别</h3><button id="close-ai-consent" class="ghost-button" type="button">取消</button></div>
       <p id="ai-consent-summary"></p>
       <div class="usage-note" role="status" id="ai-policy-consent">判定配置：尚未读取。</div>
-      <p class="muted">将逐条向DeepSeek发送意见原文及编号，可能包含文本中原有的项目或人员信息，并产生API费用。成功结果自动写回，已完成意见不重复分析。</p>
+      <p class="muted">将逐条向DeepSeek发送意见原文及编号，可能包含文本中原有的项目或人员信息，并产生API费用。成功结果自动写回；继续识别只处理未完成项，重新识别保留人工确认选择。</p>
       <button id="start-ai-analysis" class="primary-button" type="button">确认发送并开始分析</button>
+      <button id="configure-identification" class="secondary-button" type="button">连接设置</button>
     </dialog>
     <div class="copyright-mark" aria-hidden="true">Designed by Siyuan for TRD</div>
+    <dialog id="policy-settings-dialog" aria-labelledby="policy-settings-title">
+      <div class="formula-heading"><h3 id="policy-settings-title">评分参数</h3><button class="ghost-button" id="close-policy-settings" type="button">关闭</button></div>
+      <div class="note-row">生效范围<button class="info-tip" type="button" aria-label="修改后用于新的考核，已经开始的考核仍使用原配置。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">修改后用于新的考核，已经开始的考核仍使用原配置。</span></button></div>
+      <form id="policy-unlock-form" class="policy-unlock">
+        <p id="policy-auth-hint" class="policy-note"></p>
+        <label class="field"><span>管理员密码</span><input id="policy-password" type="password" minlength="8" maxlength="128" autocomplete="off" required /></label>
+        <label class="field" id="policy-confirm-field" hidden><span>再次输入密码</span><input id="policy-password-confirm" type="password" minlength="8" maxlength="128" autocomplete="off" /></label>
+        <button class="secondary-button" id="policy-unlock" type="submit">解锁修改</button>
+      </form>
+      <p id="policy-admin-status" class="policy-note" role="status" aria-live="polite"></p>
+      <form id="policy-editor-form">
+        <fieldset id="policy-fields" disabled></fieldset>
+        <div id="policy-change-preview" class="policy-note" hidden></div>
+        <div class="policy-editor-actions"><button class="secondary-button" id="policy-relock" type="button" hidden>结束修改</button><button class="primary-button" id="policy-save" type="submit" disabled>预览修改</button></div>
+      </form>
+    </dialog>
     <script src="/static/facts.js?build=__BUILD_ID__" defer></script>
     <script src="/static/subjective.js?build=__BUILD_ID__" defer></script>
     <script src="/static/score-statistics.js?build=__BUILD_ID__" defer></script>
     <script src="/static/assessment.js?build=__BUILD_ID__" defer></script>
     <script src="/static/app.js?build=__BUILD_ID__" defer></script>
     <script src="/static/experiment.js?build=__BUILD_ID__" defer></script>
+    <script src="/static/policy-settings.js?build=__BUILD_ID__" defer></script>
   </body>
 </html>

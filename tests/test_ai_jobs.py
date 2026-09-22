@@ -52,7 +52,7 @@ class AIJobTests(unittest.TestCase):
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             result = self.post('jobs/' + job).json()
-            if result['status'] != 'running':
+            if result['status'] not in {'running', 'stopping'}:
                 return result
             time.sleep(.02)
         self.fail('任务未结束')
@@ -117,12 +117,52 @@ class AIJobTests(unittest.TestCase):
             self.assertEqual(job, self.start().json()['id'])
             stranger = self.client.post('/api/experiment/jobs/' + job, headers={'X-Experiment-Request': '1'})
             self.assertEqual(404, stranger.status_code)
-            self.post('jobs/' + job + '/cancel')
+            self.assertEqual('stopping', self.post('jobs/' + job + '/cancel').json()['status'])
+            self.assertEqual(job, self.start().json()['id'])
         finally:
             release.set()
         result = self.finish(job)
-        self.assertEqual(('cancelled', 0, 13), (result['status'], result['completed'], result['remaining']))
+        self.assertEqual(('cancelled', 1, 12), (result['status'], result['completed'], result['remaining']))
         self.assertEqual(['0'], self.calls)
+
+    def test_full_rerun_preserves_manual_and_resume_only_unfinished(self):
+        self.post('test')
+        self.finish(self.start().json()['id'])
+        self.service.select_solution(self.analysis.analysis_id, '0', False)
+        self.calls.clear()
+        entered, release = Event(), Event()
+        def blocked(*args):
+            entered.set(); release.wait(5)
+            return {o.opinion_id: {'status':'yes', 'excerpt':o.text, 'reason':'新版规则明确对策'} for o in args[2]}
+        self.behavior = blocked
+        try:
+            job = self.post('jobs', {'analysis_id':self.analysis.analysis_id,'confirmed':True,'mode':'all'}).json()['id']
+            self.assertTrue(entered.wait(2))
+            self.post('jobs/'+job+'/cancel')
+        finally:
+            release.set()
+        stopped = self.finish(job)
+        self.assertEqual(1, stopped['completed'])
+        self.assertEqual('yes', self.opinions[0].ai_status)
+        self.assertFalse(self.opinions[0].included)
+        self.calls.clear(); self.behavior=simulated_call
+        resumed=self.post('jobs',{'analysis_id':self.analysis.analysis_id,'confirmed':True,'mode':'resume','resume_id':job})
+        result=self.finish(resumed.json()['id'])
+        self.assertEqual((13,13,0), (result['total'],result['completed'],result['remaining']))
+        self.assertEqual([str(i) for i in range(1,13)], self.calls)
+        self.assertFalse(self.opinions[0].included)
+
+    def test_rerun_failure_keeps_previous_conclusion_and_can_retry(self):
+        self.post('test');self.finish(self.start().json()['id'])
+        previous=(self.opinions[0].ai_status,self.opinions[0].reason,self.opinions[0].rule_version)
+        self.behavior=lambda *args: (_ for _ in ()).throw(ValueError(ERROR_MESSAGES[401]))
+        job=self.post('jobs',{'analysis_id':self.analysis.analysis_id,'confirmed':True,'mode':'all'}).json()['id']
+        result=self.finish(job)
+        self.assertEqual(('partial',1), (result['status'],result['failed']))
+        self.assertEqual(previous,(self.opinions[0].ai_status,self.opinions[0].reason,self.opinions[0].rule_version))
+        self.behavior=simulated_call
+        result=self.finish(self.post('jobs',{'analysis_id':self.analysis.analysis_id,'confirmed':True,'mode':'resume','resume_id':job}).json()['id'])
+        self.assertEqual(13,result['completed'])
 
     def test_auth_failure_stops_requests_without_marking_no(self):
         self.post('test')

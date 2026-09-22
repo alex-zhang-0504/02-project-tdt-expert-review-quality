@@ -108,7 +108,7 @@ def import_task(analysis, content):
         if not (meta['roster_hash'] == analysis.assessment['roster_hash']): raise ValueError()
         if not (meta['policy_hash'] == analysis.assessment['policy']['sha256']): raise ValueError()
     except (KeyError, TypeError, ValueError, AssertionError):
-        raise ValueError('任务文件或批次、名单、评分配置不一致，未导入') from None
+        raise ValueError('任务文件或批次、名单、评分参数不一致，未导入') from None
     mid = meta['manager_id']
     revision = wb['提交修订']['B1'].value
     if type(revision) is not int or revision < 1:

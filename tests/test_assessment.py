@@ -58,7 +58,7 @@ class AssessmentTests(unittest.TestCase):
         self.assertEqual([], match_roster(self.a, ['、， ; \n。'])['requested'])
 
     def test_changed_policy_receipt_blocks_confirmation(self):
-        with self.assertRaisesRegex(ValueError, '配置已变化'):
+        with self.assertRaisesRegex(ValueError, '评分参数已变化'):
             confirm_roster(self.a, [self.name], 'batch-test', 'stale-hash')
         self.assertFalse(self.a.assessment)
         policy = load_policy()
