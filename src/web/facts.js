@@ -36,23 +36,18 @@ function percent(value) {
 
 function renderAnalysis() {
   if (!state.analysis) return;
-  elements.exportDimensionOne.textContent = state.workflowMode === "manager" ? "导出个人提交表" : "导出统计结果";
+  elements.exportDimensionOne.textContent = "导出评价结果";
   renderDimensionOneTable();
   syncServiceActions();
 }
 
 function renderDimensionOneTable() {
   if (!state.analysis) return;
-  const query = normalizedReviewerSearch(elements.dimensionOneSearch.value);
-  const experts = state.analysis.experts.filter(e => reviewerMatchesSearch(e, query));
+  const experts = objectiveReviewers().filter(e => objectiveReviewerVisible(e.expert_name));
   state.dimensionOneVisibleRows = experts;
   const groups = visibleFactGroups(elements.dimensionOneStage.value);
   elements.analysisSummary.textContent = experts.length + "位评审人";
   window.reviewAI?.refresh();
-  if (!experts.length) {
-    elements.dimensionOneTableWrap.innerHTML = '<div class="dimension-one-empty">没有匹配的评审人。</div>';
-    return;
-  }
   const metricCell = (value, row, group, metric) => '<td class="numeric"><button type="button" class="fact-number" data-row="' + row
     + '" data-group="' + group + '" data-metric="' + metric[0] + '" aria-label="' + metric[1] + (metric[0] === 'proxy_rate' ? '代理人清单' : '计算方法') + '">'
     + factCellText(value, metric[0]) + (metric[0] === 'solutions' && value.suspected ? '<span class="solution-alert" title="' + value.suspected + '条疑似待确认，尚未计入" aria-label="' + value.suspected + '条疑似待确认">!</span>' : '') + '</button>'
@@ -62,7 +57,7 @@ function renderDimensionOneTable() {
     + (408 + groups.length * FACT_COLUMNS.reduce((n, c) => n + c[2], 0)) + 'px"><colgroup><col style="width:120px">'
     + groups.map(() => FACT_COLUMNS.map(c => '<col style="width:' + c[2] + 'px">').join("")).join("")
     + '<col style="width:112px"><col style="width:88px"><col style="width:88px"></colgroup><thead><tr>'
-    + '<th class="sticky-1" rowspan="2">评审人</th>'
+    + '<th class="sticky-1" rowspan="2">' + objectiveReviewerHeader() + '</th>'
     + groups.map(g => '<th colspan="8" scope="colgroup">' + g + '</th>').join("")
     + '<th rowspan="2">总参与<br>评审场次</th><th rowspan="2">代理情况</th><th class="evidence-sticky" rowspan="2">详情</th></tr><tr>'
     + groups.map(() => FACT_COLUMNS.map(m => '<th scope="col" aria-label="' + m[1] + '">' + (m[3] || m[1]) + '</th>').join("")).join("")
@@ -73,7 +68,7 @@ function renderDimensionOneTable() {
       + (e.overall.unknown ? '待确认' : e.overall.attended + '场') + '</button></td>'
       + metricCell(e.overall, row, "全部阶段", PROXY_METRIC)
       + '<td class="evidence-sticky"><button class="row-evidence-button" type="button" data-details="' + row + '">详情查看</button></td></tr>').join("")
-    + '</tbody></table>';
+    + (experts.length ? '' : '<tr><td colspan="' + (4 + groups.length * 8) + '">没有匹配的评审人，请修改筛选。</td></tr>') + '</tbody></table>';
   makeTableScrollable(elements.dimensionOneTableWrap);
   elements.dimensionOneTableWrap.querySelectorAll("[data-metric]").forEach(button => button.addEventListener("click", () => {
     const expert = experts[Number(button.dataset.row)];
@@ -170,27 +165,10 @@ function openDimensionOneEvidence(name) {
 }
 
 function makeTableScrollable(scroller) {
-  let frame = scroller.parentElement;
-  if (!frame.classList.contains('table-scroll-frame')) {
-    frame = document.createElement('div');
-    frame.className = 'table-scroll-frame';
-    scroller.before(frame);
-    frame.append(scroller);
-    scroller.classList.add('table-scroll-content');
-    const bar = document.createElement('div');
-    bar.className = 'table-x-scroll';
-    bar.tabIndex = 0;
-    bar.setAttribute('role', 'region');
-    bar.setAttribute('aria-label', '表格横向滚动条');
-    bar.append(document.createElement('div'));
-    frame.append(bar);
-    bar.addEventListener('scroll', () => { scroller.scrollLeft = bar.scrollLeft; });
-    scroller.addEventListener('scroll', () => { bar.scrollLeft = scroller.scrollLeft; });
-  }
-  const bar = frame.querySelector('.table-x-scroll');
-  bar.hidden = scroller.scrollWidth <= scroller.clientWidth;
-  bar.firstElementChild.style.width = (scroller.scrollWidth + bar.clientWidth - scroller.clientWidth) + 'px';
-  bar.scrollLeft = scroller.scrollLeft;
+  scroller.classList.add('table-scroll-content');
+  scroller.tabIndex = 0;
+  scroller.setAttribute('role', 'region');
+  scroller.setAttribute('aria-label', '可横向滚动的表格');
 }
 
 window.addEventListener('resize', () => {

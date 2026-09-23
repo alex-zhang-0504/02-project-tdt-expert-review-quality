@@ -198,7 +198,7 @@ def export_score_statistics(analysis_id: str = Query(min_length=1), scope_confir
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StreamingResponse(BytesIO(content), media_type=EXCEL_MEDIA_TYPE,
-        headers={"Content-Disposition": review_export_disposition({'all': '分数统计', 'objective': '评审过程表现评分', 'subjective': '专业价值贡献评分'}[dimension], 'score-statistics.xlsx'), "Cache-Control": "no-store"})
+        headers={"Content-Disposition": review_export_disposition({'all': '分数统计', 'objective': '客观数据评价结果', 'subjective': '专业价值贡献评分'}[dimension], 'score-statistics.xlsx'), "Cache-Control": "no-store"})
 
 
 @app.post("/api/subjective/review")

@@ -7,10 +7,11 @@ const element = () => ({innerHTML:"", textContent:"", value:"", open:false,
 const root = {document:{addEventListener(){},querySelector(s){return nodes[s] ||= element();}}, console,
   escapeHtml:s=>String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll('"',"&quot;"),
   normalizedReviewerSearch:s=>s, reviewerMatchesSearch:()=>true, syncServiceActions(){},
-  window:{addEventListener(){}}, state:{workflowMode:"central"}, elements:{dimensionOneSearch:element(),dimensionOneStage:element(),
+  window:{addEventListener(){}}, state:{workflowMode:"central"}, elements:{dimensionOneStage:element(),
     analysisSummary:element(),dimensionOneTableWrap:element(),evidenceDrawerTitle:element(),
     evidenceDrawerContent:element(),evidenceDrawer:element()}};
 vm.createContext(root);
+vm.runInContext(fs.readFileSync("src/web/reviewer-filter.js","utf8"),root);
 vm.runInContext(fs.readFileSync("src/web/facts.js","utf8"),root);
 root.makeTableScrollable = () => {};
 const stats={expected:12,attended:12,unknown:0,signed:10,opinions:24,solutions:6,pending:0,suspected:0,

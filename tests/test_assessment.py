@@ -47,6 +47,18 @@ class AssessmentTests(unittest.TestCase):
         self.assertEqual(['虚拟未匹配人员'], result['unmatched'])
         self.assertEqual(len(self.a.experts)-1, len(result['excluded']))
 
+    def test_confirmed_roster_fixes_imported_scope_without_extra_checkbox(self):
+        self.assertFalse(build_statistics(self.a)['scope_confirmed'])
+        self.confirm()
+        result = build_statistics(self.a)
+        self.assertTrue(result['scope_confirmed'])
+        self.assertIsNotNone(result['rows'][0]['objective_total'])
+        book = load_workbook(BytesIO(build_statistics_workbook(self.a, dimension='objective')))
+        self.assertIn('客观总得分', [c.value for c in book['客观评分'][1]])
+        receipt = list(book['客观评分'].values)
+        self.assertTrue(any(row[0] == '范围确认' and row[1] is True for row in receipt))
+        self.assertEqual(2, sum(row[0] == '纳入报告' for row in receipt))
+
     def test_horizontal_and_vertical_rosters_match_and_deduplicate(self):
         for separator in ['\n', '\r\n', '、', ',', '，', '.', '。', ';', '；', ' ', '\t', '\u3000']:
             with self.subTest(separator=separator):
@@ -187,13 +199,19 @@ class AssessmentTests(unittest.TestCase):
         self.confirm()
         for dim, title in [('objective','客观评分'),('subjective','主观评分')]:
             wb=load_workbook(BytesIO(build_statistics_workbook(self.a, True, dim)))
-            self.assertEqual(2, wb[title].max_row)
-            self.assertIn('配置及范围', wb.sheetnames)
+            if dim == 'subjective':
+                self.assertEqual(2, wb[title].max_row)
+                self.assertIn('配置及范围', wb.sheetnames)
             if dim == 'objective':
                 headers = [cell.value for cell in wb[title][1]]
-                self.assertIn('输出对策奖励', headers)
+                self.assertIn('输出有效对策得分', headers)
                 self.assertFalse(any('代理' in h for h in headers))
-                self.assertEqual('0.0', wb['计分事实']['F2'].number_format)
+                self.assertEqual(['数据统计', '客观评分'], wb.sheetnames)
+                self.assertEqual('A1:K2', wb[title].auto_filter.ref)
+                self.assertEqual(5, wb['数据统计'].max_row)
+                self.assertEqual('0.0', wb['数据统计']['I2'].number_format)
+                self.assertEqual(['全部阶段','TDR1','TDR2','TDR3'], [wb['数据统计'].cell(i,2).value for i in range(2,6)])
+                self.assertEqual(self.name, wb['数据统计']['A2'].value)
         row=build_statistics(self.a, True)['rows'][0]
         self.assertIsNotNone(row['objective_with_rewards'])
         self.assertIsNone(row['subjective_total'])

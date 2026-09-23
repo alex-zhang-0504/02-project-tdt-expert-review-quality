@@ -2,7 +2,7 @@
 
 业务来源：[考核办法V0.8](tdr-expert-review-assessment-v0.8.md) 。计分版本scores-v0.8，事实载荷仍为facts-v0.6。
 
-- GET /api/statistics/scores：输入analysis_id、scope_confirmed（默认false），从当前原始事实和已保存选项重算；阻断分析拒绝计分，不接收客户端分数。
+- GET /api/statistics/scores：输入analysis_id；已确认名单时服务端自动确认本次导入范围。scope_confirmed（默认false）仅保留历史接口兼容，不再由页面勾选，从当前原始事实和已保存选项重算；阻断分析拒绝计分，不接收客户端分数。
 - GET /api/statistics/scores/export：同样的输入和算法，导出汇总、阶段依据、主观选项与使用说明；未知值留空并给出原因。
 - stages：每阶段三项分值5／10／10、满分25、有效权重、加权贡献和opinion_bonus；阶段奖励不加权，无适用场次为0，实参为0或未知为null。
 - process_total：按4／2／4及适用阶段归一计算的过程基础分，满分25。
@@ -19,3 +19,7 @@
 ## 2026-09-17接口更新
 
 名单门禁、评分配置快照、两维独立导出及经理问卷往返接口见《assessment-workflow-v0.1.md》。计分请求必须先确认名单；分析新增assessment和manager_reviews。意见平均数字段为opinion_average，不再以百分比展示；旧opinion_rate仅兼容旧载荷。第二、三模块分别显示客观与主观评分，第四模块不重复加奖励。
+
+2026-09-23：范围确认指第一模块固定的本次导入范围，不证明外部报告完整。评分导出记录纳入报告清单。评审人多选只改变显示，不作为计分请求参数。客观评分字段采用基础得分、评审意见超额得分、输出有效对策得分、客观总得分；内部字段与公式不变。
+
+客观模块两页统一调用GET /api/statistics/scores/export?analysis_id=…&dimension=objective，文件名为「客观数据评价结果_截止YYYY年MM月DD日前的评审记录.xlsx」。仅含「数据统计」「客观评分」两个工作表，前者每人四行（全部阶段及TDR1／2／3）；后者保留完整评分名单，并在数据区下方附评分参数及报告范围凭据。筛选器只覆盖评分数据行，不含凭据区。主观导出及经理提交包接口不变。

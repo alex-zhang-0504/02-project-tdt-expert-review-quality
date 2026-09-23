@@ -36,7 +36,7 @@ def stage_score(sessions, policy=None):
     if not facts["unknown"] and attended:
         result["opinion_bonus"] = max(opinions - attended * policy["opinion_threshold"], 0) * policy["excess_opinion_points"]
     elif not facts["unknown"]:
-        reasons.append("实参为0，超额意见奖励待确认")
+        reasons.append("实参为0，评审意见超额得分待确认")
     if opinions and not attended and not facts["unknown"]:
         reasons.append("实参为0但有意见，计分口径待确认")
     if facts["pending"]:
@@ -64,6 +64,7 @@ def questionnaire_score(review, policy=None):
 
 def build_statistics(analysis, scope_confirmed=False):
     require_analysis(analysis)
+    scope_confirmed = bool(analysis.assessment.get('confirmed')) or scope_confirmed
     receipt = snapshot(analysis)
     policy = receipt["parameters"]
     weights = policy["stage_weights"]
@@ -151,9 +152,9 @@ def build_statistics_workbook(analysis, scope_confirmed=False, dimension="all"):
     summary.title = "分数统计（试算）"
     summary.append(["评审人", "项目数", "应参场次", f"TDR1（{base}）", f"TDR2（{base}）", f"TDR3（{base}）",
                     f"阶段加权（{base}）", "总参与评审场次", "参与度数量档", f"评审参与度（{participation_max}）",
-                    f"评审过程表现（{base + participation_max}）", f"专业价值贡献（{subjective_max}）", "超额意见奖励", "输出对策奖励", "封顶前合计", f"总分（{p['total_cap']}）", "状态与说明"])
+                    f"评审过程表现（{base + participation_max}）", f"专业价值贡献（{subjective_max}）", "评审意见超额得分", "输出有效对策得分", "封顶前合计", f"总分（{p['total_cap']}）", "状态与说明"])
     stage_sheet = wb.create_sheet("阶段计分依据")
-    stage_sheet.append(["评审人", "阶段", "适用", "应参", "实参", "意见条数", "出勤分", "会签分", "意见基础分", "阶段分", "权重％", "加权贡献", "超额意见奖励（不加权）", "含对策意见条数", "输出对策奖励（不加权）", "说明"])
+    stage_sheet.append(["评审人", "阶段", "适用", "应参", "实参", "意见条数", "出勤分", "会签分", "意见基础分", "阶段分", "权重％", "加权贡献", "评审意见超额得分（不加权）", "含对策意见条数", "输出有效对策得分（不加权）", "说明"])
     questionnaire = wb.create_sheet("主观计分依据")
     questionnaire.append(["评审人", "评价人", "维度", "选项", "分值", "依据状态"])
     for row in data["rows"]:
@@ -175,7 +176,10 @@ def build_statistics_workbook(analysis, scope_confirmed=False, dimension="all"):
     info.append(["配置版本", data['policy']['version']])
     info.append(["配置指纹", data['policy']['sha256']])
     info.append(["实际参数", __import__('json').dumps(data['policy']['parameters'], ensure_ascii=False)])
-    info.append(["范围确认", "已确认" if scope_confirmed else "未确认，客观合计与总分留空"])
+    info.append(["统计范围", "本次导入的报告，不代表已验证外部报告完整性"])
+    for report in analysis.reports:
+        info.append(["纳入报告", report.source_name])
+    info.append(["范围确认", "已确认本次导入范围" if data["scope_confirmed"] else "未确认，客观总得分与总分留空"])
     info.append(["计分", f"阶段基础{base}分，按配置权重归一加权，再加参与度；问卷经理等权平均。"])
     info.append(["奖励", f"意见平均数达{p['opinion_threshold']}后，超额每条{p['excess_opinion_points']}分；含对策每条{p['solution_points']}分；总分最高{p['total_cap']}分。"])
     info.append(["参与度", f"至少{p['participation']['minimum_sessions']}场；前两档及其他档分数为{p['participation']['tier_scores']}，并列同分。"])
@@ -204,18 +208,22 @@ def dimension_workbook(analysis, data, dimension):
     sheet = wb.active
     sheet.title = '客观评分' if dimension == 'objective' else '主观评分'
     if dimension == 'objective':
-        sheet.append(['评审人', 'TDR1', 'TDR2', 'TDR3', '阶段加权', '评审参与度', '基础分', '超额意见奖励', '输出对策奖励', '客观合计', '状态'])
+        sheet.append(['评审人', 'TDR1', 'TDR2', 'TDR3', '阶段加权', '评审参与度', '基础得分', '评审意见超额得分', '输出有效对策得分', '客观总得分', '状态'])
         for r in data['rows']:
             sheet.append([r['expert_name'], *[r['stages'][s]['score'] for s in STAGE_WEIGHTS],
                 r['process_total'], r['participation_score'], r['objective_total'], r['opinion_bonus'], r['solution_bonus'], r['objective_with_rewards'],
                 '；'.join(x for x in r['reasons'] if '主观' not in x)])
-        facts = wb.create_sheet('计分事实')
-        facts.append(['评审人', '阶段', '应参', '实参', '意见条数', '意见提出平均数', '含对策条数', '有效权重％', '出勤分', '会签分', '意见分'])
-        for r in data['rows']:
-            for stage, v in r['stages'].items():
-                facts.append([r['expert_name'], stage, v['expected'], v['attended'], v['opinions'],
-                    v['opinions']/v['attended'] if v['attended'] else None, v['solutions'], v['weight'],
-                    *[v['components'].get(k) for k in ('attendance','signoff','opinion')]])
+        facts = wb.create_sheet('数据统计', 0)
+        facts.append(['评审人', '统计阶段', '应参场次', '实参场次', '出勤率', '已会签场次', '会签率', '意见条数', '意见提出平均数', '含对策意见条数', '代理场次', '代理率', '待识别条数', '疑似待确认条数', '出勤待确认场次'])
+        for expert in selected_experts(analysis):
+            for stage in ('全部阶段', *STAGE_WEIGHTS):
+                v = aggregate(expert.sessions if stage == '全部阶段' else [s for s in expert.sessions if s.stage == stage])
+                facts.append([expert.expert_name, stage, v['expected'], v['attended'],
+                    None if v['attendance_rate'] is None else v['attendance_rate']/100,
+                    v['signed'], None if v['signoff_rate'] is None else v['signoff_rate']/100,
+                    v['opinions'], v['opinion_average'], None if v['pending'] else v['solutions'],
+                    v['proxy'], None if v['proxy_rate'] is None else v['proxy_rate']/100,
+                    v['pending'], v['suspected'], v['unknown']])
     else:
         sheet.append(['评审人', *[d['title'] for d in DIMENSIONS], '最终主观分', '暂定平均', '已完成经理数', '应评价经理数'])
         for r in data['rows']:
@@ -228,12 +236,19 @@ def dimension_workbook(analysis, data, dimension):
             for name, review in reviews.items():
                 for dim, rating in review['ratings'].items():
                     detail.append([mid, review['evaluator'], name, dim, rating['option'], rating['project_code'], rating['note'], review['revision'], is_excluded(analysis, mid, name)])
-    config = wb.create_sheet('配置及范围')
+    score_last_row = sheet.max_row
+    config = sheet if dimension == 'objective' else wb.create_sheet('配置及范围')
+    if dimension == 'objective':
+        config.append([])
+        config.append(['参数及报告范围'])
     for key, value in data['policy'].items():
         config.append([key, json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else value])
     config.append(['考核批次', analysis.assessment.get('batch_id', '')])
     config.append(['名单', '；'.join(analysis.assessment.get('included', []))])
     config.append(['范围确认', data['scope_confirmed']])
+    config.append(['统计范围', '本次导入的报告，不代表已验证外部报告完整性'])
+    for report in analysis.reports:
+        config.append(['纳入报告', report.source_name])
     config.append(['任务排除记录', json.dumps(analysis.assessment.get('exclusions', {}), ensure_ascii=False)])
     for ws in wb:
         ws.freeze_panes = 'A2'
@@ -248,8 +263,32 @@ def dimension_workbook(analysis, data, dimension):
             cell.fill = PatternFill('solid', fgColor='0A9BF5')
             cell.font = Font(bold=True, color='FFFFFF')
     if dimension == 'objective':
-        for row in wb['计分事实'].iter_rows(min_row=2):
-            row[5].number_format = '0.0'
+        for cell in sheet[1]:
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        sheet.auto_filter.ref = f'A1:K{score_last_row}'
+        sheet.freeze_panes = 'B2'
+        for row in sheet.iter_rows(min_row=2, max_row=score_last_row):
+            row[9].font = Font(bold=True, color='000000')
+        facts.freeze_panes = 'C2'
+        for cell in facts[1]:
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        facts.row_dimensions[1].height = 34
+        sheet.row_dimensions[1].height = 34
+        for col in facts.columns:
+            facts.column_dimensions[col[0].column_letter].width = 16
+        facts.column_dimensions['A'].width = 22
+        for row in facts.iter_rows(min_row=2):
+            row[8].number_format = '0.0'
+            for index in (4, 6, 11):
+                row[index].number_format = '0.0%'
+            if row[1].value == '全部阶段':
+                for cell in row:
+                    cell.fill = PatternFill('solid', fgColor='E6F4FE')
+                    cell.font = Font(bold=True, color='000000')
+        for index in range(score_last_row + 2, sheet.max_row + 1):
+            sheet.merge_cells(start_row=index, start_column=2, end_row=index, end_column=11)
+            sheet.row_dimensions[index].height = 120 if sheet.cell(index, 1).value == 'parameters' else 30
+        wb.active = 0
     output = BytesIO()
     wb.save(output)
     return output.getvalue()

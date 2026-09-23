@@ -157,15 +157,13 @@
                   <p id="analysis-summary"></p><button class="info-tip" type="button" aria-label="点击数字查看公式，详情查看项目与意见证据。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">点击数字查看公式，详情查看项目与意见证据。</span></button>
                 </div>
               </div>
-              <div class="heading-actions"><button class="ghost-button" id="restart">重新读取</button><button class="ghost-button back-to-mode" type="button">返回方案选择</button></div>
+              <div class="heading-actions"><button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled>导出评价结果</button></div>
             </div>
             <div id="objective-page-one">
             <div class="dimension-one-controls">
-              <label class="field control-search"><span>搜索评审人</span><input id="dimension-one-search" type="search" placeholder="姓名／全拼／首字母" /></label>
               <label class="field control-stage"><span>统计视图</span><select id="dimension-one-stage"><option value="">分阶段</option><option value="overall">全部阶段汇总</option><option value="TDR1">仅TDR1</option><option value="TDR2">仅TDR2</option><option value="TDR3">仅TDR3</option></select></label>
               <div class="dimension-one-export">
                 <button class="secondary-button solution-identify-button" id="identify-solutions" data-service-action="true" type="button" aria-live="polite">对策有效性识别</button>
-                <button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled>导出维度一结果</button>
               </div>
             </div>
 
@@ -214,8 +212,6 @@
             <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><div class="heading-with-note"><h2>总分统计</h2><span id="score-method-note"></span></div></div>
               <div class="heading-actions"><button class="secondary-button" id="refresh-score-statistics" type="button">刷新统计</button>
                 <button class="primary-button" id="export-score-statistics" type="button" disabled>导出总分统计</button></div></div>
-            <label class="warning-confirm"><input id="score-scope-confirmed" type="checkbox" />
-              <span>我已确认本批次包含应纳入的报告，未发生阶段无需补齐。</span></label>
             <div class="note-row">试算说明<button class="info-tip" type="button" aria-label="尚待验证专业差异、对策识别与样本量；当前结果仅供试算。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">尚待验证专业差异、对策识别与样本量；当前结果仅供试算。</span></button></div>
             <div id="score-statistics-message" role="status"></div>
             <div class="score-statistics-table-wrap" id="score-statistics-table"></div>
@@ -273,6 +269,13 @@
         <div class="policy-editor-actions"><button class="secondary-button" id="policy-relock" type="button" hidden>结束修改</button><button class="primary-button" id="policy-save" type="submit" disabled>预览修改</button></div>
       </form>
     </dialog>
+    <dialog id="reviewer-filter-dialog" aria-labelledby="reviewer-filter-title">
+      <div class="reviewer-filter-heading"><strong id="reviewer-filter-title">筛选评审人</strong><button type="button" class="ghost-button" data-reviewer-filter-close>关闭</button></div>
+      <input type="search" id="reviewer-filter-search" aria-label="筛选姓名搜索" placeholder="姓名／全拼／首字母" />
+      <div class="reviewer-filter-actions"><button type="button" class="secondary-button" data-reviewer-select="all">全选</button><button type="button" class="secondary-button" data-reviewer-select="none">清空</button><span id="reviewer-filter-count"></span></div>
+      <div id="reviewer-filter-list"></div>
+    </dialog>
+    <script src="/static/reviewer-filter.js?build=__BUILD_ID__" defer></script>
     <script src="/static/facts.js?build=__BUILD_ID__" defer></script>
     <script src="/static/subjective.js?build=__BUILD_ID__" defer></script>
     <script src="/static/score-statistics.js?build=__BUILD_ID__" defer></script>

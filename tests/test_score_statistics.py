@@ -159,7 +159,7 @@ class ScoreStatisticsTests(unittest.TestCase):
         self.assertIsNone(wb["分数统计（试算）"]["P2"].value)
         wb = load_workbook(BytesIO(build_statistics_workbook(value, True)))
         self.assertEqual(75, wb["分数统计（试算）"]["P2"].value)
-        self.assertEqual("已确认", dict(wb["使用说明"].values)["范围确认"])
+        self.assertEqual("已确认本次导入范围", dict(wb["使用说明"].values)["范围确认"])
 
     def test_questionnaire_catalog_exposes_no_numeric_scores(self):
         catalog = subjective_catalog()
@@ -172,7 +172,7 @@ class ScoreStatisticsTests(unittest.TestCase):
         sheet = wb["分数统计（试算）"]
         exported = dict(zip(next(sheet.values), list(sheet.values)[1]))
         for label, key in [("评审过程表现（30）", "objective_total"), ("专业价值贡献（70）", "subjective_total"),
-                           ("超额意见奖励", "opinion_bonus"), ("输出对策奖励", "solution_bonus"), ("封顶前合计", "uncapped_total"), ("总分（100）", "total")]:
+                           ("评审意见超额得分", "opinion_bonus"), ("输出有效对策得分", "solution_bonus"), ("封顶前合计", "uncapped_total"), ("总分（100）", "total")]:
             self.assertEqual(row[key], exported[label])
         self.assertEqual(29, wb["阶段计分依据"]["M2"].value)
 

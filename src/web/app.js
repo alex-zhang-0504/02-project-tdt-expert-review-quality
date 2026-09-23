@@ -67,7 +67,6 @@ const elements = {
   managerRevision: document.querySelector("#manager-revision"),
   analysisPanel: document.querySelector("#analysis-panel"),
   analysisSummary: document.querySelector("#analysis-summary"),
-  dimensionOneSearch: document.querySelector("#dimension-one-search"),
   dimensionOneStage: document.querySelector("#dimension-one-stage"),
   dimensionOneTableWrap: document.querySelector("#dimension-one-table-wrap"),
   exportDimensionOne: document.querySelector("#export-dimension-one"),
@@ -808,18 +807,13 @@ function reviewerMatchesSearch(expert, search) {
 
 async function downloadDimensionOne() {
   if (!state.analysis || !qualityGatePassed()) return;
-  let metadata;
-  let packageKind;
-  if (state.workflowMode === "manager") {
-    metadata = managerMetadata();
-    packageKind = "manager_submission";
-  } else {
-    const batchId = state.workflowMode === "merge"
-      ? state.currentBatchId
-      : state.analysis.assessment.batch_id;
-    metadata = { batch_id: batchId, manager_id: "", manager_name: "", revision: 1 };
-    packageKind = "annual_result";
+  if (state.workflowMode !== 'manager') {
+    if (!await checkServiceHealth() || state.analysisStale) return;
+    downloadAssessment(`/api/statistics/scores/export?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}&dimension=objective`);
+    return;
   }
+  const metadata = managerMetadata();
+  const packageKind = "manager_submission";
   setBusy(elements.exportDimensionOne, true, "正在生成Excel…");
   try {
     if (!await checkServiceHealth() || state.analysisStale) return;
@@ -926,17 +920,6 @@ function clearAnalysisState() {
   elements.reportList.innerHTML = "";
   closeDimensionOneEvidence();
   clearNotice();
-}
-
-function reset() {
-  clearAnalysisState();
-  if (state.workflowMode === "merge") {
-    showPanel(elements.mergePanel);
-    activateStep(0);
-  } else {
-    showPanel(elements.importPanel);
-    activateStep(1);
-  }
 }
 
 async function navigateStep(step) {
@@ -1090,11 +1073,9 @@ elements.importFeishu.addEventListener("click", importFeishu);
 elements.authorizeFeishu.addEventListener("click", startFeishuAuthorization);
 elements.completeFeishuAuth.addEventListener("click", completeFeishuAuthorization);
 elements.continueAnalysis.addEventListener("click", enterAssessment);
-document.querySelector("#restart").addEventListener("click", reset);
 elements.mergeSubmissions.addEventListener("click", mergeDimensionOneSubmissions);
 elements.exportDimensionOne.addEventListener("click", downloadDimensionOne);
-[elements.dimensionOneSearch, elements.dimensionOneStage]
-  .forEach((control) => control.addEventListener(control.tagName === "INPUT" && control.type === "search" ? "input" : "change", renderDimensionOneTable));
+elements.dimensionOneStage.addEventListener("change", renderDimensionOneTable);
 document.querySelector("#close-evidence").addEventListener("click", closeDimensionOneEvidence);
 
 initializeFactsUI();

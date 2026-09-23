@@ -1,4 +1,4 @@
-const assessmentUI = {managerId: '', tasks: [], scope: false, analysisId: '', policy: null, busy: false, importedRoster: null};
+const assessmentUI = {managerId: '', tasks: [], analysisId: '', policy: null, busy: false, importedRoster: null};
 const assessmentPost = (url, body) => requestJson(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
 
 function renderRosterResult(r, confirmed=false) {
@@ -79,7 +79,6 @@ function renderAssessmentSetup() {
   if (!a) return;
   if (assessmentUI.analysisId !== a.analysis_id) {
     assessmentUI.analysisId = a.analysis_id;
-    assessmentUI.scope = false;
     assessmentUI.managerId = '';
     assessmentUI.policy = null;
     sq('#assessment-result').textContent = '';
@@ -149,12 +148,13 @@ async function renderDimensionScores(kind) {
   const host=sq(`#${kind}-page-two`);
   host.textContent='正在计算…';
   try {
-    const data=await requestJson(`/api/statistics/scores?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}&scope_confirmed=${assessmentUI.scope}`);
+    const data=await requestJson(`/api/statistics/scores?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}`);
     const p=data.policy.parameters, base=Object.values(p.components).reduce((a,b)=>a+b,0), participation=p.participation.tier_scores[0];
     const subjectiveMax=Object.values(p.subjective).reduce((sum,d)=>sum+d.high,0);
-    const headers=kind==='objective' ? ['评审人',`TDR1／${base}`,`TDR2／${base}`,`TDR3／${base}`,`阶段加权／${base}`,`参与度／${participation}`,`基础／${base+participation}`,'超额意见奖励','输出对策奖励','客观合计'] : ['评审人',...subjective.catalog.map(d=>d.title),`最终分／${subjectiveMax}`,'暂定平均','完成／应评价'];
+    const headers=kind==='objective' ? ['评审人',`TDR1／${base}`,`TDR2／${base}`,`TDR3／${base}`,`阶段加权／${base}`,`参与度／${participation}`,'基础得分','评审意见超额得分','输出有效对策得分','客观总得分'] : ['评审人',...subjective.catalog.map(d=>d.title),`最终分／${subjectiveMax}`,'暂定平均','完成／应评价'];
     const rows=data.rows.map(r=>kind==='objective' ? [r.expert_name,...['TDR1','TDR2','TDR3'].map(s=>scoreText(r.stages[s].score)),scoreText(r.process_total),scoreText(r.participation_score),scoreText(r.objective_total),scoreText(r.opinion_bonus),scoreText(r.solution_bonus),scoreText(r.objective_with_rewards)] : [r.expert_name,...r.subjective_items.map(i=>scoreText(i.score)),scoreText(r.subjective_total),scoreText(r.subjective_progress.provisional),`${r.subjective_progress.completed}/${r.subjective_progress.expected}`]);
-    host.innerHTML=`<div class="assessment-tools">${kind==='objective'?`<label><input type="checkbox" id="dimension-scope" ${assessmentUI.scope?'checked':''} /> 已确认本批次报告范围完整</label>`:'<div class="note-row">平均规则'+importHint('仅完整问卷参与平均；未收齐时显示暂定平均，最终分留空。')+'</div>'}<button class="primary-button" data-export-dimension="${kind}">导出${kind==='objective'?'客观':'主观'}评分</button></div><p class="muted">配置V${data.policy.version} · SHA256 ${data.policy.sha256}</p><div class="score-statistics-table-wrap"><table class="score-table"><thead><tr>${headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(cells=>`<tr>${cells.map(c=>`<td>${escapeHtml(String(c))}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="note-row">计分说明${importHint(kind==='objective'?'客观合计包含全部奖励，可超过基础分；待识别项不按零处理。':'同一经理多个项目仍只计一票；任务排除记录随导出保留。')}</div>`;
+    const scoreTools=kind==='subjective' ? `<div class="assessment-tools"><div class="note-row">平均规则${importHint('仅完整问卷参与平均；未收齐时显示暂定平均，最终分留空。')}</div><button class="primary-button" data-export-dimension="subjective">导出主观评分</button></div><p class="muted">配置V${data.policy.version} · SHA256 ${data.policy.sha256}</p>` : '';
+    host.innerHTML=`${scoreTools}<div class="score-statistics-table-wrap"><table class="score-table"><thead><tr>${headers.map((h,i)=>`<th>${kind==='objective' && i===0 ? objectiveReviewerHeader() : escapeHtml(h)}${h==='基础得分' ? importHint('阶段加权得分＋参与度得分。') : h==='客观总得分' ? importHint('基础得分＋评审意见超额得分＋输出有效对策得分。') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map(cells=>`<tr ${kind==='objective' ? `data-reviewer="${escapeHtml(cells[0])}" ${objectiveReviewerVisible(cells[0]) ? '' : 'hidden'}` : ''}>${cells.map(c=>`<td>${escapeHtml(String(c))}</td>`).join('')}</tr>`).join('')}${kind==='objective' ? `<tr data-reviewer-empty ${data.rows.some(r=>objectiveReviewerVisible(r.expert_name)) ? 'hidden' : ''}><td colspan="10">没有匹配的评审人，请修改筛选。</td></tr>` : ''}</tbody></table></div><div class="note-row">计分说明${importHint(kind==='objective'?'客观总得分包含全部奖励，可超过基础分；待识别项不按零处理。':'同一经理多个项目仍只计一票；任务排除记录随导出保留。')}</div>`;
     host.querySelectorAll('.score-statistics-table-wrap').forEach(makeTableScrollable);
   } catch(e) {host.textContent=e.message;}
 }
@@ -173,6 +173,5 @@ function initializeAssessmentUI() {
   sq('#import-manager-task').onchange=async e=>{try{const f=e.target.files[0];if(!f || !await flushSubjectiveChanges())return;const r=await requestJson(`/api/assessment/task-import?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}`,{method:'POST',body:f});state.analysis=r.analysis;subjective.drafts.clear();await loadManagerTasks();renderSubjectiveRail();renderSubjectiveEditor();sq('#manager-task-message').textContent=r.message;}catch(err){sq('#manager-task-message').textContent=err.message;}finally{e.target.value='';}};
   async function exclusion(restore) {try {const reason=restore?'':sq('#exclude-task-reason').value.trim();if(!restore&&!reason)throw new Error('请填写排除理由');if(!await flushSubjectiveChanges())return;state.analysis=await assessmentPost('/api/assessment/exclude-task',{analysis_id:state.analysis.analysis_id,manager_id:assessmentUI.managerId,expert_name:subjective.expert,reason});sq('#subjective-message').textContent=restore?'任务已恢复':'任务已排除，记录已保留';if(restore)sq('#exclude-task-reason').value='';renderSubjectiveRail();renderSubjectiveEditor();}catch(e){sq('#subjective-message').textContent=e.message;}}
   sq('#exclude-manager-task').onclick=()=>exclusion(false);sq('#restore-manager-task').onclick=()=>exclusion(true);
-  document.addEventListener('click',async e=>{const b=e.target.closest('[data-dimension-page]');if(b){const [kind,page]=b.dataset.dimensionPage.split(':');await showDimensionPage(kind,Number(page));}const exp=e.target.closest('[data-export-dimension]');if(exp && await flushSubjectiveChanges())downloadAssessment(`/api/statistics/scores/export?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}&scope_confirmed=${assessmentUI.scope}&dimension=${exp.dataset.exportDimension}`);});
-  document.addEventListener('change',e=>{if(e.target.id==='dimension-scope'){assessmentUI.scope=e.target.checked;sq('#score-scope-confirmed').checked=assessmentUI.scope;renderDimensionScores('objective');}});
+  document.addEventListener('click',async e=>{const b=e.target.closest('[data-dimension-page]');if(b){const [kind,page]=b.dataset.dimensionPage.split(':');await showDimensionPage(kind,Number(page));}const exp=e.target.closest('[data-export-dimension]');if(exp && await flushSubjectiveChanges())downloadAssessment(`/api/statistics/scores/export?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}&dimension=${exp.dataset.exportDimension}`);});
 }
