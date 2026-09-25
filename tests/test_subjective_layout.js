@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const nodes = {};
-const root = {console, structuredClone, document:{querySelector:s=>nodes[s] ||= {dataset:{},textContent:'',innerHTML:'',value:'',open:false}},
+const root = {console, structuredClone, document:{querySelector:s=>nodes[s] ||= {dataset:{},textContent:'',innerHTML:'',value:'',open:false,removeAttribute(){}}},
   state:{analysis:{experts:[{expert_name:'虚拟专家甲',sessions:[{project_code:'P1',project_name:'虚拟项目'}],overall:{}}],assessment:{exclusions:{}},manager_reviews:{}}},
   escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
   reviewerMatchesSearch:()=>true,normalizedReviewerSearch:s=>s};
@@ -26,15 +26,26 @@ root.renderSubjectiveEditor();
 assert.equal(nodes['#subjective-completion-bar'].value,1);
 root.state.analysis.assessment.exclusions['["a", "虚拟专家甲"]']='无需评价';
 root.renderSubjectiveEditor();root.renderSubjectiveRail();
-assert.equal(nodes['#restore-manager-task'].hidden,false);
-assert.equal(nodes['#exclude-manager-task'].hidden,true);
+assert.ok(nodes['#subjective-editor'].innerHTML.includes('此任务已有排除记录'));
 assert.ok(nodes['#subjective-experts'].innerHTML.includes('已排除'));
 vm.runInContext("assessmentUI.managerId='b'",root);
 root.renderSubjectiveEditor();
-assert.equal(nodes['#restore-manager-task'].hidden,true);
-assert.equal(nodes['#exclude-task-reason'].value,'');
-assert.equal(nodes['#subjective-task-management'].open,false);
+assert.ok(!nodes['#subjective-editor'].innerHTML.includes('此任务已有排除记录'));
+assert.ok(!nodes['#subjective-editor'].innerHTML.includes('恢复待评价'));
 console.log('主观界面：经理草稿隔离、填答进度、任务状态及解释转义通过');
+vm.runInContext("subjective.catalog[0].response_options=[{id:'unable',title:'暂无法判断'},{id:'no_opportunity',title:'本期无相关职责／机会'}]",root);
+root.renderSubjectiveEditor();
+assert.ok(nodes['#subjective-editor'].innerHTML.includes('id="d0-unable"'));
+assert.ok(!nodes['#subjective-editor'].innerHTML.includes('id="d0-no_opportunity"'));
+assert.ok(!nodes['#subjective-editor'].innerHTML.includes('subjective-cycle-guide'));
+let guideShows=0;
+nodes['#subjective-guide']={showModal(){guideShows++;}};
+root.sessionStorage={getItem:()=>null};
+root.showSubjectiveGuide();
+assert.equal(guideShows,1);
+root.sessionStorage.getItem=()=> '1';
+root.showSubjectiveGuide();
+assert.equal(guideShows,1,'已知后同会话不重复弹窗');
 
 (async () => {
   const requests = [], alerts = [], pages = [];
@@ -76,11 +87,13 @@ console.log('主观界面：经理草稿隔离、填答进度、任务状态及�
   root.state.analysis.experts.push({expert_name:'虚拟专家乙', sessions:[], overall:{}}, {expert_name:'虚拟专家丙', sessions:[], overall:{}});
   vm.runInContext("assessmentUI.managerId='a'; assessmentUI.tasks[0].experts['虚拟专家乙']=[]; assessmentUI.tasks[0].experts['虚拟专家丙']=[]", root);
   root.state.analysis.assessment.exclusions['["a", "虚拟专家乙"]'] = '无需评价';
-  await root.nextSubjective({preventDefault() {}});
-  assert.equal(vm.runInContext('subjective.expert', root), '虚拟专家丙', '下一步跳过已排除任务');
-  assert.equal(requests.length, 1, '未修改的已提交问卷不得重复提交');
-  await root.nextSubjective({preventDefault() {}});
-  assert.deepEqual(pages, ['subjective','subjective'], '最后一位进入评分，不强制填写');
+  await root.showDimensionPage('subjective', 1);
+  assert.equal(nodes['#subjective-page-toggle'].textContent, '查看主观打分 →');
+  assert.equal(nodes['#subjective-page-toggle'].dataset.dimensionPage, 'subjective:2');
+  await root.showDimensionPage('subjective', 2);
+  assert.equal(nodes['#subjective-page-toggle'].textContent, '← 返回主观问卷');
+  assert.equal(nodes['#subjective-page-toggle'].dataset.dimensionPage, 'subjective:1');
+  assert.equal(requests.length, 1, '未修改问卷不重复提交');
 
   root.subjectiveDraft().ratings.d0 = {option:'low', note:'', project_code:''};
   root.subjectiveDraft().dirty = true;
@@ -88,7 +101,7 @@ console.log('主观界面：经理草稿隔离、填答进度、任务状态及�
   root.requestJson = async () => { throw new Error('模拟网络失败'); };
   assert.equal(await root.flushSubjectiveChanges(), false);
   assert.equal(root.subjectiveDraft().dirty, true);
-  assert.ok(alerts[0].includes('虚拟经理甲／虚拟专家丙'));
+  assert.ok(alerts[0].includes('虚拟经理甲／虚拟专家甲'));
   assert.equal(nodes['#subjective-page-one'].hidden, false);
   assert.equal(nodes['#assessment-manager'].disabled, false);
   root.requestJson = healthyRequest;
@@ -104,6 +117,8 @@ console.log('主观界面：经理草稿隔离、填答进度、任务状态及�
   release(true);
   assert.equal(await first, true);
   assert.equal(requests.length, 3);
-  assert.ok(nodes['#subjective-editor'].innerHTML.includes('>下一步</button>'));
-  console.log('问卷推进：仅浏览、隐藏修改、归属、下一位、跳过排除、最后一位评分、失败保留及重试、重复点击通过');
+  assert.ok(!nodes['#subjective-editor'].innerHTML.includes('>下一步</button>'));
+  assert.ok(!nodes['#subjective-editor'].innerHTML.includes('客观事实参考'));
+  assert.equal(nodes['#subjective-page-toggle'].textContent, '查看主观打分 →');
+  console.log('问卷推进：仅浏览、隐藏修改、归属、单按钮往返、失败保留及重试、重复点击通过');
 })().catch(error => { console.error(error); process.exitCode = 1; });

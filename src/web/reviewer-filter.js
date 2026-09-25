@@ -25,13 +25,24 @@ function refreshObjectiveFilter() {
   scoreHost.querySelectorAll('thead th:first-child').forEach(th => th.innerHTML = objectiveReviewerHeader());
   const empty = scoreHost.querySelector('[data-reviewer-empty]');
   if (empty) empty.hidden = !!objectiveReviewers().some(e => objectiveReviewerVisible(e.expert_name));
-  document.querySelector('#reviewer-filter-count').textContent = '已选' + objectiveReviewers().filter(e => objectiveReviewerVisible(e.expert_name)).length + '人';
+}
+function matchingReviewerChoices() {
+  const query = document.querySelector('#reviewer-filter-search').value;
+  return objectiveReviewers().filter(e => reviewerMatchesSearch(e, query));
+}
+function updateReviewerSelectAll() {
+  const experts = matchingReviewerChoices();
+  const selected = experts.filter(e => objectiveReviewerVisible(e.expert_name)).length;
+  const checkbox = document.querySelector('#reviewer-filter-all');
+  checkbox.checked = experts.length > 0 && selected === experts.length;
+  checkbox.indeterminate = selected > 0 && selected < experts.length;
+  checkbox.disabled = experts.length === 0;
+  document.querySelector('#reviewer-filter-count').textContent = experts.length + '人';
 }
 function renderReviewerChoices() {
-  const query = normalizedReviewerSearch(document.querySelector('#reviewer-filter-search').value);
-  const experts = objectiveReviewers().filter(e => reviewerMatchesSearch(e, query));
+  const experts = matchingReviewerChoices();
   document.querySelector('#reviewer-filter-list').innerHTML = experts.map(e => `<label><input type="checkbox" value="${escapeHtml(e.expert_name)}" ${objectiveReviewerVisible(e.expert_name) ? 'checked' : ''} /><span>${escapeHtml(e.expert_name)}</span></label>`).join('') || '<p>没有匹配的评审人。</p>';
-  document.querySelector('#reviewer-filter-count').textContent = '已选' + objectiveReviewers().filter(e => objectiveReviewerVisible(e.expert_name)).length + '人';
+  updateReviewerSelectAll();
 }
 document.addEventListener('click', event => {
   const dialog = document.querySelector('#reviewer-filter-dialog');
@@ -46,23 +57,21 @@ document.addEventListener('click', event => {
     document.querySelector('#reviewer-filter-search').focus();
     return;
   }
-  const action = event.target.closest('[data-reviewer-select]');
-  if (action) {
-    objectiveFilter.names = action.dataset.reviewerSelect === 'all' ? null : new Set();
-    refreshObjectiveFilter();
-    renderReviewerChoices();
-  }
   if (event.target.closest('[data-reviewer-filter-close]') || (dialog.open && !dialog.contains(event.target))) dialog.close();
 });
 document.addEventListener('input', event => {
   if (event.target.id === 'reviewer-filter-search') renderReviewerChoices();
 });
 document.addEventListener('change', event => {
-  if (!event.target.matches('#reviewer-filter-list input')) return;
+  if (!event.target.matches('#reviewer-filter-list input, #reviewer-filter-all')) return;
   if (objectiveFilter.names === null) objectiveFilter.names = new Set(objectiveReviewers().map(e => e.expert_name));
-  if (event.target.checked) objectiveFilter.names.add(event.target.value);
-  else objectiveFilter.names.delete(event.target.value);
+  const names = event.target.id === 'reviewer-filter-all' ? matchingReviewerChoices().map(e => e.expert_name) : [event.target.value];
+  names.forEach(name => {
+    if (event.target.checked) objectiveFilter.names.add(name);
+    else objectiveFilter.names.delete(name);
+  });
   refreshObjectiveFilter();
+  renderReviewerChoices();
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') document.querySelector('#reviewer-filter-dialog').close();

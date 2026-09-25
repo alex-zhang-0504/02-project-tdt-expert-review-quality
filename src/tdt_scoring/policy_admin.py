@@ -1,6 +1,6 @@
 """Local administrator authorization and atomic scoring-policy updates."""
 from contextlib import contextmanager
-from hashlib import pbkdf2_hmac
+from hashlib import pbkdf2_hmac, sha256
 import hmac
 import json
 import os
@@ -12,10 +12,9 @@ from time import monotonic
 
 from fastapi import APIRouter, HTTPException, Request
 
-from . import scoring_policy
+from . import scoring_policy, questionnaire
 
 ADMIN_PATH = Path(__file__).resolve().parents[2] / 'var' / 'scoring-admin.json'
-TTL = 600
 ITERATIONS = 600_000
 
 
@@ -76,10 +75,6 @@ def create_policy_admin_router():
     def authorize(request):
         guard(request)
         token = request.headers.get('x-policy-session', '')
-        now = monotonic()
-        for old in list(sessions):
-            if sessions[old] <= now:
-                del sessions[old]
         if token not in sessions:
             raise HTTPException(401, '管理员授权已失效，请重新解锁')
 
@@ -88,7 +83,7 @@ def create_policy_admin_router():
         raw = bytearray()
         async for chunk in request.stream():
             raw.extend(chunk)
-            if len(raw) > 16384:
+            if len(raw) > 65536:
                 raise HTTPException(413, '配置请求过大')
         try:
             data = json.loads(raw)
@@ -136,8 +131,8 @@ def create_policy_admin_router():
                     raise HTTPException(403, '管理员密码不正确或尚未设置')
             failures.clear()
             token = secrets.token_urlsafe(32)
-            sessions[token] = monotonic() + TTL
-            return {'token': token, 'expires_in': TTL}
+            sessions[token] = True
+            return {'token': token}
 
     @router.post('/lock')
     def relock(request: Request):
@@ -146,26 +141,60 @@ def create_policy_admin_router():
             sessions.pop(request.headers.get('x-policy-session', ''), None)
         return {'locked': True}
 
+    objective_keys = {'stage_weights', 'components', 'opinion_threshold', 'participation', 'excess_opinion_points', 'solution_points'}
+
+    @router.get('/policy/{scope}')
+    def read_policy(scope: str, request: Request):
+        guard(request)
+        if scope == 'subjective': return questionnaire.load()
+        if scope == 'objective': return scoring_policy.load_policy()
+        raise HTTPException(400, '未知参数范围')
+
     @router.put('/policy')
-    async def update(request: Request):
+    @router.put('/policy/{scope}')
+    async def update(request: Request, scope: str = 'objective'):
         data = await body(request)
         with lock, file_lock(ADMIN_PATH.with_suffix('.lock')):
             authorize(request)
             try:
-                raw = json.dumps(data.get('parameters'), ensure_ascii=False, indent=2, allow_nan=False).encode() + b'\n'
-                receipt = scoring_policy.parse_policy(raw)
-                previous = scoring_policy.load_policy()
-            except (ValueError, TypeError):
-                raise HTTPException(400, '评分参数无效，请核对数值、档位顺序与权重') from None
-            if data.get('previous_hash') != previous['sha256']:
-                raise HTTPException(409, '配置已被其他窗口修改，请重新打开配置后编辑')
-            try:
-                atomic_write(scoring_policy.POLICY_PATH, raw)
-                persisted = scoring_policy.load_policy()
-                if persisted['sha256'] != receipt['sha256']:
+                parameters = data.get('parameters')
+                if not isinstance(parameters, dict): raise ValueError()
+                if scope == 'subjective':
+                    previous = questionnaire.load()
+                    if data.get('previous_hash') != previous['sha256']:
+                        raise HTTPException(409, '配置已被其他窗口修改，请重新打开后编辑')
+                    if parameters.get('version') != previous['parameters']['version']: raise ValueError()
+                    parameters['version'] = str(int(previous['version']) + 1)
+                    raw = json.dumps(parameters, ensure_ascii=False, indent=2, allow_nan=False).encode() + b'\n'
+                    receipt = questionnaire.parse(raw)
+                    path, read = questionnaire.POLICY_PATH, questionnaire.load
+                elif scope == 'objective':
+                    previous = scoring_policy.load_policy()
+                    if data.get('previous_hash') != previous['sha256']:
+                        raise HTTPException(409, '配置已被其他窗口修改，请重新打开配置后编辑')
+                    merged = dict(previous['parameters'])
+                    if set(parameters) == objective_keys:
+                        merged.update(parameters)
+                    elif set(parameters) == set(merged) and all(parameters[k] == merged[k] for k in set(merged)-objective_keys):
+                        merged = parameters
+                    else:
+                        raise ValueError('客观入口不得修改主观或全局参数')
+                    scoring_policy.parse_policy(json.dumps(merged, allow_nan=False).encode())
+                    stored = {k: v for k, v in merged.items() if k != 'subjective'}
+                    raw = json.dumps(stored, ensure_ascii=False, indent=2, allow_nan=False).encode() + b'\n'
+                    receipt = {'sha256': sha256(raw).hexdigest()}
+                    path, read = scoring_policy.POLICY_PATH, scoring_policy.load_policy
+                else:
                     raise ValueError()
+            except (ValueError, TypeError):
+                raise HTTPException(400, '参数无效或超出编辑范围，请核对文案、分值及权重') from None
+            try:
+                atomic_write(path, raw)
+                if sha256(path.read_bytes()).hexdigest() != sha256(raw).hexdigest(): raise ValueError()
+                persisted = read()
             except (OSError, ValueError):
                 raise HTTPException(500, '配置写入或写后核验失败，请重新读取确认，未宣告保存成功') from None
+            sessions.pop(request.headers.get('x-policy-session', ''), None)
             return persisted
 
     return router

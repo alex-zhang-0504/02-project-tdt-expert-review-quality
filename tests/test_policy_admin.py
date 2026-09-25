@@ -56,7 +56,7 @@ class PolicyAdminTests(unittest.TestCase):
         return self.request('policy',{'parameters':parameters or receipt['parameters'],
                             'previous_hash':previous or receipt['sha256']},method='PUT')
 
-    def test_readonly_auth_origin_and_expiry(self):
+    def test_readonly_auth_origin_and_save_relocks_without_expiry(self):
         self.assertEqual(self.request('status',method='GET')[1], {'configured':False})
         self.assertEqual(self.update()[0],401)
         self.assertEqual(self.request('status',method='GET',headers={'origin':'https://foreign.test'})[0],403)
@@ -65,7 +65,8 @@ class PolicyAdminTests(unittest.TestCase):
         self.assertEqual(self.request('status',method='GET',headers={'x-policy-request':''})[0],403)
         self.setup_admin()
         with patch('tdt_scoring.policy_admin.monotonic',return_value=10**20):
-            self.assertEqual(self.update()[0],401)
+            self.assertEqual(self.update()[0],200)
+        self.assertEqual(self.update()[0],401)
 
     def test_password_hash_persistence_and_relock(self):
         self.setup_admin()

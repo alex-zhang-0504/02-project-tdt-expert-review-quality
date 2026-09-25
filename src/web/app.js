@@ -789,20 +789,10 @@ function normalizedReviewerSearch(value) {
   return value.toLocaleLowerCase("zh-CN").replace(/\s+/g, "");
 }
 
-function isSearchSubsequence(search, target) {
-  let searchIndex = 0;
-  for (const character of target) {
-    if (character === search[searchIndex]) searchIndex += 1;
-    if (searchIndex === search.length) return true;
-  }
-  return search.length === 0;
-}
-
 function reviewerMatchesSearch(expert, search) {
-  if (!search) return true;
-  return [expert.expert_name, expert.expert_name_pinyin, expert.expert_name_initials]
-    .filter(Boolean)
-    .some((candidate) => isSearchSubsequence(search, normalizedReviewerSearch(candidate)));
+  const keywords = search.trim().split(/\s+/).filter(Boolean).map(normalizedReviewerSearch);
+  const candidates = [expert.expert_name, expert.expert_name_pinyin].filter(Boolean).map(normalizedReviewerSearch);
+  return !keywords.length || keywords.some(keyword => candidates.some(candidate => candidate.includes(keyword)));
 }
 
 async function downloadDimensionOne() {

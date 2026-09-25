@@ -172,41 +172,32 @@
             <div id="objective-table-footer" class="objective-table-footer"><div class="note-row">表格符号<button class="info-tip" type="button" aria-label="「—」表示本批次无应参记录或该项不适用；「0」表示有统计依据，但数量为零。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">「—」表示本批次无应参记录或该项不适用；「0」表示有统计依据，但数量为零。</span></button></div></div>
             </div>
             <div id="objective-page-two" hidden></div>
-            <div class="assessment-pager objective-pager"><button class="primary-button" id="objective-page-toggle" type="button" data-dimension-page="objective:2">查看客观评分</button></div>
+            <div class="assessment-pager objective-pager"><button class="primary-button" id="objective-page-toggle" type="button" data-dimension-page="objective:2">查看客观评分 →</button></div>
           </section>
 
           <section class="panel is-hidden" id="subjective-panel">
             <div class="panel-heading">
               <div><p class="section-index">步骤 3 · 维度二</p><h2>主观评价</h2></div>
-        <div class="note-row">评价流程<button class="info-tip" type="button" aria-label="选择经理 → 填写评价 → 下一步。修改自动提交，完整问卷等权平均。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">选择经理 → 填写评价 → 下一步。修改自动提交，完整问卷等权平均。</span></button></div>
+              <button class="primary-button" id="export-subjective" type="button">导出评价结果</button>
             </div>
             <div id="subjective-page-one">
-            <div class="subjective-manager-toolbar"><label class="field"><span>评价经理</span><select id="assessment-manager"></select></label>
-              <div class="subjective-transfer-actions" aria-label="经理问卷分发与回收">
-              <button id="export-manager-task" class="secondary-button" type="button">导出经理问卷</button>
-              <button id="import-manager-task-trigger" class="secondary-button" type="button">回收经理问卷</button>
-              <input id="import-manager-task" type="file" accept=".xlsx" aria-label="回收经理问卷文件" hidden /></div></div>
-            <p id="manager-task-message" role="status"></p>
-            <div class="note-row">评分说明<button class="info-tip" type="button" aria-label="参考客观事实，由评价人自主选档。低档或突出贡献加分，须写明事实并关联项目。证据不足先待评价，不默认打分。不因结论严厉扣分，按当时证据评价。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">参考客观事实，由评价人自主选档。低档或突出贡献加分，须写明事实并关联项目。证据不足先待评价，不默认打分。不因结论严厉扣分，按当时证据评价。</span></button></div>
             <div class="subjective-layout">
               <aside class="subjective-rail" aria-label="选择评审人">
-                <label class="field"><span>搜索评审人</span><input id="subjective-search" type="search" placeholder="姓名／全拼／首字母" /></label>
+                <label class="field subjective-manager-field"><span>评价经理</span><select id="assessment-manager"></select></label>
+                <p id="subjective-assignment-message" role="status"></p>
                 <p id="subjective-progress" class="muted"></p>
                 <div id="subjective-experts"></div>
               </aside>
               <div class="subjective-content">
                 <div id="subjective-editor"></div>
                 <p id="subjective-message" role="status" aria-live="polite"></p>
-                <details class="subjective-task-management" id="subjective-task-management">
-                  <summary>任务管理<span id="subjective-task-status">（可排除）</span></summary>
-                  <div class="note-row">排除说明<button class="info-tip" type="button" aria-label="无需评价时，可填写理由排除。排除与恢复均保留记录。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">无需评价时，可填写理由排除。排除与恢复均保留记录。</span></button></div><div class="subjective-task-actions"><label class="field"><span>排除理由</span><input id="exclude-task-reason" placeholder="写明本经理无需评价此人的原因" /></label><button id="exclude-manager-task" type="button" class="secondary-button">排除当前任务</button><button id="restore-manager-task" type="button" class="secondary-button" hidden>恢复任务</button></div>
-                </details>
               </div>
             </div>
-            <div class="subjective-archive"><div class="note-row">数据留存<button class="info-tip" type="button" aria-label="数据保留在本次服务中，离开前请导出留档。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">数据保留在本次服务中，离开前请导出留档。</span></button></div></div>
+
             </div>
             <div id="subjective-page-two" hidden></div>
-            <div class="subjective-page-footer"><div class="assessment-pager" aria-label="主观评价分页"><button class="secondary-button" type="button" data-dimension-page="subjective:1" aria-pressed="true">1 主观问卷</button><button class="secondary-button" type="button" data-dimension-page="subjective:2" aria-pressed="false">2 主观评分 →</button></div><button class="secondary-button" id="export-subjective" type="button">导出评价结果</button></div>
+            <div id="subjective-policy-footer" class="subjective-archive objective-table-footer"><div class="note-row">数据留存<button class="info-tip" type="button" aria-label="数据保留在本次服务中，离开前请导出留档。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">数据保留在本次服务中，离开前请导出留档。</span></button></div></div>
+            <div class="subjective-page-footer"><button class="primary-button" id="subjective-page-toggle" type="button" data-dimension-page="subjective:2">查看主观打分 →</button></div>
           </section>
           <section class="panel is-hidden" id="score-statistics-panel">
             <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><div class="heading-with-note"><h2>总分统计</h2><span id="score-method-note"></span></div></div>
@@ -269,10 +260,15 @@
         <div class="policy-editor-actions"><button class="secondary-button" id="policy-relock" type="button" hidden>结束修改</button><button class="primary-button" id="policy-save" type="submit" disabled>预览修改</button></div>
       </form>
     </dialog>
+    <dialog id="subjective-guide" aria-labelledby="subjective-guide-title">
+      <h3 id="subjective-guide-title">主观评价填写说明</h3>
+      <p id="subjective-guide-content"></p>
+      <div class="subjective-guide-actions"><button id="subjective-guide-known" class="primary-button" type="button">已知</button></div>
+    </dialog>
     <dialog id="reviewer-filter-dialog" aria-labelledby="reviewer-filter-title">
       <div class="reviewer-filter-heading"><strong id="reviewer-filter-title">筛选评审人</strong><button type="button" class="ghost-button" data-reviewer-filter-close>关闭</button></div>
-      <input type="search" id="reviewer-filter-search" aria-label="筛选姓名搜索" placeholder="姓名／全拼／首字母" />
-      <div class="reviewer-filter-actions"><button type="button" class="secondary-button" data-reviewer-select="all">全选</button><button type="button" class="secondary-button" data-reviewer-select="none">清空</button><span id="reviewer-filter-count"></span></div>
+      <input type="search" id="reviewer-filter-search" aria-label="筛选姓名搜索" placeholder="姓名／全拼，可用空格分隔多个关键词" />
+      <div class="reviewer-filter-actions"><label><input type="checkbox" id="reviewer-filter-all" />全选</label><span id="reviewer-filter-count"></span></div>
       <div id="reviewer-filter-list"></div>
     </dialog>
     <script src="/static/reviewer-filter.js?build=__BUILD_ID__" defer></script>

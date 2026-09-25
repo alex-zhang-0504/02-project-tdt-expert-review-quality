@@ -7,7 +7,7 @@ from tdt_scoring.api import subjective_catalog
 from tdt_scoring.models import ExpertFacts, OpinionFact, SessionFact, WorkbookAnalysis
 from tdt_scoring.scoring import aggregate
 from tdt_scoring.score_statistics import build_statistics, build_statistics_workbook, stage_score
-from tdt_scoring.subjective import DIMENSIONS
+from tdt_scoring.subjective import RULE_VERSION, DIMENSIONS
 
 
 def session(stage="TDR1", statuses=(), attended=True, signed=True, project="VIRTUAL"):
@@ -20,7 +20,7 @@ def analysis(sessions):
     expert = ExpertFacts("虚拟评审人", sessions, {}, aggregate(sessions))
     value = WorkbookAnalysis("test", "local", "virtual.xlsx", [], [expert], [])
     value.subjective_reviews[expert.expert_name] = {
-        "evaluator": "虚拟评价人", "total": 999, "status": "已完成",
+        "rule_version": RULE_VERSION, "evaluator": "虚拟评价人", "total": 999, "status": "已完成",
         "ratings": {d["id"]: {"option": "low" if d["id"] == "contribution" else "high"} for d in DIMENSIONS},
     }
     return value

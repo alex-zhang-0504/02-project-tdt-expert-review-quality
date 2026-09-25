@@ -197,7 +197,7 @@ class AssessmentTests(unittest.TestCase):
 
     def test_independent_exports_and_selected_only(self):
         self.confirm()
-        for dim, title in [('objective','客观评分'),('subjective','主观评分')]:
+        for dim, title in [('objective','客观评分'),('subjective','主观打分')]:
             wb=load_workbook(BytesIO(build_statistics_workbook(self.a, True, dim)))
             if dim == 'subjective':
                 self.assertEqual(2, wb[title].max_row)

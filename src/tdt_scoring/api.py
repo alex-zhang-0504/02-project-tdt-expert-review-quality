@@ -23,7 +23,7 @@ from .sources.feishu_document import FeishuDocumentSource
 from .sources.local_excel import MAX_WORKBOOK_BYTES
 from .submission import EXCEL_MEDIA_TYPE, build_dimension_one_workbook
 from .export_names import review_export_disposition
-from .subjective import DIMENSIONS, ReviewInput, save_review, build_workbook as build_subjective_workbook
+from .subjective import RULE_VERSION as QUESTION_VERSION, ReviewInput, save_review, build_workbook as build_subjective_workbook
 from .score_statistics import build_statistics, build_statistics_workbook
 from .assessment import require_selected, selected_experts
 from .assessment_api import create_router
@@ -168,9 +168,18 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/subjective/catalog")
-def subjective_catalog() -> object:
-    return [{"id": d["id"], "title": d["title"], "options": [
-        {k: v for k, v in option.items() if k != "score"} for option in d["options"]]} for d in DIMENSIONS]
+def subjective_catalog(analysis_id: str = '') -> object:
+    from .questionnaire import dimensions, snapshot as questionnaire_snapshot
+    try:
+        analysis = service.get_analysis(analysis_id) if analysis_id else None
+    except KeyError as exc:
+        raise HTTPException(404, '考核不存在，请重新读取报告') from exc
+    receipt = questionnaire_snapshot(analysis)
+    content = receipt['parameters']
+    return [{"id": d["id"], "title": d["title"], "prompt": d['prompt'], "boundary": d['boundary'], "rule_version": QUESTION_VERSION,
+             "questionnaire_hash": receipt['sha256'], "instructions": content['instructions'], "contribution_prompt": content['contribution_prompt'], "reason_prompt": content['unable']['reason_prompt'],
+             "response_options": [{"id": "unable", **content['unable']}] if d['id'] != 'contribution' else [],
+             "options": [{k: v for k, v in option.items() if k != "score"} for option in d["options"]]} for d in dimensions(receipt=receipt)]
 
 
 @app.get("/api/statistics/scores")
@@ -198,7 +207,7 @@ def export_score_statistics(analysis_id: str = Query(min_length=1), scope_confir
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StreamingResponse(BytesIO(content), media_type=EXCEL_MEDIA_TYPE,
-        headers={"Content-Disposition": review_export_disposition({'all': '分数统计', 'objective': '客观数据评价结果', 'subjective': '专业价值贡献评分'}[dimension], 'score-statistics.xlsx'), "Cache-Control": "no-store"})
+        headers={"Content-Disposition": review_export_disposition({'all': '分数统计', 'objective': '客观数据评价结果', 'subjective': '主观评价结果'}[dimension], 'score-statistics.xlsx'), "Cache-Control": "no-store"})
 
 
 @app.post("/api/subjective/review")
@@ -226,7 +235,7 @@ def export_subjective(analysis_id: str = Query(min_length=1)) -> StreamingRespon
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StreamingResponse(BytesIO(content), media_type=EXCEL_MEDIA_TYPE,
-        headers={"Content-Disposition": review_export_disposition('专业价值贡献评分', 'subjective-assessment.xlsx'), "Cache-Control": "no-store"})
+        headers={"Content-Disposition": review_export_disposition('主观评价结果', 'subjective-assessment.xlsx'), "Cache-Control": "no-store"})
 
 
 @app.get("/api/feishu/auth/status")

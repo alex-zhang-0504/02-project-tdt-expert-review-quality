@@ -7,11 +7,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from .scoring import aggregate
 from .scoring_policy import snapshot
 from .assessment import selected_experts
-from .subjective import DIMENSIONS, require_analysis
+from .subjective import require_analysis
+from .questionnaire import dimensions, snapshot as questionnaire_snapshot, append_snapshot
 
 
 STAGE_WEIGHTS = {"TDR1": 4, "TDR2": 2, "TDR3": 4}
-RULE_VERSION = "scores-v0.8"
+RULE_VERSION = "scores-v0.9"
 COMPONENTS = (("attendance", "出勤", 5), ("signoff", "会签", 10),
               ("opinion", "意见", 10))
 
@@ -47,19 +48,15 @@ def stage_score(sessions, policy=None):
     return result
 
 
-def questionnaire_score(review, policy=None):
+def questionnaire_score(review, policy=None, questionnaire=None):
     policy = policy or snapshot()["parameters"]
-    items, complete = [], bool(review.get("evaluator", "").strip())
-    ratings = review.get("ratings", {})
-    for dimension in DIMENSIONS:
-        rating = ratings.get(dimension["id"], {})
-        option = next((o for o in dimension["options"] if o["id"] == rating.get("option")), None)
-        required = rating.get("option") == ("high" if dimension["id"] == "contribution" else "low")
-        evidence_missing = bool(option and required and not (rating.get("note", "").strip() and rating.get("project_code", "")))
-        complete &= bool(option and not evidence_missing)
-        items.append({"dimension": dimension["title"], "option": option["title"] if option else "待评价",
-                      "score": policy["subjective"][dimension["id"]][option["id"]] if option else None, "evidence_missing": evidence_missing})
-    return items, sum(item["score"] for item in items) if complete else None
+    from .subjective import RULE_VERSION as QUESTION_VERSION, rating_result
+    current = review.get('rule_version') == QUESTION_VERSION and (not review.get('questionnaire_hash') or not questionnaire or review['questionnaire_hash'] == questionnaire['sha256'])
+    items = [rating_result(d, review.get('ratings', {}).get(d['id'], {}) if current else {}, policy['subjective']) for d in dimensions(receipt=questionnaire)]
+    if review and not current:
+        for item in items: item['option'] = '旧版问卷待重新确认'
+    complete = bool(review.get('evaluator', '').strip()) and all(i['responded'] and i['score'] is not None for i in items)
+    return items, sum(i['score'] for i in items) if complete else None
 
 
 def build_statistics(analysis, scope_confirmed=False):
@@ -109,13 +106,13 @@ def build_statistics(analysis, scope_confirmed=False):
                           contribution=None if raw_score is None else round(raw_score * weight, precision))
             result["components"] = {key: None if value is None else round(value, precision) for key, value in result["components"].items()}
         review = analysis.subjective_reviews.get(expert.expert_name, {})
-        items, subjective = questionnaire_score(review, policy)
+        items, subjective = questionnaire_score(review, policy, questionnaire_snapshot(analysis))
         progress = {}
         if analysis.assessment.get('confirmed'):
             from .manager_evaluation import average_review
             items, subjective, progress = average_review(analysis, expert.expert_name, policy)
         if subjective is None:
-            reasons.append("主观问卷未完成或必填依据未齐")
+            reasons.append("主观仍有未回应、依据未齐、旧版问卷或缺少有效评价的题目")
         suspected = sum(r["suspected"] for r in stages.values())
         if suspected:
             reasons.append(f"含{suspected}条待确认对策，疑似尚未计入")
@@ -176,11 +173,12 @@ def build_statistics_workbook(analysis, scope_confirmed=False, dimension="all"):
     info.append(["配置版本", data['policy']['version']])
     info.append(["配置指纹", data['policy']['sha256']])
     info.append(["实际参数", __import__('json').dumps(data['policy']['parameters'], ensure_ascii=False)])
+    append_snapshot(info, analysis)
     info.append(["统计范围", "本次导入的报告，不代表已验证外部报告完整性"])
     for report in analysis.reports:
         info.append(["纳入报告", report.source_name])
     info.append(["范围确认", "已确认本次导入范围" if data["scope_confirmed"] else "未确认，客观总得分与总分留空"])
-    info.append(["计分", f"阶段基础{base}分，按配置权重归一加权，再加参与度；问卷经理等权平均。"])
+    info.append(["计分", f"阶段基础{base}分，按配置权重归一加权，再加参与度；前五题逐题有效等权平均，贡献取有效最高分。"])
     info.append(["奖励", f"意见平均数达{p['opinion_threshold']}后，超额每条{p['excess_opinion_points']}分；含对策每条{p['solution_points']}分；总分最高{p['total_cap']}分。"])
     info.append(["参与度", f"至少{p['participation']['minimum_sessions']}场；前两档及其他档分数为{p['participation']['tier_scores']}，并列同分。"])
     info.append(["用途", "结果留档；经理问卷通过独立任务文件回收，不通过评分表回载。"])
@@ -206,7 +204,7 @@ def dimension_workbook(analysis, data, dimension):
     import json
     wb = Workbook()
     sheet = wb.active
-    sheet.title = '客观评分' if dimension == 'objective' else '主观评分'
+    sheet.title = '客观评分' if dimension == 'objective' else '主观打分'
     if dimension == 'objective':
         sheet.append(['评审人', 'TDR1', 'TDR2', 'TDR3', '阶段加权', '评审参与度', '基础得分', '评审意见超额得分', '输出有效对策得分', '客观总得分', '状态'])
         for r in data['rows']:
@@ -225,17 +223,23 @@ def dimension_workbook(analysis, data, dimension):
                     v['proxy'], None if v['proxy_rate'] is None else v['proxy_rate']/100,
                     v['pending'], v['suspected'], v['unknown']])
     else:
-        sheet.append(['评审人', *[d['title'] for d in DIMENSIONS], '最终主观分', '暂定平均', '已完成经理数', '应评价经理数'])
+        sheet.append(['评审人', *[d['title'] for d in dimensions(analysis)], '最终主观分', '暂定平均', '已完成经理数', '应评价经理数', *[d['title']+'有效人数' for d in dimensions(analysis)]])
         for r in data['rows']:
             p = r['subjective_progress']
-            sheet.append([r['expert_name'], *[i['score'] for i in r['subjective_items']], r['subjective_total'], p.get('provisional'), p.get('completed'), p.get('expected')])
+            sheet.append([r['expert_name'], *[i['score'] for i in r['subjective_items']], r['subjective_total'], p.get('provisional'), p.get('completed'), p.get('expected'), *[i.get('valid_count') for i in r['subjective_items']]])
         detail = wb.create_sheet('经理评价依据')
-        detail.append(['经理身份', '经理', '评审人', '维度', '档位', '项目', '依据', '修订', '排除理由'])
+        detail.append(['经理身份', '经理', '评审人', '维度', '档位', '项目', '依据', '修订', '排除理由', '问卷版本', '题干', '职责边界'])
         from .assessment import is_excluded
+        from .subjective import rating_evidence, UNJUDGED, RULE_VERSION as QUESTION_VERSION
         for mid, reviews in analysis.manager_reviews.items():
             for name, review in reviews.items():
                 for dim, rating in review['ratings'].items():
-                    detail.append([mid, review['evaluator'], name, dim, rating['option'], rating['project_code'], rating['note'], review['revision'], is_excluded(analysis, mid, name)])
+                    definition = next(d for d in dimensions(analysis) if d['id'] == dim)
+                    label = next((o['title'] for o in definition['options'] if o['id'] == rating['option']), definition['unable_title'] if rating['option']=='unable' else UNJUDGED.get(rating['option'], '待评价'))
+                    current = review.get('rule_version') == QUESTION_VERSION
+                    if not current: label = '旧版选项（'+rating['option']+'），待重新确认'
+                    for evidence in rating_evidence(rating) or [{}]:
+                        detail.append([mid, review['evaluator'], name, definition['title'], label, evidence.get('project_code', ''), evidence.get('note', '') or rating.get('reason', ''), review['revision'], is_excluded(analysis, mid, name), review.get('rule_version', ''), definition['prompt'] if current else '', definition['boundary'] if current else ''])
     score_last_row = sheet.max_row
     config = sheet if dimension == 'objective' else wb.create_sheet('配置及范围')
     if dimension == 'objective':
@@ -243,6 +247,8 @@ def dimension_workbook(analysis, data, dimension):
         config.append(['参数及报告范围'])
     for key, value in data['policy'].items():
         config.append([key, json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else value])
+    if dimension != 'objective':
+        append_snapshot(config, analysis)
     config.append(['考核批次', analysis.assessment.get('batch_id', '')])
     config.append(['名单', '；'.join(analysis.assessment.get('included', []))])
     config.append(['范围确认', data['scope_confirmed']])

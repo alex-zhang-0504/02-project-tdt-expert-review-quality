@@ -7,43 +7,31 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from pydantic import BaseModel, ConfigDict, Field
 
 
-RULE_VERSION = "subjective-v0.8"
-DIMENSIONS = [
-    {"id": "preparation", "title": "项目理解与评审准备", "options": [
-        {"id": "high", "title": "抓住重点", "score": 10, "description": "理解项目目标、方案与关键约束，能结合材料抓住评审重点。"},
-        {"id": "medium", "title": "准备到位", "score": 7, "description": "了解项目基本情况，能围绕本专业完成评审。"},
-        {"id": "low", "title": "准备不足", "score": 0, "description": "明显未了解必要材料，反复偏离议题或影响有效评审。"}]},
-    {"id": "judgment", "title": "风险识别与专业判断", "options": [
-        {"id": "high", "title": "判断深入", "score": 15, "description": "识别关键风险，说明依据、影响及优先级，判断有助于评审决策。"},
-        {"id": "medium", "title": "判断合理", "score": 10, "description": "能识别常见问题，判断基本合理，但风险分析不够深入。"},
-        {"id": "low", "title": "判断失当", "score": 0, "description": "对职责范围内已有充分线索的关键风险明显漏判，或无依据作出重要判断。"}]},
-    {"id": "guidance", "title": "改善建议与方案指导", "options": [
-        {"id": "high", "title": "建议可落地", "score": 15, "description": "提出具体可执行的建议，结合项目约束说明方案取舍，帮助推进问题解决。"},
-        {"id": "medium", "title": "方向合理", "score": 10, "description": "建议方向合理，但具体措施或适用条件仍需进一步明确。"},
-        {"id": "low", "title": "指导不足", "score": 0, "description": "对需要指导的问题只作泛化评价，或提出明显不可执行的建议。"}]},
-    {"id": "verification", "title": "验证把关与闭环质量", "options": [
-        {"id": "high", "title": "把关有效", "score": 10, "description": "指出关键验证证据及通过条件，复核时识别证据缺口，推动问题有效关闭。"},
-        {"id": "medium", "title": "复核到位", "score": 7, "description": "能检查主要验证结果，对明显未满足要求的问题提出补充要求。"},
-        {"id": "low", "title": "把关不足", "score": 0, "description": "对负责复核的问题未核实关键证据便认可关闭，或无依据反复变更要求。"}]},
-    {"id": "collaboration", "title": "沟通协作与评审担当", "options": [
-        {"id": "high", "title": "有据有担当", "score": 10, "description": "观点清楚、依据充分，能协调分歧；关键问题敢于坚持，也能根据新证据修正判断。"},
-        {"id": "medium", "title": "沟通尽责", "score": 7, "description": "表达清楚、配合讨论，能够说明并承担本人的专业判断。"},
-        {"id": "low", "title": "协作失当", "score": 0, "description": "回避应作出的判断，或以情绪化、无依据的表达妨碍有效讨论。"}]},
-    {"id": "contribution", "title": "突出贡献", "options": [
-        {"id": "high", "title": "有突出贡献", "score": 10, "description": "有可核实的超出常规履职的贡献：避免重大风险、突破关键难题或推动方案明显改善；普通建议被采纳不足以获得本项加分。"},
-        {"id": "low", "title": "无突出贡献", "score": 0, "description": "本期无符合上述标准的可指认贡献，本选项不代表日常履职不合格。"}]},
-]
+RULE_VERSION = "subjective-v0.9"
+from .questionnaire import dimensions, snapshot as questionnaire_snapshot
+DIMENSIONS = dimensions()
+
+UNJUDGED = {"unable": "暂无法判断", "no_opportunity": "本期无相关职责／机会"}
+
+class EvidenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_code: str = Field(default="", max_length=200)
+    note: str = Field(default="", max_length=100)
 
 
 class RatingInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     option: str
+    reason: str = Field(default="", max_length=500)
+    evidence: list[EvidenceInput] = Field(default_factory=list)
     project_code: str = Field(default="", max_length=200)
     note: str = Field(default="", max_length=100)
 
 
 class ReviewInput(BaseModel):
+    questionnaire_hash: str = ""
     model_config = ConfigDict(extra="forbid")
+    rule_version: str = RULE_VERSION
     analysis_id: str = Field(min_length=1)
     expert_name: str = Field(min_length=1)
     evaluator: str = Field(min_length=1, max_length=80)
@@ -56,14 +44,42 @@ def require_analysis(analysis):
         raise ValueError("请先处理报告中的阻断问题")
 
 
+def rating_evidence(rating):
+    rows = list(rating.get('evidence', []))
+    if rating.get('project_code') or rating.get('note'):
+        rows.insert(0, {'project_code': rating.get('project_code', ''), 'note': rating.get('note', '')})
+    return [r for r in rows if r.get('project_code', '').strip() or r.get('note', '').strip()]
+
+
+def rating_result(dimension, rating, policy=None):
+    code = rating.get('option')
+    option = next((o for o in dimension['options'] if o['id'] == code), None)
+    skipped = dimension['id'] != 'contribution' and code in UNJUDGED
+    evidence = rating_evidence(rating)
+    required = dimension['id'] != 'preparation' and code == ('high' if dimension['id'] == 'contribution' else 'low')
+    missing = (skipped and not rating.get('reason', '').strip()) or (not skipped and (
+        (required and not evidence) or any(not e.get('project_code', '').strip() or not e.get('note', '').strip() for e in evidence)))
+    responded = bool(option or skipped) and not missing
+    score = (policy[dimension['id']][code] if policy else option['score']) if option and responded else None
+    return {'dimension': dimension['title'], 'option': option['title'] if option else dimension.get('unable_title', UNJUDGED['unable']) if code == 'unable' else UNJUDGED.get(code, '待评价'),
+            'score': score, 'evidence_missing': bool(missing), 'responded': responded,
+            'response_state': code or 'unanswered'}
+
+
 def save_review(analysis, payload: ReviewInput) -> dict:
     require_analysis(analysis)
+    if payload.rule_version != RULE_VERSION:
+        raise ValueError("问卷版本已变化，请按新题重新确认")
     expert = next((e for e in analysis.experts if e.expert_name == payload.expert_name), None)
     if expert is None:
         raise ValueError("评审人不属于当前分析")
     if not payload.evaluator.strip():
         raise ValueError("请填写评价人")
-    catalog = {d["id"]: d for d in DIMENSIONS}
+    definition = questionnaire_snapshot(analysis)
+    if payload.questionnaire_hash and payload.questionnaire_hash != definition["sha256"]:
+        raise ValueError("问卷内容版本不一致，请重新打开本次考核问卷")
+    current_dimensions = dimensions(analysis)
+    catalog = {d["id"]: d for d in current_dimensions}
     if payload.ratings.keys() - catalog.keys():
         raise ValueError("存在未知评分维度")
     projects = {s.project_code for s in expert.sessions}
@@ -75,22 +91,24 @@ def save_review(analysis, payload: ReviewInput) -> dict:
         projects = set(manager['experts'][payload.expert_name])
         if payload.evaluator.strip() != manager['name']:
             raise ValueError('评价人必须与项目经理身份一致')
-    evidence_missing = False
     ratings = {}
     for dimension_id, rating in payload.ratings.items():
         option = next((o for o in catalog[dimension_id]["options"] if o["id"] == rating.option), None)
-        if option is None:
-            raise ValueError("该维度不存在所选档位")
+        if option is None and not (dimension_id != 'contribution' and rating.option in UNJUDGED):
+            raise ValueError("该维度不存在所选行为或回应状态")
+        evidence = [dict(project_code=e.project_code.strip(), note=e.note.strip()) for e in rating.evidence if e.project_code.strip() or e.note.strip()]
         project, note = rating.project_code.strip(), rating.note.strip()
-        if project and project not in projects:
-            raise ValueError("关联项目不属于该评审人的当前参评范围")
-        required = (dimension_id == "contribution" and rating.option == "high") or (
-            dimension_id != "contribution" and rating.option == "low")
-        evidence_missing |= required and not (project and note)
+        if project or note:
+            evidence.insert(0, dict(project_code=project, note=note))
+        if any(e['project_code'] and e['project_code'] not in projects for e in evidence):
+            raise ValueError("关联项目不属于该经理与评审人的共同项目范围")
         ratings[dimension_id] = {"option": rating.option, "project_code": project, "note": note}
-    status = "待评价" if len(ratings) < len(DIMENSIONS) else "待补依据" if evidence_missing else "已完成"
+        if rating.evidence: ratings[dimension_id]['evidence'] = [dict(project_code=e.project_code.strip(), note=e.note.strip()) for e in rating.evidence]
+        if rating.reason: ratings[dimension_id]['reason'] = rating.reason.strip()
+    checks = [rating_result(d, ratings.get(d['id'], {})) for d in current_dimensions]
+    status = '已完成' if all(i['responded'] for i in checks) else '待评价' if len(ratings) < len(DIMENSIONS) else '待补依据'
     record = {"rule_version": RULE_VERSION, "evaluator": payload.evaluator.strip(),
-              "ratings": ratings, "status": status,
+              "ratings": ratings, "status": status, "questionnaire_hash": definition["sha256"],
               "updated_at": datetime.now(timezone.utc).isoformat()}
     if analysis.assessment.get('confirmed'):
         records = analysis.manager_reviews.setdefault(payload.manager_id, {})
@@ -114,12 +132,14 @@ def build_workbook(analysis) -> bytes:
         review = analysis.subjective_reviews.get(expert.expert_name, {})
         projects = sorted({f"{s.project_name}（{s.project_code}）" for s in expert.sessions})
         summary.append([expert.expert_name, review.get("evaluator", ""), review.get("status", "待评价"),
-                        "；".join(projects), review.get("updated_at", ""), RULE_VERSION])
-        for dimension in DIMENSIONS:
+                        "；".join(projects), review.get("updated_at", ""), review.get("rule_version", "")])
+        for dimension in dimensions(analysis):
             rating = review.get("ratings", {}).get(dimension["id"], {})
             option = next((o for o in dimension["options"] if o["id"] == rating.get("option")), {})
-            detail.append([expert.expert_name, dimension["title"], option.get("title", "待评价"),
-                           rating.get("project_code", ""), rating.get("note", ""),
+            label = option.get("title", UNJUDGED.get(rating.get("option"), "待评价"))
+            if rating and review.get("rule_version") != RULE_VERSION: label = "旧版选项（" + rating.get("option", "") + "），待重新确认"
+            detail.append([expert.expert_name, dimension["title"], label,
+                           "；".join(e["project_code"] for e in rating_evidence(rating)), "；".join(e["note"] for e in rating_evidence(rating)) or rating.get("reason", ""),
                            option.get("description", "")])
     info = wb.create_sheet("使用说明")
     info.append(["评价范围", analysis.source_name])

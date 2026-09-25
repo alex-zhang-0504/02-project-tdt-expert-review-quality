@@ -45,11 +45,11 @@ class SubjectiveTests(unittest.TestCase):
         self.assertIsNone(questionnaire_score(review)[1])
         self.assertEqual("待评价", review["status"])
         payload = self.payload()
-        payload.ratings["preparation"].option = "low"
+        payload.ratings["verification"].option = "low"
         self.assertEqual("待补依据", save_review(self.analysis, payload)["status"])
-        payload.ratings["preparation"].note = "未阅读关键材料，导致讨论反复。"
+        payload.ratings["verification"].note = "未阅读关键材料，导致讨论反复。"
         self.assertIsNone(questionnaire_score(save_review(self.analysis, payload))[1])
-        payload.ratings["preparation"].project_code = self.project
+        payload.ratings["verification"].project_code = self.project
         self.assertEqual(60, questionnaire_score(save_review(self.analysis, payload))[1])
 
     def test_middle_scores_and_contribution_zero(self):

@@ -1,13 +1,16 @@
 # 主观评价数据规范V0.1
 
-新业务口径见[考核办法V0.8第五节](tdr-expert-review-assessment-v0.8.md#五专业价值贡献70分) 。六项选项结构及依据要求不变，模块改名「专业价值贡献」，默认配置按10／7／0、15／10／0、15／10／0、10／7／0、10／7／0及10／0换算；规则版本需同步，满分70。已按subjective-v0.8实现，以下记录保存与接口结构。
+2026-09-25配置化：GET `/api/subjective/catalog?analysis_id=...`读取该考核问卷快照；不传编号用于读取当前模板。返回题目内容、统一说明、贡献提示、无法判断提示及`questionnaire_hash`。问卷提交携带该指纹，明确不匹配时拒绝。确认考核保存`assessment.questionnaire`完整配置（含文案与分值），`assessment.policy`保存合并计分参数。两个管理员范围接口`/api/assessment/admin/policy/objective`与`/subjective`支持GET／PUT；PUT须授权及旧指纹，客观只能修改客观字段，主观为文案与scores一次原子保存。内容版本自增，算法版本不变。详见`questionnaire-configuration.md`。
 
-- WorkbookAnalysis使用manager_reviews[manager_id][expert_name]保存每位经理的一票，assessment保存名单、配置快照及任务排除理由。
-- 记录包含规则版本、评价人、六维选项（high／medium／low，突出贡献仅high／low）、项目编码、事实说明、更新时间与完成状态，不含total。
-- 服务端校验维度和选项，依据项目必须属于当前评审人与所选经理的共同项目；只保存问卷，不接收客户端分数。
-- 部分选项允许暂存；缺项或必填依据不全保留对应状态，保存要求评价人非空、分析存在且无阻断。
-- GET /api/subjective/catalog仅返回六维标题、小标题与解释，不返回分值。
-- POST /api/subjective/review保存评价并返回记录；GET /api/subjective/export?analysis_id=…导出当前分析的全部评审人评价及未评价状态。
-- 经理任务Excel保存选项与依据；主观评分Excel包含六维平均分、完成数量及经理依据，详见《score-statistics-data-spec-v0.1.md》。不恢复旧/api/score或/api/questionnaire，不修改facts-v0.6载荷；经理任务支持回收合并，完整接口见《assessment-workflow-v0.1.md》。
+2026-09-23采用subjective-v0.9，完整题目见《subjective-questionnaire-v0.9.md》，分值维持70分。
 
-2026-09-14界面更新：选项以灰底卡片直接展示标题和description，不再使用感叹号悬停解释；四条指导桌面横排一行，小屏自适应换行。
+- `manager_reviews[manager_id][expert_name]`保存经理一票；每份问卷携带`rule_version`、`ratings`、状态、修订、评价人和更新时间，不接受客户端分数。
+- `ratings[dimension_id]`保留`option`、兼容字段`project_code`／`note`，增加`evidence:[{project_code,note}]`与`reason`。每条依据沿用100字，可关联多个共同项目及同一项目的多条记录，项目必须属于该经理和评审人的交集。
+- 前五题内部行为编码high／medium／low，额外回应状态unable／no_opportunity；贡献仅high／low。网页与Excel显示中文行为，不暴露编码和选项分值。
+- 无法判断／无职责机会须填写原因，算已回应，分数为null。未选或依据不齐不算已回应；有效0分正常计入平均。
+- 2026-09-25依据必填范围：第1题不强制；第2—5题仅low；第6题仅high。判定按选项编号，不随管理员调整分值而改变。其他档位未填依据仍有效，填写了不完整依据则须补齐。
+- `GET /api/subjective/catalog`返回title、prompt、boundary、options、response_options及rule_version，不返回分值。题干、职责边界、行为解释直接显示。
+- `POST /api/subjective/review`校验版本和共同项目范围；新旧版本不混算。旧记录保留但待重新确认；旧任务Excel版本不符拒绝回收。新客户端提交当前题目版本。
+- 保存完整回应的问卷标记「已完成」，不代表所有题都有有效分。逐题输出valid_count、responded_count；前五题有效等权平均，贡献取有效最高分。所有任务已回应或排除、各题均有有效分且经理归属无缺失才生成最终分；否则仅保留可计算的题分及暂定结果。
+- 主观结果导出包含中文行为、题干、边界、问卷版本、每题有效人数及全部依据。经理Excel往返接口保留兼容，新增补充依据sheet，中文下拉选项映射内部编码；页面不恢复分发／回收入口。
+- 尚未实现跨重启持久化、半年度转年度初稿或管理员复核。当前数据仍仅在本次服务内存中。

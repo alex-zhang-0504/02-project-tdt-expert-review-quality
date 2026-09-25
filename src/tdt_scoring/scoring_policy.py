@@ -37,9 +37,16 @@ def parse_policy(raw):
             'file': 'config/' + POLICY_PATH.name, 'loaded_at': datetime.now(timezone.utc).isoformat()}
 
 
-def load_policy():
+def load_policy(questionnaire=None):
     try:
-        return parse_policy(POLICY_PATH.read_bytes())
+        from .questionnaire import load
+        data = json.loads(POLICY_PATH.read_bytes())
+        questionnaire = questionnaire or load()
+        data['subjective'] = questionnaire['parameters']['scores']
+        result = parse_policy(json.dumps(data, ensure_ascii=False, sort_keys=True).encode())
+        result['sha256'] = sha256((result['sha256'] + questionnaire['sha256']).encode()).hexdigest()
+        result['questionnaire_hash'] = questionnaire['sha256']
+        return result
     except OSError:
         raise ValueError('评分参数未读取或参数无效，考核已阻止') from None
 

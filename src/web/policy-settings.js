@@ -1,13 +1,12 @@
 (() => {
   const dialog = sq('#policy-settings-dialog');
   const status = sq('#policy-admin-status');
-  let receipt = null, token = '', configured = false, busy = false, preview = null, expiry;
+  let receipt = null, token = '', configured = false, busy = false, preview = null, scope = 'objective', editable = [];
   const groups = [
     ['阶段权重', [['stage_weights.TDR1','TDR1权重'],['stage_weights.TDR2','TDR2权重'],['stage_weights.TDR3','TDR3权重']]],
     ['客观基础与参与度', [['components.attendance','出勤满分'],['components.signoff','会签满分'],['components.opinion','意见满分'],['participation.minimum_sessions','参与度最低场次'],['participation.tier_scores.0','参与度高档'],['participation.tier_scores.1','参与度中档'],['participation.tier_scores.2','参与度低档']]],
     ['意见与奖励', [['opinion_threshold','每场意见基准条数'],['excess_opinion_points','超额意见每条奖励'],['solution_points','输出对策每条奖励']]],
-    ['主观评价各档分值', [['preparation','项目理解与评审准备'],['judgment','风险识别与专业判断'],['guidance','改善建议与方案指导'],['verification','验证把关与闭环质量'],['collaboration','沟通协作与评审担当'],['contribution','突出贡献']].flatMap(([key,label]) => (key==='contribution'?['high','low']:['high','medium','low']).map(tier=>[`subjective.${key}.${tier}`,`${label} · ${{high:'高档',medium:'中档',low:'低档'}[tier]}`]))],
-    ['总分与精度', [['total_cap','总分上限'],['precision','分数小数位数']]],
+
   ];
   const valueAt = (obj, path) => path.split('.').reduce((value,key)=>value[key], obj);
   const api = (path, options={}) => requestJson('/api/assessment/admin/'+path, {...options, headers:{'Content-Type':'application/json','X-Policy-Request':'1','X-Policy-Session':token,...options.headers}});
@@ -15,6 +14,10 @@
   button.id = 'open-policy-settings'; button.type='button'; button.className='ghost-button policy-settings-button';
   button.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3"/><rect x="4" y="10" width="16" height="12" rx="2"/><path d="M12 14v4"/></svg><span>评分参数</span>';
   document.querySelector('#objective-table-footer').append(button);
+
+  const subjectiveButton = button.cloneNode(true);
+  subjectiveButton.id = 'open-subjective-settings';
+  document.querySelector('#subjective-policy-footer').append(subjectiveButton);
 
   function refreshAccess() {
     sq('#policy-fields').disabled = !token || busy;
@@ -25,7 +28,7 @@
     sq('#policy-confirm-field').hidden = configured;
     sq('#policy-password-confirm').required = !configured;
     sq('#policy-unlock').textContent = configured ? '解锁修改' : '设置密码并解锁';
-    sq('#policy-auth-hint').textContent = configured ? '当前为只读。输入管理员密码后可修改，授权有效期10分钟。' : '首次使用：请由本机管理员设置密码（8至128位）。密码不设默认值，仅保存加盐哈希。';
+    sq('#policy-auth-hint').textContent = configured ? '输入管理员密码后可修改，不设时限。永久保存后自动锁定；关闭窗口将放弃未保存的修改。' : '首次使用：请由本机管理员设置密码（8至128位）。密码不设默认值，仅保存加盐哈希。';
     sq('#policy-relock').hidden = !token;
     sq('#policy-relock').disabled = busy;
     sq('#close-policy-settings').disabled = busy;
@@ -34,58 +37,90 @@
     preview = null; sq('#policy-change-preview').hidden=true; refreshAccess();
   }
   function renderFields() {
-    sq('#policy-fields').innerHTML = groups.map(([title,fields])=>`<section class="policy-group"><h4>${title}</h4><div class="policy-field-grid">${fields.map(([path,label])=> {
-      const integer=['precision','participation.minimum_sessions'].includes(path);
-      const min=path==='participation.minimum_sessions'?1:path.startsWith('stage_weights.') || ['opinion_threshold','total_cap'].includes(path)?0.0001:0;
-      return `<label class="field"><span>${label}</span><input data-policy-path="${path}" type="number" min="${min}" ${path==='precision'?'max="4"':''} step="${integer?'1':'any'}" required value="${valueAt(receipt.parameters,path)}" /></label>`;
-    }).join('')}</div></section>`).join('');
+    editable = [];
+    function field(path, label, numeric=false) {
+      let context = '';
+      if (scope === 'subjective' && path.startsWith('dimensions.')) {
+        const parts=path.split('.'), d=receipt.parameters.dimensions[Number(parts[1])];
+        context=`第${Number(parts[1])+1}题${parts[2]==='options'?' · '+d.options[Number(parts[3])].title:''} · `;
+      } else if (scope === 'subjective' && path.startsWith('scores.')) {
+        const [,id,tier]=path.split('.'), d=receipt.parameters.dimensions.find(d=>d.id===id);
+        context=d.title+' · '+d.options.find(o=>o.id===tier).title+' · ';
+      }
+      editable.push([path,context+label,numeric]);
+      const value = escapeHtml(String(valueAt(receipt.parameters,path)));
+      return `<label class="field"><span>${escapeHtml(label)}</span>${numeric ? `<input data-policy-path="${path}" type="number" min="0" step="any" required value="${value}" />` : `<textarea data-policy-path="${path}" maxlength="2000" required rows="2">${value}</textarea>`}</label>`;
+    }
+    if (scope === 'objective') {
+      sq('#policy-fields').innerHTML = groups.map(([title,fields])=>`<section class="policy-group"><h4>${title}</h4><div class="policy-field-grid">${fields.map(([path,label])=>field(path,label,true)).join('')}</div></section>`).join('');
+    } else {
+      const p=receipt.parameters;
+      sq('#policy-fields').innerHTML = `<section class="policy-group"><h4>统一填写说明</h4>${field('instructions','首次进入说明')}${field('unable.title','无法判断卡片标题')}${field('unable.description','无法判断卡片解释')}${field('unable.reason_prompt','原因填写提示')}${field('contribution_prompt','突出贡献依据提示')}</section>` + p.dimensions.map((d,i)=>`<section class="policy-group"><h4>${i+1}．${escapeHtml(d.title)}</h4>${field(`dimensions.${i}.title`,'问题标题')}${field(`dimensions.${i}.prompt`,'题干')}${field(`dimensions.${i}.boundary`,'职责边界')}<div class="policy-question-options">${d.options.map((o,j)=>`<div class="policy-option-editor">${field(`dimensions.${i}.options.${j}.title`,'卡片标题')}${field(`dimensions.${i}.options.${j}.description`,'卡片解释')}${field(`scores.${d.id}.${o.id}`,'对应分值',true)}</div>`).join('')}</div></section>`).join('');
+    }
     resetPreview();
+    resizeTextareas();
   }
+  function resizeTextareas() {
+    sq('#policy-fields').querySelectorAll('textarea').forEach(input => {
+      input.style.height='auto';
+      input.style.height=(input.scrollHeight+2)+'px';
+    });
+  }
+  let fieldsWidth=0;
+  new ResizeObserver(entries=>{
+    const width=entries[0].contentRect.width;
+    if(width!==fieldsWidth){fieldsWidth=width;resizeTextareas();}
+  }).observe(sq('#policy-fields'));
   async function relock() {
-    clearTimeout(expiry);
-    if(token) { try { await api('lock',{method:'POST'}); } catch { /* Authorization also expires server-side. */ } }
+    if(token) { try { await api('lock',{method:'POST',keepalive:true}); } catch { /* Discard the local capability even if the service is unreachable. */ } }
     token=''; resetPreview();
+    if(receipt)renderFields();
   }
-  button.onclick=async()=> {
+  async function openSettings(nextScope) {
+    scope=nextScope;
+    sq('#policy-settings-title').textContent=scope==='subjective'?'主观评分参数与问卷':'客观评分参数';
     dialog.showModal(); dialog.scrollTop=0; busy=true; receipt=null; status.textContent='正在读取评分参数…'; refreshAccess();
     try {
-      const [access, policy]=await Promise.all([api('status'),requestJson('/api/assessment/policy')]);
+      const [access, policy]=await Promise.all([api('status'),api('policy/'+scope)]);
       configured=access.configured; receipt=policy; renderFields();
       status.textContent=`已读取配置 V${policy.version}；修改并确认后才会写入文件。`;
     } catch(error) {status.textContent=error.message;}
     finally {busy=false;refreshAccess();}
   };
+  button.onclick=()=>openSettings('objective');
+  subjectiveButton.onclick=()=>openSettings('subjective');
   sq('#policy-unlock-form').onsubmit=async event=> {
     event.preventDefault(); if(busy)return; busy=true;refreshAccess();
     try {
       const result=await api('unlock',{method:'POST',body:JSON.stringify({setup:!configured,password:sq('#policy-password').value,confirmation:sq('#policy-password-confirm').value})});
       configured=true; token=result.token;
-      clearTimeout(expiry); expiry=setTimeout(()=>{token='';resetPreview();status.textContent='授权已到期，请重新解锁后继续修改。';},result.expires_in*1000);
       status.textContent='已解锁，可修改参数。仅完整通过校验并写后核验成功，才显示保存成功。';
     } catch(error) {status.textContent=error.message;}
     finally {sq('#policy-password').value='';sq('#policy-password-confirm').value='';busy=false;refreshAccess();}
   };
-  sq('#policy-fields').addEventListener('input',resetPreview);
+  sq('#policy-fields').addEventListener('input',()=>{resetPreview();resizeTextareas();});
   sq('#policy-editor-form').onsubmit=async event=> {
     event.preventDefault(); if(busy || !token || !receipt)return;
     if(!preview) {
       const parameters=structuredClone(receipt.parameters), changes=[];
-      for(const [path,label] of groups.flatMap(([,fields])=>fields)) {
-        const value=Number(sq(`[data-policy-path="${path}"]`).value);
+      for(const [path,label,numeric] of editable) {
+        const input=sq(`[data-policy-path="${path}"]`).value;
+        const value=numeric?Number(input):input.trim();
         if(value!==valueAt(receipt.parameters,path))changes.push(`${label}：${valueAt(receipt.parameters,path)} → ${value}`);
         const parts=path.split('.'), key=parts.pop();
         let target=parameters; for(const part of parts)target=target[part]; target[key]=value;
       }
       if(!changes.length){status.textContent='参数未变化，无需写入。';return;}
-      preview=parameters;
+      preview=scope==='subjective'?parameters:Object.fromEntries(['stage_weights','components','opinion_threshold','participation','excess_opinion_points','solution_points'].map(k=>[k,parameters[k]]));
       sq('#policy-change-preview').innerHTML=`<p>请核对以下修改，保存后用于新考核：</p><ul>${changes.map(c=>`<li>${escapeHtml(c)}</li>`).join('')}</ul>`;
       sq('#policy-change-preview').hidden=false;refreshAccess();sq('#policy-change-preview').scrollIntoView({block:'nearest'});return;
     }
     busy=true;refreshAccess();
     try {
-      receipt=await api('policy',{method:'PUT',body:JSON.stringify({previous_hash:receipt.sha256,parameters:preview})});
+      receipt=await api('policy/'+scope,{method:'PUT',body:JSON.stringify({previous_hash:receipt.sha256,parameters:preview})});
+      token='';
       renderFields();
-      status.textContent=`已永久保存并重新读取核验 · ${receipt.file} · ${new Date(receipt.loaded_at).toLocaleString()}。已开始的考核保持原配置。`;
+      status.textContent='已永久保存并自动锁定。新参数用于新建考核；当前考核的题目、分值和已填内容保持不变，刷新页面也不会覆盖。';
       if(!state.analysis?.assessment?.confirmed) {assessmentUI.policy=null;sq('#assessment-policy').textContent='评分参数已更新，请读取最新配置。';syncAssessmentActions();}
     } catch(error) {status.textContent=error.message;}
     finally {busy=false;refreshAccess();status.scrollIntoView({block:'nearest'});}
@@ -93,4 +128,5 @@
   sq('#policy-relock').onclick=async()=>{await relock();status.textContent='已结束修改，当前为只读。';};
   sq('#close-policy-settings').onclick=async()=>{if(busy)return;await relock();dialog.close();};
   dialog.addEventListener('cancel',event=>{event.preventDefault();if(!busy)sq('#close-policy-settings').click();});
+  window.addEventListener('pagehide',()=>{if(token)void relock();});
 })();

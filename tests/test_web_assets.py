@@ -54,12 +54,12 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("selectReport(index)", APP_JS)
         self.assertIn("analysis.reports", APP_JS)
 
-    def test_dimension_one_reviewer_search_supports_three_fuzzy_modes(self) -> None:
-        self.assertIn('placeholder="姓名／全拼／首字母"', INDEX_HTML)
-        self.assertIn("function isSearchSubsequence", APP_JS)
+    def test_dimension_one_reviewer_search_supports_name_and_pinyin_keywords(self) -> None:
+        self.assertIn('placeholder="姓名／全拼，可用空格分隔多个关键词"', INDEX_HTML)
+        self.assertIn("keywords.some", APP_JS)
         self.assertIn("function reviewerMatchesSearch", APP_JS)
         self.assertIn("expert.expert_name_pinyin", APP_JS)
-        self.assertIn("expert.expert_name_initials", APP_JS)
+        self.assertNotIn("expert.expert_name_initials", APP_JS)
         self.assertIn("reviewerMatchesSearch", APP_JS)
 
     def test_numbers_visual_tokens_are_used(self) -> None:

@@ -57,10 +57,12 @@ def confirm_roster(analysis, names, batch_id, policy_hash=None):
     result = match_roster(analysis, names)
     if not result['included']:
         raise ValueError('名单与报告没有交集，不能开始考核')
-    policy = load_policy()
+    from .questionnaire import load as load_questionnaire
+    questionnaire = load_questionnaire()
+    policy = load_policy(questionnaire)
     if policy_hash is not None and policy_hash != policy['sha256']:
         raise ValueError('评分参数已变化，请重新读取评分参数后再进入')
-    result.update(confirmed=True, batch_id=batch_id.strip(), policy=policy, exclusions={})
+    result.update(confirmed=True, batch_id=batch_id.strip(), policy=policy, questionnaire=questionnaire, exclusions={})
     result['roster_hash'] = sha256(json.dumps(sorted(result['included']), ensure_ascii=False).encode()).hexdigest()
     analysis.assessment = result
     unresolved = tasks(analysis)['unresolved_reports']
