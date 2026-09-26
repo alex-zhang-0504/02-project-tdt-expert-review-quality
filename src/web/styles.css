@@ -610,3 +610,25 @@ button.report-progress-row { cursor: pointer; }
 .subjective-boundary { margin: 0 0 14px; color: var(--ink); font-size: var(--font-size-supporting); }
 #subjective-panel .subjective-evidence-fields { grid-template-columns: minmax(150px, 1fr) 2fr auto; align-items: end; margin-bottom: 10px; }
 @media (max-width: 720px) { #subjective-panel .subjective-evidence-fields { grid-template-columns: 1fr; } }
+/* Local multi-user workspace; shares the existing design tokens. */
+.workspace-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+#workspace-account { margin-left:auto; color:var(--ink); }
+.workspace-login { max-width:480px; margin:32px auto; }
+.workspace-form { display:grid; gap:20px; margin:24px 0; }
+.workspace-list { display:grid; gap:24px; }
+.workspace-assessment, .workspace-management { border:1px solid var(--line); border-radius:var(--radius); padding:24px; }
+.workspace-assessment .workspace-actions { margin-top:16px; }
+.workspace-binding { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+.workspace-binding > span:first-child { flex:1; min-width:180px; }
+.workspace-management { margin-top:32px; }
+.workspace-management summary { cursor:pointer; }
+.workspace-management h3 { margin-top:24px; }
+.workspace-status, #workspace-error, #workspace-history-content, #workspace-account, .workspace-binding { color:var(--ink); }
+.workspace-history-entry { padding:12px; margin-top:12px; border:1px solid var(--line); }
+#workspace-questionnaire-tools { margin-bottom:20px; }
+body[data-workspace-role="guest"] .module-tabs,
+body[data-workspace-role="manager"] .module-tab:not([data-step="3"]),
+body[data-workspace-role="manager"] .subjective-manager-field,
+body[data-workspace-role="manager"] #subjective-page-toggle,
+body[data-workspace-role="manager"] #export-subjective,
+body[data-workspace-role="manager"] .policy-settings-button { display:none !important; }

@@ -62,7 +62,7 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn('set "SERVER_EXIT_CODE=%ERRORLEVEL%"', script)
         self.assertIn("Local scoring service exited with code", script)
         self.assertIn("Restart start.cmd and use the newly opened page", script)
-        self.assertIn("Re-import the review workbook before scoring", script)
+        self.assertIn("Saved assessments are available from the assessment list after restart", script)
         launch_section = script[script.index("\n:launch\n") : script.index("\n:incomplete\n")]
         self.assertIn("pause", launch_section)
 

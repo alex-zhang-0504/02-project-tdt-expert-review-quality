@@ -93,6 +93,7 @@ function renderAssessmentSetup() {
     renderScoringReceipt(p, true);
   }
   sq('#assessment-local-managers').innerHTML = confirmed ? '' : (a.reports || []).filter(r => r.source_type === 'local_excel' && !r.manager_identity?.source_token).map(r => `<div class="assessment-tools"><span>${escapeHtml(r.source_name)}</span><input data-local-id="${escapeHtml(r.source_name)}" placeholder="经理唯一编号" /><input data-local-name="${escapeHtml(r.source_name)}" placeholder="经理姓名" /><button type="button" class="secondary-button" data-local-manager="${escapeHtml(r.source_name)}">指定经理</button><span>${escapeHtml(r.manager_identity?.name || '未指定')}</span></div>`).join('');
+  if (window.workspace) window.workspace.renderBindings();
 }
 
 async function compareAssessment(confirm=false) {

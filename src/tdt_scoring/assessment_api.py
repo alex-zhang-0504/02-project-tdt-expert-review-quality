@@ -12,7 +12,7 @@ from .submission import EXCEL_MEDIA_TYPE
 from .sources.local_excel import MAX_WORKBOOK_BYTES
 
 
-def create_router(service, encode):
+def create_router(service, encode, workspace=None):
     router = APIRouter(prefix='/api/assessment')
 
     def run(action):
@@ -35,10 +35,13 @@ def create_router(service, encode):
     async def roster(request: Request):
         data = await request.json()
         def action():
-            analysis = service.get_analysis(data['analysis_id'])
             if data.get('confirm'):
-                confirm_roster(analysis, data['names'], data.get('batch_id') or analysis.analysis_id, data.get('policy_hash'))
-                return encode(analysis)
+                with service.edit_analysis(data['analysis_id']) as analysis:
+                    confirm_roster(analysis, data['names'], data.get('batch_id') or analysis.analysis_id, data.get('policy_hash'))
+                    if workspace:
+                        workspace.freeze_accounts(analysis)
+                    return encode(analysis)
+            analysis = service.get_analysis(data['analysis_id'])
             return match_roster(analysis, data['names'])
         return run(action)
 
@@ -46,15 +49,22 @@ def create_router(service, encode):
     async def local_manager(request: Request):
         data = await request.json()
         def action():
-            analysis = service.get_analysis(data['analysis_id'])
-            assign_local_manager(analysis, data['source_name'], data['manager_id'], data['name'])
-            return encode(analysis)
+            with service.edit_analysis(data['analysis_id']) as analysis:
+                name = data.get('name', '')
+                if workspace:
+                    user = workspace.store.user(data['manager_id'])
+                    if not user: raise ValueError('请先在考核列表登记经理姓名与工号')
+                    name = user['name']
+                assign_local_manager(analysis, data['source_name'], data['manager_id'], name)
+                return encode(analysis)
         return run(action)
 
     @router.get('/tasks')
-    def task_list(analysis_id: str):
+    def task_list(analysis_id: str, request: Request):
         def action():
             analysis = service.get_analysis(analysis_id)
+            if workspace:
+                return workspace.task_list(analysis, workspace.authorize(request))
             return {**tasks(analysis), 'reviews': analysis.manager_reviews, 'exclusions': analysis.assessment.get('exclusions', {})}
         return run(action)
 

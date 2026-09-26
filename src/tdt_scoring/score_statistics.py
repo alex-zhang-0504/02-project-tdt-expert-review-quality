@@ -250,6 +250,12 @@ def dimension_workbook(analysis, data, dimension):
     if dimension != 'objective':
         append_snapshot(config, analysis)
     config.append(['考核批次', analysis.assessment.get('batch_id', '')])
+    if dimension == 'subjective' and 'manager_accounts' in analysis.assessment:
+        config.append(['结果状态', '管理员已确认的正式主观结果' if analysis.assessment.get('finalized') else '过程结果，尚未由管理员确认'])
+        confirmations = [r for r in analysis.assessment.get('finalization_history', []) if r.get('action') == '确认最终结果']
+        if analysis.assessment.get('finalized') and confirmations:
+            config.append(['确认时间', confirmations[-1]['at']])
+            config.append(['确认人', confirmations[-1]['actor']['name']])
     config.append(['名单', '；'.join(analysis.assessment.get('included', []))])
     config.append(['范围确认', data['scope_confirmed']])
     config.append(['统计范围', '本次导入的报告，不代表已验证外部报告完整性'])

@@ -7,10 +7,11 @@ from mimetypes import guess_type
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
+import sqlite3
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from . import PRODUCT_VERSION, RELEASE_CHANNEL, __version__
@@ -28,12 +29,16 @@ from .score_statistics import build_statistics, build_statistics_workbook
 from .assessment import require_selected, selected_experts
 from .assessment_api import create_router
 from .policy_admin import create_policy_admin_router
+from .storage import WorkspaceStore, workspace_directory, workspace_id
+from .workspace import Workspace, WorkspaceGate, create_workspace_router
 
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 WEB_ASSETS = {path.name: path.read_bytes() for path in WEB_DIR.iterdir() if path.is_file()}
 SERVICE_INSTANCE_ID = uuid4().hex
-service = ScoringService()
+workspace_store = WorkspaceStore(workspace_directory())
+service = ScoringService(store=workspace_store)
+workspace = Workspace(service, workspace_store)
 import_jobs = ImportJobStore()
 import_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tdrx-import")
 import_batches = ImportBatches(service, import_jobs, import_executor)
@@ -45,6 +50,23 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url=None,
 )
+app.add_middleware(WorkspaceGate, workspace=workspace)
+
+
+@app.exception_handler(ValueError)
+async def invalid_workspace_input(request, exc):
+    return JSONResponse({'detail': str(exc)}, status_code=400)
+
+
+@app.exception_handler(KeyError)
+async def missing_workspace_input(request, exc):
+    return JSONResponse({'detail': '考核或必填字段不存在，请重新打开后重试'}, status_code=404)
+
+
+@app.exception_handler(OSError)
+@app.exception_handler(sqlite3.Error)
+async def workspace_storage_failure(request, exc):
+    return JSONResponse({'detail': '本机保存或读取失败，请检查磁盘空间及目录权限；本次操作不能视为已保存'}, status_code=500)
 
 @app.api_route("/static/{filename}", methods=["GET", "HEAD"], include_in_schema=False)
 def static_asset(filename: str, request: Request) -> Response:
@@ -142,7 +164,8 @@ def _job_payload(job_id: str) -> dict[str, object]:
     return payload
 
 
-app.include_router(create_router(service, _encoded))
+app.include_router(create_router(service, _encoded, workspace))
+app.include_router(create_workspace_router(workspace, _encoded, lambda: any(b['active'] for b in import_batches.batches.values()) or getattr(service, '_active_ai', 0) > 0))
 app.include_router(create_policy_admin_router())
 
 
@@ -164,6 +187,7 @@ def health() -> dict[str, str]:
         "project_id": PROJECT_ID,
         "build_id": BUILD_ID,
         "service_instance_id": SERVICE_INSTANCE_ID,
+        "workspace_id": workspace_id(),
     }
 
 
@@ -211,10 +235,11 @@ def export_score_statistics(analysis_id: str = Query(min_length=1), scope_confir
 
 
 @app.post("/api/subjective/review")
-def subjective_review(payload: ReviewInput) -> object:
+def subjective_review(payload: ReviewInput, request: Request = None) -> object:
     try:
-        with service._fact_lock:
-            analysis = service.get_analysis(payload.analysis_id)
+        if request is not None:
+            return workspace.review(payload, workspace.authorize(request))
+        with service.edit_analysis(payload.analysis_id) as analysis:
             require_selected(analysis)
             return save_review(analysis, payload)
     except KeyError as exc:

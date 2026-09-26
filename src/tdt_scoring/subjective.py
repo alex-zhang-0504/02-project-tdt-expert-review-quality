@@ -29,6 +29,7 @@ class RatingInput(BaseModel):
 
 
 class ReviewInput(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=0)
     questionnaire_hash: str = ""
     model_config = ConfigDict(extra="forbid")
     rule_version: str = RULE_VERSION

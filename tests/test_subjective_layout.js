@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const nodes = {};
-const root = {console, structuredClone, document:{querySelector:s=>nodes[s] ||= {dataset:{},textContent:'',innerHTML:'',value:'',open:false,removeAttribute(){}}},
+const root = {console, structuredClone, window:{}, document:{querySelector:s=>nodes[s] ||= {dataset:{},textContent:'',innerHTML:'',value:'',open:false,removeAttribute(){}}},
   state:{analysis:{experts:[{expert_name:'虚拟专家甲',sessions:[{project_code:'P1',project_name:'虚拟项目'}],overall:{}}],assessment:{exclusions:{}},manager_reviews:{}}},
   escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
   reviewerMatchesSearch:()=>true,normalizedReviewerSearch:s=>s};
@@ -125,8 +125,28 @@ assert.equal(guideShows,1,'已知后同会话不重复弹窗');
   release(true);
   assert.equal(await first, true);
   assert.equal(requests.length, 3);
+  // Background save must not erase input typed while its response is in flight.
+  root.checkServiceHealth = async () => true;
+  let finishSave, requestStarted;
+  const started = new Promise(resolve => { requestStarted = resolve; });
+  root.requestJson = async (_, options) => {
+    const sent = JSON.parse(options.body);
+    requestStarted();
+    return new Promise(resolve => { finishSave = () => resolve({...sent, revision: 9, status:'待评价'}); });
+  };
+  const draft = root.subjectiveDraft();
+  draft.dirty = true; draft.changes = 1;
+  const saving = root.flushSubjectiveChanges(true);
+  await started;
+  draft.ratings.d0 = {option:'high', note:'', project_code:''};
+  draft.changes = 2;
+  finishSave();
+  assert.equal(await saving, true);
+  assert.equal(draft.dirty, true);
+  assert.equal(draft.revision, 9);
+  assert.equal(draft.ratings.d0.option, 'high');
   assert.ok(!nodes['#subjective-editor'].innerHTML.includes('>下一步</button>'));
   assert.ok(!nodes['#subjective-editor'].innerHTML.includes('客观事实参考'));
   assert.equal(nodes['#subjective-page-toggle'].textContent, '查看主观打分 →');
-  console.log('问卷推进：仅浏览、隐藏修改、归属、单按钮往返、失败保留及重试、重复点击通过');
+  console.log('问卷推进：仅浏览、隐藏修改、归属、单按钮往返、失败保留及重试、重复点击、保存中继续输入通过');
 })().catch(error => { console.error(error); process.exitCode = 1; });

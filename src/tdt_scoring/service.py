@@ -5,6 +5,9 @@ from pathlib import Path
 from time import perf_counter
 from typing import Callable
 from uuid import uuid4
+from contextlib import contextmanager
+from copy import deepcopy
+from dataclasses import fields
 
 from .excel_reader import read_workbook
 from .models import (
@@ -23,17 +26,41 @@ from .validation import validate_reviewer_name_similarity
 
 
 class ScoringService:
-    def __init__(self, classifier=None) -> None:
+    def __init__(self, classifier=None, store=None) -> None:
         self._analyses: dict[str, WorkbookAnalysis] = {}
+        self.store = store
+        self._revisions = {}
+        if store:
+            for analysis, revision in store.load_all():
+                self._analyses[analysis.analysis_id] = analysis
+                self._revisions[analysis.analysis_id] = revision
         self.classifier = classifier
         from threading import RLock
         self._fact_lock = RLock()
+
+    def persist(self, analysis):
+        if self.store:
+            self._revisions[analysis.analysis_id] = self.store.save(analysis, self._revisions.get(analysis.analysis_id, 0))
+
+    @contextmanager
+    def edit_analysis(self, analysis_id):
+        with self._fact_lock:
+            analysis = self.get_analysis(analysis_id)
+            previous = deepcopy(analysis)
+            try:
+                yield analysis
+                self.persist(analysis)
+            except Exception:
+                for item in fields(analysis):
+                    setattr(analysis, item.name, getattr(previous, item.name))
+                raise
 
     def import_local_bytes(
         self,
         content: bytes,
         filename: str,
         progress: Callable[[ProgressEvent], None] | None = None,
+        retain: bool = True,
     ) -> WorkbookAnalysis:
         workbook, source_name = self._prepare_local_input(
             content, filename, progress=progress
@@ -43,6 +70,7 @@ class ScoringService:
             source_type="local_excel",
             source_name=source_name,
             progress=progress,
+            retain=retain,
         )
 
     def import_local_files(
@@ -234,24 +262,24 @@ class ScoringService:
         analysis_id: str,
         confirmation_key: str,
     ) -> WorkbookAnalysis:
-        analysis = self.get_analysis(analysis_id)
-        matches = [
-            issue
-            for issue in analysis.issues
-            if issue.code == "reviewer_name_similarity"
-            and issue.confirmation_key == confirmation_key
-            and issue.requires_confirmation
-        ]
-        if not matches:
-            raise KeyError("未找到需要确认的疑似评审人姓名组")
-        confirmed_at = datetime.now(timezone.utc).isoformat()
-        for issue in matches:
-            issue.severity = "info"
-            issue.confirmed_by_user = True
-            issue.confirmed_at = confirmed_at
-        if not any(issue.severity == "error" for issue in analysis.issues):
-            analysis.experts = build_facts(analysis.sessions, decision_payload(analysis.experts))
-        return analysis
+        with self.edit_analysis(analysis_id) as analysis:
+            matches = [
+                issue
+                for issue in analysis.issues
+                if issue.code == "reviewer_name_similarity"
+                and issue.confirmation_key == confirmation_key
+                and issue.requires_confirmation
+            ]
+            if not matches:
+                raise KeyError("未找到需要确认的疑似评审人姓名组")
+            confirmed_at = datetime.now(timezone.utc).isoformat()
+            for issue in matches:
+                issue.severity = "info"
+                issue.confirmed_by_user = True
+                issue.confirmed_at = confirmed_at
+            if not any(issue.severity == "error" for issue in analysis.issues):
+                analysis.experts = build_facts(analysis.sessions, decision_payload(analysis.experts))
+            return analysis
 
     def merge_dimension_one_submissions(
         self,
@@ -389,12 +417,12 @@ class ScoringService:
             issues=issues,
             reports=reports,
         )
+        self.persist(analysis)
         self._analyses[analysis.analysis_id] = analysis
         return analysis
 
     def select_solution(self, analysis_id: str, opinion_id: str, included: bool | None) -> WorkbookAnalysis:
-        with self._fact_lock:
-            analysis = self.get_analysis(analysis_id)
+        with self.edit_analysis(analysis_id) as analysis:
             if any(i.severity == "error" for i in analysis.issues):
                 raise ValueError("请先处理报告中的阻断问题")
             opinion = next((o for e in analysis.experts for s in e.sessions for o in s.opinions if o.opinion_id == opinion_id), None)
@@ -409,8 +437,7 @@ class ScoringService:
             return analysis
 
     def identify_solutions(self, analysis_id: str) -> WorkbookAnalysis:
-        with self._fact_lock:
-            analysis = self.get_analysis(analysis_id)
+        with self.edit_analysis(analysis_id) as analysis:
             if any(i.severity == "error" for i in analysis.issues):
                 raise ValueError("请先处理报告中的阻断问题")
             from .assessment import selected_experts
@@ -441,6 +468,7 @@ class ScoringService:
         progress: Callable[[ProgressEvent], None] | None = None,
         parsed_reports: dict | None = None,
         report_owners: dict | None = None,
+        retain: bool = True,
     ) -> WorkbookAnalysis:
         sessions = []
         issues: list[ValidationIssue] = []
@@ -660,7 +688,10 @@ class ScoringService:
             reports=reports,
             batch_summary=batch_summary,
         )
-        self._analyses[analysis.analysis_id] = analysis
+        if retain:
+            with self._fact_lock:
+                self.persist(analysis)
+                self._analyses[analysis.analysis_id] = analysis
         return analysis
 
     @staticmethod

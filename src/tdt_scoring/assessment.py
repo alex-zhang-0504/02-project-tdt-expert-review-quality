@@ -106,8 +106,9 @@ def tasks(analysis):
             if identity.get('status') != 'resolved' or not identity.get('owner_id'):
                 unresolved.add(report.source_name)
                 continue
-            mid = identity['owner_id']
-            manager = result.setdefault(mid, {'manager_id': mid, 'name': identity['name'], 'experts': {}})
+            mid = analysis.assessment.get('manager_accounts', {}).get(identity['owner_id'], identity['owner_id'])
+            name = analysis.assessment.get('manager_names', {}).get(mid, identity['name'])
+            manager = result.setdefault(mid, {'manager_id': mid, 'name': name, 'experts': {}})
             manager['experts'].setdefault(expert.expert_name, set()).add(report.project_code)
     for manager in result.values():
         manager['experts'] = {n: sorted(codes) for n, codes in manager['experts'].items()}

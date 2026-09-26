@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from urllib.request import urlopen
 
 from .build_info import BUILD_ID, PROJECT_ID
+from .storage import workspace_id
 
 
 PortState = str
@@ -26,6 +27,7 @@ def inspect_service(port: int) -> PortState:
     is_current = (
         payload.get("project_id") == PROJECT_ID
         and payload.get("build_id") == BUILD_ID
+        and payload.get("workspace_id") == workspace_id()
     )
     return "current" if is_current else "occupied"
 

@@ -90,7 +90,7 @@ if "%SERVER_EXIT_CODE%"=="0" (
 )
 echo Log: %CD%\%SERVICE_LOG%
 echo Restart start.cmd and use the newly opened page.
-echo Re-import the review workbook before scoring.
+echo Saved assessments are available from the assessment list after restart.
 pause
 exit /b %SERVER_EXIT_CODE%
 

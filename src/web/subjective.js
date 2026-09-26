@@ -13,7 +13,7 @@ function subjectiveDraft() {
   if (!subjective.drafts.has(managerDraftKey())) {
     const saved = managerSaved(subjective.expert);
     subjective.drafts.set(managerDraftKey(), {
-      evaluator: currentManager()?.name || "", ratings: structuredClone(saved?.rule_version === subjective.catalog?.[0]?.rule_version ? saved?.ratings || {} : {}), dirty: false,
+      evaluator: currentManager()?.name || "", ratings: structuredClone(saved?.rule_version === subjective.catalog?.[0]?.rule_version ? saved?.ratings || {} : {}), dirty: false, revision: saved?.revision || 0, changes: 0,
     });
   }
   return subjective.drafts.get(managerDraftKey());
@@ -92,8 +92,8 @@ function renderSubjectiveEditor() {
   const projectOptions = selected => '<option value="">关联项目</option>' + projects.map(([code, name]) =>
     `<option value="${escapeHtml(code)}" ${code === selected ? "selected" : ""}>${escapeHtml(name)}（${escapeHtml(code)}）</option>`).join("");
   sq("#subjective-editor").innerHTML = `<form id="subjective-form">
-    <fieldset class="subjective-fields" ${subjective.busy ? "disabled" : ""}>
       <div class="subjective-heading"><h3>${escapeHtml(expert.expert_name)}</h3><button class="secondary-button" type="button" id="subjective-facts">查看评审过程详情</button></div>
+    <fieldset class="subjective-fields" ${subjective.busy || window.workspace?.readonly() ? "disabled" : ""}>
       ${managerSaved(expert.expert_name) && managerSaved(expert.expert_name).rule_version !== subjective.catalog?.[0]?.rule_version ? '<p class="subjective-boundary">旧版问卷已保留，请按本版题目重新确认；旧答案不自动参与新规则计分。</p>' : ''}
       ${subjectiveExclusion() ? `<p class="subjective-boundary">此任务已有排除记录：${escapeHtml(subjectiveExclusion())}。原记录保留。</p>` : ''}
       ${subjective.catalog.map((d, index) => {
@@ -121,6 +121,7 @@ function renderSubjectiveEditor() {
       <div class="subjective-footer"><div class="subjective-save-progress"><div class="subjective-completion" id="subjective-completion" aria-live="polite"></div><progress id="subjective-completion-bar" max="6" value="0" aria-label="问卷填答进度"></progress></div><span id="subjective-save-state" class="muted"></span></div>
     </fieldset></form>`;
   updateSubjectiveSummary();
+  window.workspace?.syncQuestionnaire();
 }
 
 function updateSubjectiveSummary() {
@@ -133,12 +134,14 @@ function updateSubjectiveSummary() {
 
 function subjectiveChanged() {
   subjectiveDraft().dirty = true;
+  subjectiveDraft().changes = (subjectiveDraft().changes || 0) + 1;
+  if (window.workspace) window.workspace.scheduleSave();
   sq("#subjective-message").textContent = "";
   updateSubjectiveSummary();
   renderSubjectiveRail();
 }
 
-async function flushSubjectiveChanges() {
+async function flushSubjectiveChanges(background=false) {
   if (subjective.busy) return false;
   if (subjective.analysisId !== state.analysis?.analysis_id) return true;
   const pending = [...subjective.drafts.entries()].filter(([, draft]) => draft.dirty);
@@ -147,20 +150,22 @@ async function flushSubjectiveChanges() {
   let failedKey = pending[0][0];
   subjective.busy = true;
   sq('#assessment-manager').disabled = true;
-  if (sq('.subjective-fields')) sq('.subjective-fields').disabled = true;
+  if (!background && sq('.subjective-fields')) sq('.subjective-fields').disabled = true;
   if (sq('#subjective-save-state')) sq('#subjective-save-state').textContent = '正在提交…';
   renderSubjectiveRail();
   try {
     if (!await checkServiceHealth() || state.analysisStale) throw new Error('服务不可用或分析已失效');
     for (const [key, draft] of pending) {
       failedKey = key;
+      const changes = draft.changes;
       const [managerId, name] = JSON.parse(key);
       const review = await requestJson("/api/subjective/review", {method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({analysis_id: analysis.analysis_id, expert_name: name, evaluator: draft.evaluator, manager_id: managerId, ratings: draft.ratings, rule_version: subjective.catalog[0].rule_version, questionnaire_hash: subjective.catalog[0].questionnaire_hash})});
+        body: JSON.stringify({analysis_id: analysis.analysis_id, expert_name: name, evaluator: draft.evaluator, manager_id: managerId, ratings: draft.ratings, expected_revision: draft.revision || 0, rule_version: subjective.catalog[0].rule_version, questionnaire_hash: subjective.catalog[0].questionnaire_hash})});
       analysis.manager_reviews ||= {};
       analysis.manager_reviews[managerId] ||= {};
       analysis.manager_reviews[managerId][name] = review;
-      draft.dirty = false;
+      draft.revision = review.revision;
+      draft.dirty = draft.changes !== changes;
     }
     sq('#subjective-message').textContent = '';
     return true;
@@ -174,11 +179,13 @@ async function flushSubjectiveChanges() {
     sq('#subjective-page-toggle').dataset.dimensionPage = 'subjective:2';
     const message = `自动提交失败：${currentManager()?.name || '当前经理'}／${subjective.expert}。${error.message}。内容已保留，请重试切换或查看主观打分。`;
     sq('#subjective-message').textContent = message;
-    window.alert(message);
+    if (!background && !window.workspace) window.alert(message);
     return false;
   } finally {
     subjective.busy = false; sq('#assessment-manager').disabled = false;
-    renderSubjectiveRail(); renderSubjectiveEditor();
+    renderSubjectiveRail();
+    if (!background) renderSubjectiveEditor(); else updateSubjectiveSummary();
+    window.workspace?.syncQuestionnaire();
   }
 }
 
@@ -252,7 +259,7 @@ function initializeSubjectiveUI() {
     if (event.target.closest("#subjective-facts")) openDimensionOneEvidence(subjective.expert);
   });
   window.addEventListener("beforeunload", event => {
-    if (subjective.analysisId === state.analysis?.analysis_id && ([...subjective.drafts.values()].some(d => d.dirty) || Object.keys(state.analysis.manager_reviews || {}).length)) {
+    if (subjective.analysisId === state.analysis?.analysis_id && ([...subjective.drafts.values()].some(d => d.dirty) || subjective.busy)) {
       event.preventDefault(); event.returnValue = "";
     }
   });

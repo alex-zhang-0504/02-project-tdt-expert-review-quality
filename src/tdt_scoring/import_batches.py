@@ -109,7 +109,7 @@ class ImportBatches:
             filename = entry.get('filename', entry['name'])
             if batch['source'] != 'local_excel' and not filename.endswith('.xlsx'):
                 filename += '.xlsx'
-            result = self.service.import_local_bytes(content, filename,
+            result = self.service.import_local_bytes(content, filename, retain=False,
                 progress=lambda event: self.jobs.record(job_id, ProgressEvent(entry['name'], event.checkpoint_id, event.status, event.duration_ms, event.message)))
             for session in result.sessions:
                 session.source_name = entry['name']

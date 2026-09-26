@@ -1,6 +1,7 @@
 from .assessment import selected_experts, require_selected
 """Session-owned, incremental AI analysis. No credentials or report data on disk."""
 from dataclasses import asdict
+import sqlite3
 from threading import Event, Thread
 from time import monotonic
 from uuid import uuid4
@@ -56,22 +57,25 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
                 with lock:
                     if sessions.get(job["owner"]) is not entry:
                         return
-                    with service._fact_lock:
+                    with service.edit_analysis(job['analysis_id']) as analysis:
+                        # Re-resolve references after another edit was rolled back.
+                        opinion = next(o for e in analysis.experts for s in e.sessions for o in s.opinions if o.opinion_id == opinion.opinion_id)
                         if error:
                             if opinion.ai_status == 'pending':
                                 opinion.reason = "识别失败：" + error
-                            job["failed"] += 1
                         else:
                             opinion.ai_status = result["status"]
                             opinion.excerpt = result["excerpt"]
                             opinion.reason = result["reason"]
                             receipt = job["policy"]["receipt"]
                             opinion.rule_version = "countermeasure-policy-v" + receipt["version"] + "/sha256:" + receipt["sha256"] + "/" + entry.model
-                            job["completed"] += 1
-                            job["completed_ids"].add(opinion.opinion_id)
-                            job["suspected"] += result["status"] == "suspected"
-                        analysis = service.get_analysis(job["analysis_id"])
                         refresh(analysis.experts)
+                    if error:
+                        job['failed'] += 1
+                    else:
+                        job['completed'] += 1
+                        job['completed_ids'].add(opinion.opinion_id)
+                        job['suspected'] += result['status'] == 'suspected'
                     if fatal:
                         job["message"] = error + " 已停止后续调用，未完成意见保持待识别。"
                         break
@@ -98,6 +102,13 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
                     analysis.ai_message = (f"本批次{total - pending}／{total}条已识别；本次共{job['total']}条，成功{job['completed']}条（疑似{job['suspected']}条），"
                                            f"失败{job['failed']}条，剩余{job['total'] - job['completed'] - job['failed']}条。"
                                            + job["message"])
+                    try:
+                        service.persist(analysis)
+                    except (OSError, ValueError, sqlite3.Error):
+                        job['status'] = 'partial'
+                        job['message'] = '本机保存失败，请检查存储空间并重新打开考核；未成功写入的结果不能视为已保存。'
+                    finally:
+                        service._active_ai = max(0, getattr(service, '_active_ai', 1) - 1)
 
     @router.post("/jobs")
     async def start(request: Request):
@@ -165,6 +176,7 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
                        target_ids=targets, completed_ids=completed_ids)
             jobs[job["id"]] = job
             entry.busy = True
+            service._active_ai = getattr(service, '_active_ai', 0) + 1
             analysis.ai_message = "AI逐条分析进行中，成功结果实时保存。"
             Thread(target=execute, args=(job, entry, opinions), daemon=True).start()
             return JSONResponse(snapshot(job), headers={"Cache-Control": "no-store"})

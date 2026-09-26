@@ -1,8 +1,8 @@
 const SERVICE_HEALTH_INTERVAL_MS = 5000;
 const EXPECTED_PROJECT_ID = "tdt-expert-review-quality";
 const EXPECTED_BUILD_ID = new URLSearchParams(window.location.search).get("build") || "";
-const SERVICE_DISCONNECTED_MESSAGE = "无法连接本地统计服务。请重新双击 start.cmd，并使用新打开的页面重新导入评审表";
-const SERVICE_RESTARTED_MESSAGE = "本地统计服务已重新启动，原评审分析已失效。请返回读取评审表并重新导入后再统计";
+const SERVICE_DISCONNECTED_MESSAGE = "无法连接本地统计服务。请重新双击 start.cmd，并在新打开的考核列表继续处理已保存记录";
+const SERVICE_RESTARTED_MESSAGE = "本地统计服务已重新启动，请刷新页面并从考核列表打开已保存的记录";
 const IMPORT_CHECKPOINTS = [
   ["report_acquisition", "获取报告"],
   ["xlsx_acquisition", "获取XLSX"],
@@ -241,6 +241,7 @@ function canNavigate(step) {
 }
 
 function showPanel(panel) {
+  document.querySelector('#workspace-panel')?.classList.add('is-hidden');
   [elements.modePanel, elements.mergePanel, elements.importPanel, elements.analysisPanel, document.querySelector("#subjective-panel"), document.querySelector("#score-statistics-panel")]
     .forEach((item) => item.classList.add("is-hidden"));
   panel.classList.remove("is-hidden");
@@ -267,6 +268,7 @@ function selectWorkflow(mode) {
 }
 
 function returnToMode() {
+  if (window.workspace) return window.workspace.home();
   if (state.analysis && !window.confirm("返回方案选择会清空当前页面中的分析结果，是否继续？")) return;
   clearAnalysisState();
   state.workflowMode = null;
@@ -913,6 +915,7 @@ function clearAnalysisState() {
 }
 
 async function navigateStep(step) {
+  if (window.workspace?.user?.role === 'manager' && step !== 3) return;
   if (!canNavigate(step)) return;
   if (!await flushSubjectiveChanges()) return;
   if (step === 1) {
@@ -1074,6 +1077,7 @@ initializeScoreStatisticsUI();
 initializeAssessmentUI();
 requestJson("/api/health").then((health) => {
   if (!applyServiceHealth(health)) return;
+  if (window.workspace) return window.workspace.initialize();
   showPanel(elements.modePanel);
   activateStep(0);
   checkFeishuAuthorization();
