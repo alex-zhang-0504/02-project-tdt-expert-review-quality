@@ -19,6 +19,8 @@ class SubjectiveV09Tests(unittest.TestCase):
                 result = rating_result(d, {'option': o['id']})
                 self.assertEqual(result['evidence_missing'], required, (d['id'], o['id']))
                 self.assertEqual(result['responded'], not required)
+                partial = rating_result(d, {'option': o['id'], 'evidence': [{'project_code': '', 'note': '历史草稿'}]})
+                self.assertEqual(partial['evidence_missing'], required)
 
     def test_document_examples_use_only_valid_votes(self):
         from tdt_scoring.manager_evaluation import average_review

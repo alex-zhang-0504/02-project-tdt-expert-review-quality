@@ -8,7 +8,7 @@
 - `ratings[dimension_id]`保留`option`、兼容字段`project_code`／`note`，增加`evidence:[{project_code,note}]`与`reason`。每条依据沿用100字，可关联多个共同项目及同一项目的多条记录，项目必须属于该经理和评审人的交集。
 - 前五题内部行为编码high／medium／low，额外回应状态unable／no_opportunity；贡献仅high／low。网页与Excel显示中文行为，不暴露编码和选项分值。
 - 无法判断／无职责机会须填写原因，算已回应，分数为null。未选或依据不齐不算已回应；有效0分正常计入平均。
-- 2026-09-25依据必填范围：第1题不强制；第2—5题仅low；第6题仅high。判定按选项编号，不随管理员调整分值而改变。其他档位未填依据仍有效，填写了不完整依据则须补齐。
+- 2026-09-25依据必填范围：第1题不强制；第2—5题仅low；第6题仅high。判定按选项编号，不随管理员调整分值而改变。其他档位不提供依据填写入口，历史非必填依据保留且不参与完成门槛判断。
 - `GET /api/subjective/catalog`返回title、prompt、boundary、options、response_options及rule_version，不返回分值。题干、职责边界、行为解释直接显示。
 - `POST /api/subjective/review`校验版本和共同项目范围；新旧版本不混算。旧记录保留但待重新确认；旧任务Excel版本不符拒绝回收。新客户端提交当前题目版本。
 - 保存完整回应的问卷标记「已完成」，不代表所有题都有有效分。逐题输出valid_count、responded_count；前五题有效等权平均，贡献取有效最高分。所有任务已回应或排除、各题均有有效分且经理归属无缺失才生成最终分；否则仅保留可计算的题分及暂定结果。

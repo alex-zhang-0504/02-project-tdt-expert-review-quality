@@ -36,7 +36,7 @@ function subjectiveSummary(draft) {
     if (!option && !skipped) return;
     count++;
     const evidence = subjectiveEvidence(rating).filter(e => e.note?.trim() || e.project_code);
-    if (skipped ? !rating.reason?.trim() : ((subjectiveRequired(d.id, option.id) && !evidence.length) || evidence.some(e => !e.note?.trim() || !e.project_code))) missing++;
+    if (skipped ? !rating.reason?.trim() : (subjectiveRequired(d.id, option.id) && (!evidence.length || evidence.some(e => !e.note?.trim() || !e.project_code)))) missing++;
 
   });
   return {count,
@@ -101,7 +101,7 @@ function renderSubjectiveEditor() {
         const skipped = (d.response_options || []).some(o => o.id === rating?.option);
         const required = rating && subjectiveRequired(d.id, rating.option);
         const evidence = rating ? subjectiveEvidence(rating) : [];
-        if (rating && !skipped && !evidence.length) evidence.push({project_code:'',note:''});
+        if (required && !skipped && !evidence.length) evidence.push({project_code:'',note:''});
         if (rating) { rating.evidence=evidence; rating.project_code=''; rating.note=''; }
         return `<fieldset class="subjective-dimension"><legend>${index + 1}．${escapeHtml(d.title)}</legend>
           <p class="subjective-question">${escapeHtml(d.prompt || '')}</p>
@@ -112,7 +112,7 @@ function renderSubjectiveEditor() {
               <span><strong>${escapeHtml(o.title)}</strong><span class="subjective-description">${escapeHtml(o.description)}</span></span></label>
 
           </div>`).join("")}</div>
-          ${rating ? `<div class="subjective-rating-tools"><div>${skipped ? `<label class="field"><span>原因（必填）</span><input data-reason="${d.id}" maxlength="500" value="${escapeHtml(rating.reason || '')}" placeholder="${escapeHtml(d.reason_prompt || '说明暂无法判断的原因')}" /></label>` : `<details class="subjective-evidence" ${required || evidence.some(e=>e.note || e.project_code) ? 'open' : ''}><summary>${required ? '事实依据（必填）' : '代表性依据'}</summary>
+          ${rating && (skipped || required) ? `<div class="subjective-rating-tools"><div>${skipped ? `<label class="field"><span>原因（必填）</span><input data-reason="${d.id}" maxlength="500" value="${escapeHtml(rating.reason || '')}" placeholder="${escapeHtml(d.reason_prompt || '说明暂无法判断的原因')}" /></label>` : `<details class="subjective-evidence" open><summary>事实依据（必填）</summary>
           <p>${d.id==='contribution'?escapeHtml(d.contribution_prompt):'可关联多个共同项目或同项目的多次记录，以支持周期判断。'}</p>
           ${evidence.map((e,i)=>`<div class="subjective-evidence-fields"><label class="field"><span>关联项目</span><select data-project="${d.id}" data-evidence-index="${i}">${projectOptions(e.project_code)}</select></label><label class="field"><span>事实及证据位置（每条100字）</span><input data-note="${d.id}" data-evidence-index="${i}" maxlength="100" value="${escapeHtml(e.note || '')}" /></label><button type="button" class="secondary-button" data-remove-evidence="${d.id}" data-evidence-index="${i}">移除</button></div>`).join('')}
           <button type="button" class="secondary-button" data-add-evidence="${d.id}">增加依据</button></details>`}</div></div>` : ''}
@@ -227,7 +227,7 @@ function initializeSubjectiveUI() {
     const input = event.target;
     if (input.type === "radio") {
       const previous = subjectiveDraft().ratings[input.name];
-      subjectiveDraft().ratings[input.name] = {option: input.value, project_code: "", note: "", evidence: previous ? subjectiveEvidence(previous) : [], reason: previous?.reason || ""};
+      subjectiveDraft().ratings[input.name] = {option: input.value, project_code: "", note: "", evidence: previous && subjectiveRequired(input.name, input.value) ? subjectiveEvidence(previous) : [], reason: previous?.reason || ""};
       subjectiveChanged(); renderSubjectiveEditor(); sq(`#${input.id}`).focus({preventScroll: true});
     } else if (input.dataset.project) {
       subjectiveDraft().ratings[input.dataset.project].evidence[Number(input.dataset.evidenceIndex)].project_code = input.value;

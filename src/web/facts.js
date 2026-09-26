@@ -48,11 +48,11 @@ function renderDimensionOneTable() {
   const groups = visibleFactGroups(elements.dimensionOneStage.value);
   elements.analysisSummary.textContent = experts.length + "位评审人";
   window.reviewAI?.refresh();
-  const metricCell = (value, row, group, metric) => '<td class="numeric"><button type="button" class="fact-number" data-row="' + row
-    + '" data-group="' + group + '" data-metric="' + metric[0] + '" aria-label="' + metric[1] + (metric[0] === 'proxy_rate' ? '代理人清单' : '计算方法') + '">'
-    + factCellText(value, metric[0]) + (metric[0] === 'solutions' && value.suspected ? '<span class="solution-alert" title="' + value.suspected + '条疑似待确认，尚未计入" aria-label="' + value.suspected + '条疑似待确认">!</span>' : '') + '</button>'
-    + (metric[0] === 'attended' && value.unknown ? '<small class="fact-hint">' + value.unknown + '场待确认</small>' : '')
-    + '</td>';
+  const metricCell = (value, row, group, metric) => '<td class="numeric">'
+    + (metric[0] === 'proxy_rate' ? '<button type="button" class="fact-number" data-proxy="' + row + '" aria-label="代理情况代理人清单">' : '<span>')
+    + factCellText(value, metric[0]) + (metric[0] === 'solutions' && value.suspected ? '<span class="solution-alert" title="' + value.suspected + '条疑似待确认，尚未计入" aria-label="' + value.suspected + '条疑似待确认">!</span>' : '')
+    + (metric[0] === 'proxy_rate' ? '</button>' : '</span>')
+    + (metric[0] === 'attended' && value.unknown ? '<small class="fact-hint">' + value.unknown + '场待确认</small>' : '') + '</td>';
   elements.dimensionOneTableWrap.innerHTML = '<table class="dimension-one-table facts-table" style="--dimension-table-width:'
     + (408 + groups.length * FACT_COLUMNS.reduce((n, c) => n + c[2], 0)) + 'px"><colgroup><col style="width:120px">'
     + groups.map(() => FACT_COLUMNS.map(c => '<col style="width:' + c[2] + 'px">').join("")).join("")
@@ -60,7 +60,7 @@ function renderDimensionOneTable() {
     + '<th class="sticky-1" rowspan="2">' + objectiveReviewerHeader() + '</th>'
     + groups.map(g => '<th colspan="8" scope="colgroup">' + g + '</th>').join("")
     + '<th rowspan="2">总参与<br>评审场次</th><th rowspan="2">代理情况</th><th class="evidence-sticky" rowspan="2">详情</th></tr><tr>'
-    + groups.map(() => FACT_COLUMNS.map(m => '<th scope="col" aria-label="' + m[1] + '">' + (m[3] || m[1]) + '</th>').join("")).join("")
+    + groups.map(() => FACT_COLUMNS.map(m => '<th scope="col" aria-label="' + m[1] + '">' + '<button type="button" class="fact-header-formula" data-formula="' + m[0] + '" aria-label="' + m[1] + '公式">' + (m[3] || m[1]) + '</button></th>').join("")).join("")
     + '</tr></thead><tbody>'
     + experts.map((e, row) => '<tr><td class="sticky-1">' + escapeHtml(e.expert_name) + '</td>'
       + groups.map(g => FACT_COLUMNS.map(m => metricCell(g === "全部阶段" ? e.overall : e.stages[g], row, g, m)).join("")).join("")
@@ -70,14 +70,8 @@ function renderDimensionOneTable() {
       + '<td class="evidence-sticky"><button class="row-evidence-button" type="button" data-details="' + row + '">详情查看</button></td></tr>').join("")
     + (experts.length ? '' : '<tr><td colspan="' + (4 + groups.length * 8) + '">没有匹配的评审人，请修改筛选。</td></tr>') + '</tbody></table>';
   makeTableScrollable(elements.dimensionOneTableWrap);
-  elements.dimensionOneTableWrap.querySelectorAll("[data-metric]").forEach(button => button.addEventListener("click", () => {
-    const expert = experts[Number(button.dataset.row)];
-    const metric = [...FACT_METRICS, PROXY_METRIC].find(m => m[0] === button.dataset.metric);
-    const stats = button.dataset.group === "全部阶段" ? expert.overall : expert.stages[button.dataset.group];
-    if (button.dataset.metric === 'proxy_rate') showProxyDetails(expert);
-    else if (metric) showFormula(expert.expert_name, button.dataset.group, metric, stats);
-    else showFactCount(expert.expert_name, button.dataset.group, button.dataset.metric, stats);
-  }));
+  elements.dimensionOneTableWrap.querySelectorAll('[data-proxy]').forEach(button => button.addEventListener('click', () => showProxyDetails(experts[Number(button.dataset.proxy)])));
+  elements.dimensionOneTableWrap.querySelectorAll('[data-formula]').forEach(button => button.addEventListener('click', () => showHeaderFormula(button.dataset.formula)));
   elements.dimensionOneTableWrap.querySelectorAll("[data-participation]").forEach(button => button.addEventListener("click", () => {
     const expert = experts[Number(button.dataset.participation)];
     document.querySelector("#formula-title").textContent = expert.expert_name + " · 评审参与度";
@@ -93,20 +87,19 @@ function renderDimensionOneTable() {
   }));
 }
 
-function showFactCount(name, stage, key, stats) {
+function showHeaderFormula(key) {
   const column = FACT_COLUMNS.find(c => c[0] === key);
-  const notes = {
-    expected: "本阶段报告评审人名单中，应参加的唯一评审场次数。",
-    attended: "已确认实际参评场次，包含按原规则归属的代理参评；待确认出勤另行标示。",
-    signed: "会签结果非空且不是横杠的场次，以项目经理填写为准。",
-    opinions: "按原摘取、拆条、归属和去重规则累计意见条数，不按场次折为一条。",
-    solutions: "纳入统计的含对策意见条数，疑似未确认不计入；识别未完成时不显示最终数量。",
+  const metric = FACT_METRICS.find(m => m[0] === key);
+  const counts = {
+    expected: '应参场次＝所选阶段内列入评审人名单的去重场次数',
+    attended: '实参场次＝所选阶段内确认实际参评的去重场次数（含归属本人的代理参评）',
+    signed: '已会签场次＝所选阶段内会签结果非空且非横杠的场次数',
+    opinions: '意见条数＝所选阶段内按拆条、归属及去重规则计入的意见条数之和',
+    solutions: '含对策意见条数＝所选阶段内已确认计入的含有效对策意见条数之和',
   };
-  document.querySelector("#formula-title").textContent = name + " · " + stage + " · " + column[1];
-  document.querySelector("#formula-body").innerHTML = '<p class="formula-value">' + factCellText(stats, key)
-    + '</p><p>' + notes[key] + '</p>'
-    + (key === "solutions" ? '<p>当前已纳入' + stats.solutions + '条；待识别' + stats.pending + '条；疑似' + stats.suspected + '条。</p>' : '');
-  document.querySelector("#formula-dialog").showModal();
+  document.querySelector('#formula-title').textContent = column[1];
+  document.querySelector('#formula-body').innerHTML = '<p>' + escapeHtml(metric ? metric[4] : counts[key]) + '</p>';
+  document.querySelector('#formula-dialog').showModal();
 }
 function showProxyDetails(expert) {
   const sessions = expert.sessions.filter(s => s.proxy_name);
@@ -118,20 +111,6 @@ function showProxyDetails(expert) {
     : '<p>本批次无代理参评记录。</p>';
   document.querySelector('#formula-dialog').showModal();
 }
-function showFormula(name, stage, metric, stats) {
-  const dialog = document.querySelector("#formula-dialog");
-  document.querySelector("#formula-title").textContent = name + " · " + stage + " · " + metric[1];
-  let note = metric[5];
-  if (!stats[metric[3]]) note += " 分母为0，显示“—”。";
-  if ((metric[0] === "attendance_rate" || metric[0] === "opinion_average") && stats.unknown)
-    note += " 有" + stats.unknown + "场出勤状态无法判断，暂不计算比率。";
-  document.querySelector("#formula-body").innerHTML = '<p>' + escapeHtml(metric[4]) + '</p><p class="formula-value">'
-    + stats[metric[2]] + ' ÷ ' + stats[metric[3]] + (metric[0] === 'opinion_average' ? '' : ' × 100％')
-    + (stats[metric[0]] === null ? '；当前显示：—' : ' ＝ ' + factCellText(stats, metric[0]))
-    + '</p><p>' + escapeHtml(note) + '</p>';
-  dialog.showModal();
-}
-
 function openDimensionOneEvidence(name) {
   const expert = state.analysis?.experts.find(e => e.expert_name === name);
   if (!expert) return;

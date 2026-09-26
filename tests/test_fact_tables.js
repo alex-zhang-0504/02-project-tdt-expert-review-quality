@@ -50,6 +50,16 @@ assert.ok(root.elements.dimensionOneTableWrap.innerHTML.includes('colspan="8"'))
 assert.ok(root.elements.dimensionOneTableWrap.innerHTML.includes("代理情况"));
 assert.ok(root.elements.dimensionOneTableWrap.innerHTML.includes('总参与<br>评审场次'));
 assert.ok(root.elements.dimensionOneTableWrap.innerHTML.includes('data-participation="0">12场'));
+assert.ok(!root.elements.dimensionOneTableWrap.innerHTML.includes('data-metric='));
+assert.ok(root.elements.dimensionOneTableWrap.innerHTML.includes('data-proxy="0"'));
+assert.ok(root.elements.dimensionOneTableWrap.innerHTML.includes('data-formula="attendance_rate"'));
+root.showHeaderFormula('attendance_rate');
+assert.equal(nodes['#formula-body'].innerHTML,'<p>实参场次÷应参场次×100％</p>');
+assert.equal(nodes['#formula-title'].textContent,'出勤率');
+root.elements.dimensionOneStage.value='overall';
+root.renderDimensionOneTable();
+assert.equal((root.elements.dimensionOneTableWrap.innerHTML.match(/data-formula=/g)||[]).length,8);
+assert.ok(fs.readFileSync('src/web/index.html','utf8').includes('<option value="overall" selected>全部阶段汇总'));
 root.elements.dimensionOneStage.value="TDR2";
 root.renderDimensionOneTable();
 assert.equal((root.elements.dimensionOneTableWrap.innerHTML.match(/<td /g)||[]).length,12);
