@@ -115,6 +115,35 @@ class WorkspaceStore:
             db.execute('INSERT INTO users VALUES(?,?,?)', (employee_id, name.strip(), role))
         return self.user(employee_id)
 
+    def delete_user(self, employee_id, actor_id):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            actor = db.execute('SELECT role FROM users WHERE employee_id=?', (actor_id,)).fetchone()
+            if not actor or actor['role'] != 'admin':
+                raise ValueError('此操作仅限管理员')
+            user = db.execute('SELECT role FROM users WHERE employee_id=?', (employee_id,)).fetchone()
+            if not user:
+                raise ValueError('账号不存在或已删除，请刷新账号列表')
+            if user['role'] == 'admin' and db.execute("SELECT count(*) FROM users WHERE role='admin'").fetchone()[0] <= 1:
+                raise ValueError('不能删除最后一个管理员账号')
+            if employee_id == actor_id:
+                raise ValueError('不能删除当前登录账号，请切换其他管理员后操作')
+            if db.execute('SELECT 1 FROM bindings WHERE employee_id=?', (employee_id,)).fetchone():
+                raise ValueError('账号已关联飞书报告，请先重新绑定报告归属后再删除')
+            for row in db.execute('SELECT payload FROM analyses'):
+                analysis = json.loads(row['payload'])
+                assessment = analysis.get('assessment', {})
+                history = assessment.get('review_history', {})
+                actors = [entry.get('actor', {}).get('employee_id')
+                          for experts in history.values() for entries in experts.values() for entry in entries]
+                actors.extend(entry.get('actor', {}).get('employee_id') for entry in assessment.get('finalization_history', []))
+                owners = [(report.get('manager_identity') or {}).get('owner_id') for report in analysis.get('reports', [])]
+                if (employee_id in assessment.get('manager_accounts', {}).values()
+                        or employee_id in analysis.get('manager_reviews', {}) or employee_id in history
+                        or employee_id in actors or 'local:' + employee_id in owners):
+                    raise ValueError('账号已关联报告、考核或问卷历史，不能删除；已有数据保持不变')
+            db.execute('DELETE FROM users WHERE employee_id=?', (employee_id,))
+
     def bind(self, owner_id, employee_id):
         if not self.user(employee_id) or not isinstance(owner_id, str) or not owner_id:
             raise ValueError('请选择已建立的经理账号及有效报告身份')

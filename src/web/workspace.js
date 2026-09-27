@@ -47,7 +47,7 @@ window.workspace = {
       const rows=await requestJson('/api/workspace/analyses');
       const admin=this.user.role==='admin';
       if(admin) this.bindings=await requestJson('/api/workspace/bindings');
-      host.innerHTML=`<div class="panel-heading"><div><p class="section-index">${admin?'管理工作台':'我的问卷'}</p><h2>考核列表</h2></div><div class="workspace-actions"><button class="secondary-button" data-workspace-refresh>刷新进度</button>${admin?'<button class="primary-button" id="workspace-new">新建考核</button>':''}</div></div><p class="workspace-status" role="status" id="workspace-error"></p><div class="workspace-list">${rows.map(row=>`<article class="workspace-assessment"><div class="panel-heading"><div><h3>${escapeHtml(row.name)}</h3><p class="muted">${row.created_at?new Date(row.created_at).toLocaleString()+' · ':''}${row.finalized?'主观结果已确认':row.confirmed?'问卷填写中':'待确认名单'} · ${escapeHtml(row.id.slice(0,8))}</p></div><button class="primary-button" data-workspace-open="${row.id}">${admin?'打开考核':'填写／查看问卷'}</button></div>${row.managers.length?`<div class="score-statistics-table-wrap"><table class="score-table"><thead><tr><th>项目经理</th><th>工号</th><th>已完成／应评价</th><th>问卷</th></tr></thead><tbody>${row.managers.map(m=>`<tr><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.manager_id)}</td><td>${m.completed}／${m.expected}</td><td><button class="ghost-button" data-workspace-open="${row.id}" data-workspace-manager="${escapeHtml(m.manager_id)}">查看问卷</button></td></tr>`).join('')}</tbody></table></div>`:''}${admin&&row.confirmed?`<div class="workspace-actions"><button class="secondary-button" data-workspace-final="${row.id}" data-reopen="${row.finalized}">${row.finalized?'重新开放问卷':'确认最终主观结果'}</button><a class="secondary-button" href="/api/workspace/export?analysis_id=${encodeURIComponent(row.id)}">导出${row.finalized?'正式':'过程'}结果</a></div>`:''}</article>`).join('') || '<p class="muted">'+(admin?'尚无考核，请先登记项目经理，再新建考核导入报告。':'暂未分配问卷，请等待管理员确认考核名单。')+'</p>'}</div>${admin?`<details class="workspace-management"><summary>账号登记与本机备份</summary><h3>登记姓名与工号</h3><form id="workspace-add-user" class="workspace-actions"><label class="field"><span>姓名</span><input name="name" maxlength="80" required /></label><label class="field"><span>工号</span><input name="employee_id" maxlength="64" required /></label><label class="field"><span>角色</span><select name="role"><option value="manager">项目经理</option><option value="admin">管理员（可兼任经理）</option></select></label><button class="secondary-button">登记账号</button></form><p>${this.users.map(u=>escapeHtml(u.name)+' · '+escapeHtml(u.employee_id)+'（'+(u.role==='admin'?'管理员':'经理')+'）').join('；')}</p><h3>本机数据备份</h3><div class="workspace-actions"><a class="secondary-button" href="/api/workspace/backup">下载完整备份</a><label class="field"><span>选择恢复文件</span><input type="file" id="workspace-backup-file" accept=".sqlite3" /></label></div><p class="muted">本机保存账号、报告事实、问卷及修改历史。建议把下载备份另存一处；本机保存不等于云端同步。</p><div id="workspace-restore-preview"></div></details>`:''}`;
+      host.innerHTML=`<div class="panel-heading"><div><p class="section-index">${admin?'管理工作台':'我的问卷'}</p><h2>考核列表</h2></div><div class="workspace-actions"><button class="secondary-button" data-workspace-refresh>刷新进度</button>${admin?'<button class="primary-button" id="workspace-new">新建考核</button>':''}</div></div><p class="workspace-status" role="status" id="workspace-error"></p><div class="workspace-list">${rows.map(row=>`<article class="workspace-assessment"><div class="panel-heading"><div><h3>${escapeHtml(row.name)}</h3><p class="muted">${row.created_at?new Date(row.created_at).toLocaleString()+' · ':''}${row.finalized?'主观结果已确认':row.confirmed?'问卷填写中':'待确认名单'} · ${escapeHtml(row.id.slice(0,8))}</p></div><button class="primary-button" data-workspace-open="${row.id}">${admin?'打开考核':'填写／查看问卷'}</button></div>${row.managers.length?`<div class="score-statistics-table-wrap"><table class="score-table"><thead><tr><th>项目经理</th><th>工号</th><th>已完成／应评价</th><th>问卷</th></tr></thead><tbody>${row.managers.map(m=>`<tr><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.manager_id)}</td><td>${m.completed}／${m.expected}</td><td><button class="ghost-button" data-workspace-open="${row.id}" data-workspace-manager="${escapeHtml(m.manager_id)}">查看问卷</button></td></tr>`).join('')}</tbody></table></div>`:''}${admin&&row.confirmed?`<div class="workspace-actions"><button class="secondary-button" data-workspace-final="${row.id}" data-reopen="${row.finalized}">${row.finalized?'重新开放问卷':'确认最终主观结果'}</button><a class="secondary-button" href="/api/workspace/export?analysis_id=${encodeURIComponent(row.id)}">导出${row.finalized?'正式':'过程'}结果</a></div>`:''}</article>`).join('') || '<p class="muted">'+(admin?'尚无考核，请先登记项目经理，再新建考核导入报告。':'暂未分配问卷，请等待管理员确认考核名单。')+'</p>'}</div>${admin?`<details class="workspace-management"><summary>账号登记与本机备份</summary><h3>登记姓名与工号</h3><form id="workspace-add-user" class="workspace-actions"><label class="field"><span>姓名</span><input name="name" maxlength="80" required /></label><label class="field"><span>工号</span><input name="employee_id" maxlength="64" required /></label><label class="field"><span>角色</span><select name="role"><option value="manager">项目经理</option><option value="admin">管理员（可兼任经理）</option></select></label><button class="secondary-button">登记账号</button></form><div id="workspace-users"></div><h3>本机数据备份</h3><div class="workspace-actions"><a class="secondary-button" href="/api/workspace/backup">下载完整备份</a><label class="field"><span>选择恢复文件</span><input type="file" id="workspace-backup-file" accept=".sqlite3" /></label></div><p class="muted">本机保存账号、报告事实、问卷及修改历史。建议把下载备份另存一处；本机保存不等于云端同步。</p><div id="workspace-restore-preview"></div></details>`:''}`;
       host.querySelector('[data-workspace-refresh]').onclick=()=>this.home();
       host.querySelectorAll('[data-workspace-open]').forEach(b=>b.onclick=()=>this.open(b.dataset.workspaceOpen,b.dataset.workspaceManager));
       host.querySelectorAll('[data-workspace-final]').forEach(b=>b.onclick=async()=>{
@@ -55,6 +55,7 @@ window.workspace = {
         try{await assessmentPost('/api/workspace/finalize',{analysis_id:b.dataset.workspaceFinal,reopen});await this.home();}catch(e){sq('#workspace-error').textContent=e.message;}
       });
       if(admin) {
+        this.renderUsers();
         sq('#workspace-new').onclick=()=>{clearAnalysisState();selectWorkflow('central');elements.importModeLabel.textContent='管理员统一导入 · 步骤 1';checkFeishuAuthorization();};
         sq('#workspace-add-user').onsubmit=async e=>{e.preventDefault();try{await assessmentPost('/api/workspace/users',Object.fromEntries(new FormData(e.target)));this.users=(await requestJson('/api/workspace/session')).users;await this.home();}catch(err){sq('#workspace-error').textContent=err.message;}};
         sq('#workspace-backup-file').onchange=async e=>{
@@ -67,6 +68,27 @@ window.workspace = {
         };
       }
     } catch(error) {host.textContent=error.message;}
+  },
+  renderUsers() {
+    const host=sq('#workspace-users');
+    host.innerHTML=this.users.map(u=>`<div class="workspace-user-row"><span>${escapeHtml(u.name)} · ${escapeHtml(u.employee_id)}（${u.role==='admin'?'管理员':'项目经理'}）</span>${u.employee_id===this.user.employee_id?'<span class="muted">当前登录</span>':`<button type="button" class="ghost-button" data-delete-user="${escapeHtml(u.employee_id)}" aria-label="删除账号 ${escapeHtml(u.name)} ${escapeHtml(u.employee_id)}">删除账号</button>`}</div>`).join('')+'<div id="workspace-delete-confirm" role="status"></div>';
+    host.querySelectorAll('[data-delete-user]').forEach(button=>button.onclick=()=>{
+      const user=this.users.find(u=>u.employee_id===button.dataset.deleteUser);
+      const confirmation=sq('#workspace-delete-confirm');
+      confirmation.innerHTML=`<p>确认删除账号：${escapeHtml(user.name)} · ${escapeHtml(user.employee_id)}？删除后将无法选择该身份登录。</p><div class="workspace-actions"><button type="button" class="secondary-button" id="workspace-delete-submit">确认删除</button><button type="button" class="ghost-button" id="workspace-delete-cancel">取消</button></div><p id="workspace-delete-message"></p>`;
+      sq('#workspace-delete-cancel').onclick=()=>{confirmation.innerHTML='';button.focus();};
+      sq('#workspace-delete-submit').onclick=async e=>{
+        const buttons=[...host.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+        try{
+          await requestJson('/api/workspace/users/'+encodeURIComponent(user.employee_id),{method:'DELETE'});
+          this.users=(await requestJson('/api/workspace/session')).users;
+          this.renderUsers();
+          sq('#workspace-delete-confirm').textContent='账号已删除。';
+        }catch(err){const message=sq('#workspace-delete-message');if(message)message.textContent=err.message;}
+        finally{buttons.forEach(b=>b.disabled=false);}
+      };
+      sq('#workspace-delete-cancel').focus();
+    });
   },
   async open(id, manager='') {
     if(!await flushSubjectiveChanges())return;

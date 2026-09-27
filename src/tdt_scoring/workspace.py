@@ -171,6 +171,16 @@ def create_workspace_router(workspace, encode, busy):
         data = await request.json()
         return store.add_user(data.get('employee_id'), data.get('name'), data.get('role', 'manager'))
 
+    @router.delete('/users/{employee_id}')
+    def delete_user(employee_id: str, request: Request):
+        user = workspace.authorize(request, admin=True)
+        with service._fact_lock:
+            if busy():
+                raise HTTPException(409, '请等待报告读取和AI分析结束后再删除账号')
+            store.delete_user(employee_id, user['employee_id'])
+            workspace.restores.pop(employee_id, None)
+        return {'ok': True}
+
     @router.get('/bindings')
     def bindings(request: Request):
         workspace.authorize(request, admin=True)

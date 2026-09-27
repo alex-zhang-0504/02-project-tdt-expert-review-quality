@@ -92,6 +92,54 @@ class WorkspaceTests(unittest.TestCase):
     def save(self, data=None, user='a'):
         return self.request('/api/subjective/review', data or self.payload(), 'POST', user)
 
+    def test_delete_unused_account_persists_and_revokes_identity(self):
+        self.store.add_user('0010', '虚拟待删经理')
+        before = self.store.load_all()
+        path = '/api/workspace/users/0010'
+        self.assertEqual(403, self.request(path, method='DELETE', user='a')[0])
+        self.assertEqual(401, self.request(path, method='DELETE', user='')[0])
+        self.busy = True
+        self.assertEqual(409, self.request(path, method='DELETE')[0])
+        self.busy = False
+        self.assertEqual(200, self.request(path, method='DELETE')[0])
+        self.assertIsNone(WorkspaceStore(self.temp.name).user('0010'))
+        self.assertNotIn('0010', [u['employee_id'] for u in self.request('/api/workspace/session')[1]['users']])
+        self.assertEqual(400, self.request('/api/workspace/login', {'employee_id': '0010'}, 'POST')[0])
+        self.assertEqual(401, self.request('/api/workspace/analyses', user='0010')[0])
+        self.assertEqual(400, self.request(path, method='DELETE')[0])
+        self.assertEqual(before, self.store.load_all())
+
+    def test_delete_protects_current_and_last_admin(self):
+        path = '/api/workspace/users/0001'
+        self.assertIn('最后一个管理员', self.request(path, method='DELETE')[1]['detail'])
+        self.store.add_user('0002', '虚拟备用管理员', 'admin')
+        self.assertIn('当前登录', self.request(path, method='DELETE')[1]['detail'])
+        self.assertEqual(200, self.request('/api/workspace/users/0002', method='DELETE')[0])
+        self.assertIsNotNone(self.store.user('0001'))
+
+    def test_delete_rejects_report_bindings_and_frozen_tasks_without_changing_data(self):
+        self.save()
+        before = self.store.load_all()
+        self.assertIn('考核或问卷历史', self.request('/api/workspace/users/a', method='DELETE')[1]['detail'])
+        self.assertEqual(before, self.store.load_all())
+        self.store.add_user('unused', '虚拟绑定经理')
+        self.store.bind('owner-unused', 'unused')
+        self.assertIn('飞书报告', self.request('/api/workspace/users/unused', method='DELETE')[1]['detail'])
+        self.store.bind('owner-unused', 'b')
+        self.assertEqual(200, self.request('/api/workspace/users/unused', method='DELETE')[0])
+        # Draft local report references also prevent dangling manager identities.
+        with self.service.edit_analysis(self.id) as analysis:
+            analysis.assessment = {}
+            analysis.manager_reviews = {}
+        self.assertIn('关联报告', self.request('/api/workspace/users/a', method='DELETE')[1]['detail'])
+
+    def test_delete_keeps_administrator_audit_identity(self):
+        self.store.add_user('0002', '虚拟调整管理员', 'admin')
+        self.save(user='0002')
+        self.assertEqual(400, self.request('/api/workspace/users/0002', method='DELETE')[0])
+        self.assertIsNotNone(self.store.user('0002'))
+        self.assertEqual('0002', self.analysis.assessment['review_history']['a'][self.name][0]['actor']['employee_id'])
+
     def test_identity_gate_and_scoped_reads_and_writes(self):
         self.assertEqual(401, self.request('/api/workspace/analyses', user='')[0])
         self.assertEqual(403, self.request('/api/statistics/scores', user='a')[0])
