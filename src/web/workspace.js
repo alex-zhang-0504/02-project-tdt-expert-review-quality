@@ -57,7 +57,16 @@ window.workspace = {
       if(admin) {
         this.renderUsers();
         sq('#workspace-new').onclick=()=>{clearAnalysisState();selectWorkflow('central');elements.importModeLabel.textContent='管理员统一导入 · 步骤 1';checkFeishuAuthorization();};
-        sq('#workspace-add-user').onsubmit=async e=>{e.preventDefault();try{await assessmentPost('/api/workspace/users',Object.fromEntries(new FormData(e.target)));this.users=(await requestJson('/api/workspace/session')).users;await this.home();}catch(err){sq('#workspace-error').textContent=err.message;}};
+        sq('#workspace-add-user').onsubmit=async e=>{
+          e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;
+          try{
+            const user=await assessmentPost('/api/workspace/users',Object.fromEntries(new FormData(form)));
+            this.users.push(user);this.renderUsers();
+            form.elements.name.value='';form.elements.employee_id.value='';
+            sq('#workspace-error').textContent='';
+          }catch(err){sq('#workspace-error').textContent=err.message;}
+          finally{button.disabled=false;}
+        };
         sq('#workspace-backup-file').onchange=async e=>{
           const file=e.target.files[0];if(!file)return;
           try {
