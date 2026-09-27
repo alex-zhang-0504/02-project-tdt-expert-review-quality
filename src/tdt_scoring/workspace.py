@@ -1,6 +1,7 @@
 """Trusted local identities, persisted questionnaires and administrator workflow."""
 from copy import deepcopy
 import asyncio
+import secrets
 from hashlib import sha256
 from io import BytesIO
 
@@ -16,22 +17,29 @@ from .submission import EXCEL_MEDIA_TYPE
 from .export_names import review_export_disposition
 
 COOKIE = 'tdt_workspace_user'
+AUTH_COOKIE = 'tdt_workspace_auth'
 
 
 class Workspace:
     def __init__(self, service, store):
         self.service, self.store = service, store
         self.restores = {}
+        self.sessions = {}
 
     def authorize(self, request, admin=False):
         user = self.store.user(request.cookies.get(COOKIE, ''))
         if not user:
             raise HTTPException(401, '请先选择姓名和工号登录')
+        if user['role'] == 'admin' and self.sessions.get(request.cookies.get(AUTH_COOKIE, '')) != user['employee_id']:
+            raise HTTPException(401, '请使用管理员密码登录')
         if admin and user['role'] != 'admin':
             raise HTTPException(403, '此操作仅限管理员')
         return user
 
     def freeze_accounts(self, analysis):
+        match = self.manager_matches(analysis)
+        if match['errors']:
+            raise ValueError('项目经理匹配尚有异常，请先在文件扫描区域下方确认处理')
         owners = tasks(analysis)['managers']
         bindings = self.store.bindings()
         mapping = {}
@@ -43,7 +51,27 @@ class Workspace:
             mapping[owner] = employee
         analysis.assessment['manager_accounts'] = mapping
         analysis.assessment['manager_names'] = {eid: self.store.user(eid)['name'] for eid in mapping.values()}
-        analysis.assessment['created_at'] = now()
+        analysis.assessment.setdefault('created_at', now())
+
+    def manager_matches(self, analysis):
+        users = self.store.users(include_disabled=True)
+        by_id = {u['employee_id']: u for u in users}
+        by_owner = {owner: u for u in users for owner in u['owner_ids']}
+        errors = {}
+        if not analysis.assessment.get('manager_accounts'):
+            for report in analysis.reports:
+                identity = report.manager_identity or {}
+                owner = identity.get('owner_id', '')
+                local = report.source_type == 'local_excel' and not identity.get('source_token')
+                user = by_id.get(owner[6:]) if local and owner.startswith('local:') else by_owner.get(owner)
+                if user and user['enabled'] and identity.get('status') == 'resolved':
+                    continue
+                key = owner if owner else report.source_name
+                reason = '账号已停用' if user and not user['enabled'] else 'owner ID未登记到账号配置' if owner and not local else '本地报告尚未指定项目经理' if local else '未读取到有效的原文件所有者ID，请重新扫描'
+                entry = errors.setdefault(key, {'owner_id': owner, 'name': identity.get('name', ''),
+                    'reason': reason, 'local': local, 'can_assign': local or bool(owner), 'reports': []})
+                entry['reports'].append(report.source_name)
+        return {'errors': list(errors.values()), 'users': [u for u in users if u['enabled']]}
 
     def task_list(self, analysis, user):
         data = tasks(analysis)
@@ -82,6 +110,8 @@ class Workspace:
             if payload.expected_revision != previous.get('revision', 0):
                 raise HTTPException(409, '问卷已被其他页面更新，本次未保存。请先保留当前输入，再重新打开问卷核对')
             record = save_review(analysis, payload)
+            if record.get('ratings'):
+                analysis.assessment.setdefault('started', {}).setdefault(payload.manager_id, now())
             record['locked_by_admin'] = bool(previous.get('locked_by_admin') or (user['role'] == 'admin' and payload.manager_id != user['employee_id']))
             self.audit(analysis, payload.manager_id, payload.expert_name, user, '管理员调整' if payload.manager_id != user['employee_id'] else '填写问卷', previous, record)
             return record
@@ -92,14 +122,33 @@ class Workspace:
         entries.append({'at': now(), 'actor': dict(user), 'action': action, 'before': deepcopy(previous), 'after': deepcopy(record)})
 
     def summary(self, analysis, user):
+        from .questionnaire import snapshot as questionnaire_snapshot
+        from .score_statistics import questionnaire_score
         confirmed = analysis.assessment.get('confirmed', False)
         managers = self.task_list(analysis, user)['managers'] if confirmed else []
         for manager in managers:
             reviews = analysis.manager_reviews.get(manager['manager_id'], {})
             manager['completed'] = sum(reviews.get(name, {}).get('status') == '已完成' for name in manager['experts'])
             manager['expected'] = len(manager['experts'])
+        from .task_workflow import result_state
+        statistics, ready = result_state(analysis) if confirmed else (None, False)
+        for manager in managers:
+            reviews = analysis.manager_reviews.get(manager['manager_id'], {})
+            manager['started'] = bool(analysis.assessment.get('started', {}).get(manager['manager_id']) or any(r.get('ratings') for r in reviews.values()))
+            manager['reviews'] = {}
+            for name in manager['experts']:
+                record = reviews.get(name, {})
+                items, _ = questionnaire_score(record, analysis.assessment['policy']['parameters'], questionnaire_snapshot(analysis))
+                answered = sum(item['responded'] for item in items)
+                selected = len(record.get('ratings', {}))
+                manager['reviews'][name] = {'status': '已完成' if answered == 6 else '待补依据或原因' if selected > answered else '待评价',
+                    'answered': answered, 'selected': selected}
+            manager['completed'] = sum(r['answered'] == 6 for r in manager['reviews'].values())
         return {'id': analysis.analysis_id, 'name': analysis.source_name, 'created_at': analysis.assessment.get('created_at', ''),
-                'confirmed': confirmed, 'finalized': bool(analysis.assessment.get('finalized')), 'managers': managers}
+                'confirmed': confirmed, 'finalized': bool(analysis.assessment.get('finalized')), 'managers': managers,
+                'completed': bool(analysis.assessment.get('completed')), 'report_count': len(analysis.reports),
+                'expert_count': len(analysis.assessment.get('included', [])), 'can_complete': ready,
+                'objective_complete': bool(statistics and statistics['rows']) and all(r['objective_with_rewards'] is not None for r in statistics['rows'])}
 
 
 class WorkspaceGate:
@@ -141,38 +190,57 @@ def create_workspace_router(workspace, encode, busy):
     def logged_in(user):
         response = JSONResponse({'user': user})
         response.set_cookie(COOKIE, user['employee_id'], httponly=True, samesite='strict')
+        token = secrets.token_urlsafe(32)
+        workspace.sessions[token] = user['employee_id']
+        response.set_cookie(AUTH_COOKIE, token, httponly=True, samesite='strict')
         return response
 
     @router.get('/session')
     def session(request: Request):
         users = store.users(include_disabled=True)
         user = next((u for u in users if u['employee_id'] == request.cookies.get(COOKIE, '') and u['enabled']), None)
+        if user and user['role'] == 'admin' and workspace.sessions.get(request.cookies.get(AUTH_COOKIE, '')) != user['employee_id']:
+            user = None
+        from . import policy_admin
         return {'user': user, 'users': users if user and user['role'] == 'admin' else [u for u in users if u['enabled']],
-                'accounts_file': str(store.accounts_path)}
+                'accounts_file': str(store.accounts_path), 'password_configured': policy_admin.ADMIN_PATH.exists()}
 
     @router.post('/bootstrap')
     async def bootstrap(request: Request):
         data = await request.json()
+        from .policy_admin import workspace_password
+        if store.users(include_disabled=True):
+            raise ValueError('已有账号，请登录')
+        from .accounts import validate
+        validate({'version': 1, 'users': [{'employee_id': data.get('employee_id'), 'name': data.get('name'),
+            'role': 'admin', 'enabled': True, 'owner_ids': []}]})
+        workspace_password(data)
         return logged_in(store.add_user(data.get('employee_id'), data.get('name'), 'admin', first=True))
 
     @router.post('/login')
     async def login(request: Request):
-        user = store.user((await request.json()).get('employee_id'))
+        data = await request.json()
+        user = store.user(data.get('employee_id'))
         if not user:
             raise HTTPException(400, '请选择已登记的姓名与工号')
+        if user['role'] == 'admin':
+            from .policy_admin import workspace_password
+            workspace_password(data)
         return logged_in(user)
 
     @router.post('/logout')
-    def logout():
+    def logout(request: Request):
         response = JSONResponse({'ok': True})
+        workspace.sessions.pop(request.cookies.get(AUTH_COOKIE, ''), None)
         response.delete_cookie(COOKIE)
+        response.delete_cookie(AUTH_COOKIE)
         return response
 
     @router.post('/users')
     async def users(request: Request):
         user = workspace.authorize(request, admin=True)
         data = await request.json()
-        return store.add_user(data.get('employee_id'), data.get('name'), data.get('role', 'manager'), actor_id=user['employee_id'])
+        return store.add_user(data.get('employee_id'), data.get('name'), data.get('role', 'manager'), actor_id=user['employee_id'], owner_ids=data.get('owner_ids'))
 
     @router.delete('/users/{employee_id}')
     def delete_user(employee_id: str, request: Request):
@@ -195,6 +263,12 @@ def create_workspace_router(workspace, encode, busy):
         workspace.authorize(request, admin=True)
         return store.bindings()
 
+    @router.get('/manager-matches')
+    def manager_matches(analysis_id: str, request: Request):
+        workspace.authorize(request, admin=True)
+        with service._fact_lock:
+            return workspace.manager_matches(service.get_analysis(analysis_id))
+
     @router.post('/bindings')
     async def bind(request: Request):
         workspace.authorize(request, admin=True)
@@ -208,12 +282,14 @@ def create_workspace_router(workspace, encode, busy):
         with service._fact_lock:
             result = []
             for analysis in reversed(list(service._analyses.values())):
+                if analysis.assessment.get('deleted') or analysis.assessment.get('attached_to'):
+                    continue
                 if not analysis.assessment.get('confirmed') and user['role'] != 'admin':
                     continue
                 row = workspace.summary(analysis, user)
                 if user['role'] == 'admin' or row['managers']:
                     result.append(row)
-            return result
+            return sorted(result, key=lambda r: r['created_at'], reverse=True)
 
     @router.get('/analyses/{analysis_id}')
     def analysis_detail(analysis_id: str, request: Request):

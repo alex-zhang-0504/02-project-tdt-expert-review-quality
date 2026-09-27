@@ -235,6 +235,8 @@ function qualityGatePassed() {
 }
 
 function canNavigate(step) {
+  if (window.workspace?.user?.role === 'manager') return step === 3;
+  if (step === 1 && window.workspace?.user?.role === 'admin') return true;
   if (!state.workflowMode) return false;
   if (step === 1) return state.workflowMode !== "merge" || !!state.analysis;
   return (step === 2 || step === 3 || step === 4) && qualityGatePassed();
@@ -353,6 +355,7 @@ async function importFeishu() {
 }
 
 async function receiveAnalysis(analysis) {
+  if (window.workspace) analysis = await window.workspace.adopt(analysis);
   state.importActive = false;
   state.analysis = analysis;
   state.analysisServiceInstanceId = state.serviceInstanceId;
@@ -361,7 +364,7 @@ async function receiveAnalysis(analysis) {
   if (state.workflowMode === "manager") {
     state.currentBatchId = managerMetadata().batch_id;
   }
-  const reportCount = analysis.reports?.length || 1;
+  const reportCount = analysis.reports?.length ?? 1;
   const candidateCount = analysis.batch_summary?.candidate_count ?? reportCount;
   elements.projectSummary.textContent = `${candidateCount}份候选报告 · ${analysis.sessions.length}场 · ${analysis.experts.length}位评审人`;
   renderBatchSummary();
@@ -378,6 +381,8 @@ function startProgressDisplay(sourceNames = []) {
   document.querySelector("#stop-import").hidden = false;
   document.querySelector("#stop-import").disabled = true;
   state.analysis = null;
+  const managerErrors = document.querySelector('#workspace-manager-errors');
+  if (managerErrors) managerErrors.hidden = true;
   state.selectedReportIndex = 0;
   state.importJobId = null;
   state.importJobStatus = "queued";
@@ -462,7 +467,8 @@ async function retryReport(index, file = null) {
     return;
   }
   const previous = state.analysis;
-  if (!previous || !state.importJobId) return;
+  if (!previous) return;
+  if (!state.importJobId) {setNotice('此任务的扫描会话已结束，请在上方重新选择报告并读取检查。已保存问卷及参数会保留。');return;}
   if (previous.source_type === "local_excel" && !file) {
     state.retryReportIndex = index;
     const input = document.querySelector("#retry-report-file");
@@ -919,6 +925,7 @@ async function navigateStep(step) {
   if (!canNavigate(step)) return;
   if (!await flushSubjectiveChanges()) return;
   if (step === 1) {
+    if (window.workspace?.user?.role === 'admin') return window.workspace.home();
     showPanel(elements.importPanel);
     activateStep(1);
   } else if (step === 2) {

@@ -167,6 +167,8 @@ def _job_payload(job_id: str) -> dict[str, object]:
 app.include_router(create_router(service, _encoded, workspace))
 app.include_router(create_workspace_router(workspace, _encoded, lambda: any(b['active'] for b in import_batches.batches.values()) or getattr(service, '_active_ai', 0) > 0))
 app.include_router(create_policy_admin_router())
+from .task_workflow import create_task_router
+app.include_router(create_task_router(workspace, _encoded, lambda: any(b['active'] for b in import_batches.batches.values()) or getattr(service, '_active_ai', 0) > 0))
 
 
 @app.get("/", include_in_schema=False)
@@ -202,6 +204,7 @@ def subjective_catalog(analysis_id: str = '') -> object:
     content = receipt['parameters']
     return [{"id": d["id"], "title": d["title"], "prompt": d['prompt'], "boundary": d['boundary'], "rule_version": QUESTION_VERSION,
              "questionnaire_hash": receipt['sha256'], "instructions": content['instructions'], "contribution_prompt": content['contribution_prompt'], "reason_prompt": content['unable']['reason_prompt'],
+             "required_options": d['required_options'],
              "response_options": [{"id": "unable", **content['unable']}] if d['id'] != 'contribution' else [],
              "options": [{k: v for k, v in option.items() if k != "score"} for option in d["options"]]} for d in dimensions(receipt=receipt)]
 

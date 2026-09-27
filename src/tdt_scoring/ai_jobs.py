@@ -118,8 +118,12 @@ def install_ai_routes(router, service, caller, sessions, lock, guard, current,
             if data.get("confirmed") is not True:
                 raise ValueError()
             analysis = service.get_analysis(data["analysis_id"])
+            if analysis.assessment.get('completed'):
+                raise HTTPException(409, '本期考评已完成，历史任务只读')
             if any(i.severity == "error" for i in analysis.issues):
                 raise ValueError()
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(400, "请先读取有效报告，并确认向DeepSeek发送意见文本。") from None
         try:

@@ -57,7 +57,7 @@ def rating_result(dimension, rating, policy=None):
     option = next((o for o in dimension['options'] if o['id'] == code), None)
     skipped = dimension['id'] != 'contribution' and code in UNJUDGED
     evidence = rating_evidence(rating)
-    required = dimension['id'] != 'preparation' and code == ('high' if dimension['id'] == 'contribution' else 'low')
+    required = code in dimension.get('required_options', [] if dimension['id'] == 'preparation' else ['high'] if dimension['id'] == 'contribution' else ['low'])
     missing = (skipped and not rating.get('reason', '').strip()) or (not skipped and required and (
         not evidence or any(not e.get('project_code', '').strip() or not e.get('note', '').strip() for e in evidence)))
     responded = bool(option or skipped) and not missing

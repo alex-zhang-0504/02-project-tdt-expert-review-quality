@@ -1,3 +1,5 @@
+function statisticsTable(rows,cap,history=false) {return `<table class="score-table"><thead><tr><th>评审人</th><th>客观总得分（含奖励）</th><th>主观最终分</th><th>总分／${cap}</th><th>状态</th>${history?'':'<th>依据</th>'}</tr></thead><tbody>${rows.map((r,index)=>`<tr><th>${escapeHtml(r.expert_name)}</th><td>${scoreText(r.objective_with_rewards)}</td><td>${scoreText(r.subjective_total)}</td><td>${scoreText(r.total)}</td><td>${history?'已完成':r.total===null?'待统计':r.suspected?'试算 · 含待确认':'试算'}</td>${history?'':`<td><button class="secondary-button" data-score-detail="${index}">查看明细</button></td>`}</tr>`).join('')}</tbody></table>`;}
+
 const scoreStatistics = {analysisId: null, data: null, requestId: 0};
 const scoreText = value => value == null ? "—" : Number(value).toFixed(state.analysis?.assessment?.policy?.parameters?.precision ?? 2).replace(/\.0+$/, "");
 
@@ -21,6 +23,7 @@ async function refreshScoreStatistics() {
   const requestId = ++scoreStatistics.requestId;
   const analysisId = state.analysis?.analysis_id;
   scoreStatistics.data = null;
+  if(window.workspace) sq("#workspace-complete").disabled=true;
   sq("#export-score-statistics").disabled = true;
   sq("#score-statistics-table").innerHTML = "";
   sq("#score-statistics-details").innerHTML = "";
@@ -38,6 +41,7 @@ async function refreshScoreStatistics() {
     if (requestId !== scoreStatistics.requestId || analysisId !== state.analysis?.analysis_id) return;
     scoreStatistics.data = data;
     renderScoreStatistics();
+    window.workspace?.syncCompletion();
     sq("#export-score-statistics").disabled = false;
   } catch (error) { if (requestId === scoreStatistics.requestId) sq("#score-statistics-message").textContent = error.message; }
 }
@@ -46,7 +50,7 @@ function renderScoreStatistics() {
   const data = scoreStatistics.data, p=data.policy.parameters;
   sq("#score-statistics-message").textContent = `${data.rows.length}位评审人 · ${data.rows.filter(r=>r.total!==null).length}人具备总分 · 配置V${data.policy.version} · SHA256 ${data.policy.sha256}`;
   sq("#score-method-note").innerHTML = importHint(`客观总得分（含奖励）＋主观最终分，最高${p.total_cap}分；两维分数分别在对应模块第二页查看。`);
-  sq("#score-statistics-table").innerHTML = `<table class="score-table"><thead><tr><th>评审人</th><th>客观总得分（含奖励）</th><th>主观最终分</th><th>总分／${p.total_cap}</th><th>状态</th><th>依据</th></tr></thead><tbody>${data.rows.map((r,index)=>`<tr><th>${escapeHtml(r.expert_name)}</th><td>${scoreText(r.objective_with_rewards)}</td><td>${scoreText(r.subjective_total)}</td><td>${scoreText(r.total)}</td><td>${r.total===null?'待统计':r.suspected?'试算 · 含待确认':'试算'}</td><td><button class="secondary-button" data-score-detail="${index}">查看明细</button></td></tr>`).join('')}</tbody></table>`;
+  sq("#score-statistics-table").innerHTML = statisticsTable(data.rows,p.total_cap);
   sq("#score-statistics-details").innerHTML=data.rows.map((r,index)=>`<details class="score-detail" id="score-detail-${index}"><summary>${escapeHtml(r.expert_name)} · 计分依据</summary><p>${escapeHtml(r.reasons.join('；') || '已具备试算条件')}</p><p>过程基础${scoreText(r.objective_total)}＋评审意见超额得分${scoreText(r.opinion_bonus)}＋输出有效对策得分${scoreText(r.solution_bonus)}＝客观总得分${scoreText(r.objective_with_rewards)}。</p><p>客观总得分＋主观最终分${scoreText(r.subjective_total)}＝${scoreText(r.uncapped_total)}；最终${scoreText(r.total)}。</p><button class="secondary-button" data-score-evidence="${index}">查看评审过程详情</button></details>`).join('');
   sq('#score-statistics-table').querySelectorAll('table').forEach(()=>makeTableScrollable(sq('#score-statistics-table')));
 }

@@ -101,9 +101,13 @@ class AssessmentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '项目经理'): self.confirm()
         self.assertFalse(self.a.assessment)
 
-    def test_empty_intersection_and_second_confirmation_rejected(self):
+    def test_empty_intersection_rejected_and_preparation_reconfirmation_preserves_policy(self):
         with self.assertRaises(ValueError): confirm_roster(self.a, ['不存在'], 'batch-test')
         self.confirm()
+        previous = deepcopy(self.a.assessment['policy'])
+        self.confirm()
+        self.assertEqual(previous, self.a.assessment['policy'])
+        self.a.assessment['completed'] = True
         with self.assertRaises(ValueError): self.confirm()
 
     def test_policy_snapshot_stable_and_no_silent_fallback(self):

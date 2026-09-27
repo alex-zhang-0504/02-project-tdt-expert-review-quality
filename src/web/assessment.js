@@ -7,11 +7,13 @@ function renderRosterResult(r, confirmed=false) {
 }
 
 function renderScoringReceipt(p, confirmed=false) {
+  if (window.workspace) {sq('#assessment-policy').textContent='';return;}
   sq('#assessment-policy').innerHTML = `<span>评分参数${confirmed ? '已固定' : '已读取'} · V${escapeHtml(p.version)}<br>读取时间：${escapeHtml(new Date(p.loaded_at).toLocaleString())}</span><details><summary>查看读取凭据</summary><div>${escapeHtml(p.file)}<br>SHA256：${escapeHtml(p.sha256)}</div></details>`;
 }
 
 function canEnterAssessment() {
   if (!state.analysis || state.importActive || assessmentUI.busy) return false;
+  if (typeof window !== 'undefined' && window.workspace && (window.workspace.managerCheckPending || window.workspace.managerErrors?.length)) return false;
   const {errors} = validationCounts();
   if (errors) return false;
   return !!state.analysis.assessment?.confirmed || !!sq('#assessment-names').value.trim();
@@ -19,8 +21,8 @@ function canEnterAssessment() {
 
 function syncAssessmentActions() {
   elements.continueAnalysis.disabled = !canEnterAssessment();
-  elements.continueAnalysis.textContent = assessmentUI.busy ? '正在处理…' : assessmentUI.policy || state.analysis?.assessment?.confirmed ? '下一步' : '读取评分参数';
-  const disabled = !state.analysis || state.importActive || assessmentUI.busy || !!state.analysis.assessment?.confirmed;
+  elements.continueAnalysis.textContent = assessmentUI.busy ? '正在处理…' : assessmentUI.policy || state.analysis?.assessment?.confirmed ? '下一步' : '读取';
+  const disabled = !state.analysis || state.importActive || assessmentUI.busy || !!state.analysis.assessment?.completed;
   ['assessment-preview','assessment-upload-roster','assessment-names','assessment-roster-file'].forEach(id => sq('#'+id).disabled = disabled);
   const original = assessmentUI.importedRoster;
   sq('#assessment-restore-roster').disabled = disabled || !original || sq('#assessment-names').value === original.text;
@@ -29,7 +31,7 @@ function syncAssessmentActions() {
 
 async function importAssessmentRoster(event) {
   const file = event.target.files[0];
-  if (!file || assessmentUI.busy || !state.analysis || state.importActive || state.analysis.assessment?.confirmed) return;
+  if (!file || assessmentUI.busy || !state.analysis || state.importActive || state.analysis.assessment?.completed) return;
   const analysisId = state.analysis.analysis_id;
   assessmentUI.busy = true;
   syncAssessmentActions();
@@ -41,6 +43,7 @@ async function importAssessmentRoster(event) {
     sq('#assessment-upload-roster').title = file.name + '；点击替换名单';
     sq('#assessment-names').value = assessmentUI.importedRoster.text;
     renderRosterResult(r);
+    await window.workspace?.invalidateScope();
   } catch(err) {
     sq('#assessment-result').textContent = `名单未读取成功：${err.message}${assessmentUI.importedRoster ? '。此前成功导入的名单仍可还原。' : ''}`;
   } finally {event.target.value = ''; assessmentUI.busy = false; syncAssessmentActions();}
@@ -49,6 +52,7 @@ async function importAssessmentRoster(event) {
 async function restoreAssessmentRoster() {
   if (sq('#assessment-restore-roster').disabled || !assessmentUI.importedRoster) return;
   sq('#assessment-names').value = assessmentUI.importedRoster.text;
+  await window.workspace?.invalidateScope();
   await compareAssessment(false);
 }
 
@@ -60,7 +64,7 @@ async function readScoringPolicy() {
   sq('#assessment-policy').textContent = '正在读取评分参数…';
   elements.continueAnalysis.textContent = '正在读取…';
   try {
-    const p = await requestJson('/api/assessment/policy');
+    const p = await requestJson(window.workspace?.taskId ? '/api/workspace/tasks/'+window.workspace.taskId+'/policy/objective' : '/api/assessment/policy');
     if (state.analysis?.analysis_id !== analysisId) return;
     assessmentUI.policy = p;
     renderScoringReceipt(p);
@@ -81,8 +85,11 @@ function renderAssessmentSetup() {
     assessmentUI.analysisId = a.analysis_id;
     assessmentUI.managerId = '';
     assessmentUI.policy = null;
+    assessmentUI.importedRoster = null;
+    sq('#assessment-upload-roster').textContent = '上传名单单击此处';
+    sq('#assessment-upload-roster').title = '';
     sq('#assessment-result').textContent = '';
-    sq('#assessment-policy').textContent = '评分参数尚未读取。';
+    sq('#assessment-policy').textContent = window.workspace ? '' : '评分参数尚未读取。';
   }
   const confirmed = a.assessment?.confirmed;
   syncAssessmentActions();
@@ -93,7 +100,7 @@ function renderAssessmentSetup() {
     renderScoringReceipt(p, true);
   }
   sq('#assessment-local-managers').innerHTML = confirmed ? '' : (a.reports || []).filter(r => r.source_type === 'local_excel' && !r.manager_identity?.source_token).map(r => `<div class="assessment-tools"><span>${escapeHtml(r.source_name)}</span><input data-local-id="${escapeHtml(r.source_name)}" placeholder="经理唯一编号" /><input data-local-name="${escapeHtml(r.source_name)}" placeholder="经理姓名" /><button type="button" class="secondary-button" data-local-manager="${escapeHtml(r.source_name)}">指定经理</button><span>${escapeHtml(r.manager_identity?.name || '未指定')}</span></div>`).join('');
-  if (window.workspace) window.workspace.renderBindings();
+  if (window.workspace) {sq('#assessment-local-managers').innerHTML='';window.workspace.renderBindings();}
 }
 
 async function compareAssessment(confirm=false) {
@@ -169,7 +176,7 @@ function downloadAssessment(url) {const link=document.createElement('a');link.hr
 function initializeAssessmentUI() {
   sq('#assessment-preview').onclick=()=>compareAssessment(false);
   sq('#assessment-upload-roster').onclick=()=>sq('#assessment-roster-file').click();
-  sq('#assessment-names').oninput=()=>{sq('#assessment-result').textContent='名单已更改，可点击「手动匹配名单」刷新结果；下一步将自动匹配并确认。';syncAssessmentActions();};
+  sq('#assessment-names').oninput=async()=>{try{await window.workspace?.invalidateScope();}catch(e){sq('#assessment-result').textContent=e.message;return;}sq('#assessment-result').textContent='名单已更改，可点击「手动匹配名单」刷新结果；下一步将自动匹配并确认。';syncAssessmentActions();};
   sq('#assessment-roster-file').onchange=importAssessmentRoster;
   sq('#assessment-restore-roster').onclick=restoreAssessmentRoster;
   sq('#assessment-local-managers').onclick=async e=>{const b=e.target.closest('[data-local-manager]');if(!b)return;const row=b.parentElement;try{state.analysis=await assessmentPost('/api/assessment/local-manager',{analysis_id:state.analysis.analysis_id,source_name:b.dataset.localManager,manager_id:row.querySelector('[data-local-id]').value,name:row.querySelector('[data-local-name]').value});renderAssessmentSetup();}catch(err){sq('#assessment-result').textContent=err.message;}};

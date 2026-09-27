@@ -50,24 +50,28 @@ def match_roster(analysis, names):
 def confirm_roster(analysis, names, batch_id, policy_hash=None):
     from .subjective import require_analysis
     require_analysis(analysis)
-    if analysis.assessment.get('confirmed'):
-        raise ValueError('本批次名单已固定；调整名单请重新导入报告建立新批次')
+    if analysis.assessment.get('completed'):
+        raise ValueError('本期考评已完成，名单只读')
     if not batch_id.strip():
         raise ValueError('请填写考核批次编号')
     result = match_roster(analysis, names)
     if not result['included']:
         raise ValueError('名单与报告没有交集，不能开始考核')
     from .questionnaire import load as load_questionnaire
-    questionnaire = load_questionnaire()
-    policy = load_policy(questionnaire)
+    questionnaire = analysis.assessment.get('questionnaire') or load_questionnaire()
+    policy = analysis.assessment.get('policy') or load_policy(questionnaire)
     if policy_hash is not None and policy_hash != policy['sha256']:
         raise ValueError('评分参数已变化，请重新读取评分参数后再进入')
-    result.update(confirmed=True, batch_id=batch_id.strip(), policy=policy, questionnaire=questionnaire, exclusions={})
+    result.update(confirmed=True, batch_id=batch_id.strip(), policy=policy, questionnaire=questionnaire,
+                  exclusions=deepcopy(analysis.assessment.get('exclusions', {})))
     result['roster_hash'] = sha256(json.dumps(sorted(result['included']), ensure_ascii=False).encode()).hexdigest()
-    analysis.assessment = result
+    previous = deepcopy(analysis.assessment)
+    analysis.assessment.update(result)
+    for key in ('manager_accounts', 'manager_names'):
+        analysis.assessment.pop(key, None)
     unresolved = tasks(analysis)['unresolved_reports']
     if unresolved:
-        analysis.assessment = {}
+        analysis.assessment = previous
         raise ValueError('请先识别或明确指定这些报告的项目经理：' + '；'.join(unresolved))
     return result
 

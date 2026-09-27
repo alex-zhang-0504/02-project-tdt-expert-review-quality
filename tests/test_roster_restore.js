@@ -10,6 +10,7 @@ const calls = [];
 let response = {requested:['虚拟专家甲','虚拟专家乙'],included:['虚拟专家甲'],unmatched:['虚拟专家乙'],excluded:[]};
 let failure = false;
 const context = {
+  window: {},
   sq, state:{analysis:{analysis_id:'test',assessment:{}},importActive:false},
   elements:{continueAnalysis:{}}, escapeHtml:String, validationCounts:()=>({errors:0,warnings:0}),
   requestJson:async (url, options) => {calls.push([url,options]);if(failure) throw Error('无姓名列');return response;}
@@ -42,10 +43,15 @@ async function main() {
   await context.restoreAssessmentRoster();
   assert.equal(sq('#assessment-names').value,'虚拟专家丙');
   context.state.analysis.assessment.confirmed=true;
-  sq('#assessment-names').value='不得覆盖';
+  sq('#assessment-names').value='修改后可重新确认';
   context.syncAssessmentActions();
   await context.restoreAssessmentRoster();
-  assert.equal(sq('#assessment-names').value,'不得覆盖');
-  console.log('名单还原、重新比对、失败保留及确认后锁定验证通过');
+  assert.equal(sq('#assessment-names').value,'虚拟专家丙');
+  context.state.analysis.assessment.completed=true;
+  sq('#assessment-names').value='历史任务不得覆盖';
+  context.syncAssessmentActions();
+  await context.restoreAssessmentRoster();
+  assert.equal(sq('#assessment-names').value,'历史任务不得覆盖');
+  console.log('名单还原、失败保留、重新确认和完成后只读验证通过');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

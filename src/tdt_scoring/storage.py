@@ -107,6 +107,8 @@ class WorkspaceStore:
                    (accounts.content(users).decode('utf-8'),))
         db.execute('DELETE FROM users')
         db.executemany('INSERT INTO users VALUES(?,?,?)', [(u['employee_id'], u['name'], u['role']) for u in users])
+        db.execute('DELETE FROM bindings')
+        db.executemany('INSERT INTO bindings VALUES(?,?)', [(owner, u['employee_id']) for u in users for owner in u.get('owner_ids', [])])
 
     def _accounts(self, db):
         snapshot = db.execute('SELECT payload FROM account_config WHERE id=1').fetchone()
@@ -118,6 +120,16 @@ class WorkspaceStore:
             accounts.replace(self.accounts_path, accounts.content(previous), None)
         raw = self.accounts_path.read_bytes()
         users = accounts.parse(raw)
+        document = json.loads(raw.decode('utf-8-sig'))
+        migrate = {u['employee_id'] for u in document['users'] if 'owner_ids' not in u}
+        if migrate:
+            for user in users:
+                if user['employee_id'] in migrate:
+                    user['owner_ids'] = [r[0] for r in db.execute('SELECT owner_id FROM bindings WHERE employee_id=?', (user['employee_id'],))]
+            users = accounts.validate({'version': 1, 'users': users})
+            replacement = accounts.content(users)
+            accounts.replace(self.accounts_path, replacement, raw)
+            raw = replacement
         if previous and not users:
             raise ValueError('不能删除最后一个管理员账号')
         for user in previous:
@@ -141,7 +153,7 @@ class WorkspaceStore:
         if not any(u['employee_id'] == actor_id and u['enabled'] and u['role'] == 'admin' for u in users):
             raise ValueError('当前账号已停用或不再是管理员，请重新选择身份')
 
-    def add_user(self, employee_id, name, role='manager', first=False, actor_id=None):
+    def add_user(self, employee_id, name, role='manager', first=False, actor_id=None, owner_ids=None):
         with self._lock, self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             users, raw = self._accounts(db)
@@ -149,7 +161,7 @@ class WorkspaceStore:
                 self._require_admin(users, actor_id)
             if first and users:
                 raise ValueError('管理员已建立，请选择已有身份进入')
-            users = accounts.validate({'version': 1, 'users': [*users, dict(employee_id=employee_id, name=name, role=role, enabled=True)]})
+            users = accounts.validate({'version': 1, 'users': [*users, dict(employee_id=employee_id, name=name, role=role, enabled=True, owner_ids=owner_ids or [])]})
             self._snapshot_accounts(db, users)
             accounts.replace(self.accounts_path, accounts.content(users), raw)
         return self.user(employee_id)
@@ -165,7 +177,7 @@ class WorkspaceStore:
                 raise ValueError('账号已在另一端修改，本次未覆盖；请刷新账号列表后重新编辑')
             if data.get('employee_id', employee_id) != employee_id:
                 raise ValueError('工号是稳定标识，不可修改；请新增账号并停用旧账号')
-            updated = dict(employee_id=employee_id, name=data.get('name'), role=data.get('role'), enabled=data.get('enabled'))
+            updated = dict(employee_id=employee_id, name=data.get('name'), role=data.get('role'), enabled=data.get('enabled'), owner_ids=data.get('owner_ids', previous['owner_ids']))
             users = accounts.validate({'version': 1, 'users': [updated if u['employee_id'] == employee_id else u for u in users]})
             self._snapshot_accounts(db, users)
             accounts.replace(self.accounts_path, accounts.content(users), raw)
@@ -207,14 +219,21 @@ class WorkspaceStore:
                 raise ValueError('账号已关联报告、考核或问卷历史，不能删除；已有数据保持不变')
 
     def bind(self, owner_id, employee_id):
-        if not self.user(employee_id) or not isinstance(owner_id, str) or not owner_id:
-            raise ValueError('请选择已建立的经理账号及有效报告身份')
-        with self.connect() as db:
-            db.execute('INSERT INTO bindings VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET employee_id=excluded.employee_id', (owner_id, employee_id))
+        with self._lock, self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            users, raw = self._accounts(db)
+            if not any(u['employee_id'] == employee_id and u['enabled'] for u in users) or not owner_id:
+                raise ValueError('请选择已启用的经理账号及有效报告身份')
+            for user in users:
+                user['owner_ids'] = [owner for owner in user['owner_ids'] if owner != owner_id]
+                if user['employee_id'] == employee_id:
+                    user['owner_ids'].append(owner_id)
+            users = accounts.validate({'version': 1, 'users': users})
+            self._snapshot_accounts(db, users)
+            accounts.replace(self.accounts_path, accounts.content(users), raw)
 
     def bindings(self):
-        with self.connect() as db:
-            return dict(db.execute('SELECT owner_id,employee_id FROM bindings'))
+        return {owner: user['employee_id'] for user in self.users(include_disabled=True) for owner in user['owner_ids']}
 
     def load_all(self):
         if not self.path.exists():
@@ -222,15 +241,21 @@ class WorkspaceStore:
         with self.connect() as db:
             return [(decode(WorkbookAnalysis, json.loads(r['payload'])), r['revision']) for r in db.execute('SELECT * FROM analyses ORDER BY updated_at ASC')]
 
-    def save(self, analysis, revision):
+    def save(self, analysis, revision, connection=None):
         payload = serialize(analysis)
+        if connection is not None:
+            return self._save(connection, analysis.analysis_id, payload, revision)
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute('SELECT revision FROM analyses WHERE id=?', (analysis.analysis_id,)).fetchone()
-            if (row['revision'] if row else 0) != revision:
-                raise ValueError('考核已在另一服务中更新，请重新启动当前服务后重试；本次修改未保存')
-            db.execute('INSERT INTO analyses VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at,revision=excluded.revision',
-                       (analysis.analysis_id, payload, now(), revision + 1))
+            return self._save(db, analysis.analysis_id, payload, revision)
+
+    @staticmethod
+    def _save(db, analysis_id, payload, revision):
+        row = db.execute('SELECT revision FROM analyses WHERE id=?', (analysis_id,)).fetchone()
+        if (row['revision'] if row else 0) != revision:
+            raise ValueError('考核已在另一服务中更新，请重新启动当前服务后重试；本次修改未保存')
+        db.execute('INSERT INTO analyses VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at,revision=excluded.revision',
+                   (analysis_id, payload, now(), revision + 1))
         return revision + 1
 
     def backup(self):
@@ -254,12 +279,17 @@ class WorkspaceStore:
                         raise ValueError('备份版本不兼容或完整性检查失败')
                     users = [dict(employee_id=r[0], name=r[1], role=r[2], enabled=True)
                              for r in db.execute('SELECT employee_id,name,role FROM users')]
+                    legacy_ids = {u['employee_id'] for u in users}
                     if version == 2:
                         snapshot = db.execute('SELECT payload FROM account_config WHERE id=1').fetchone()
                         if snapshot:
+                            legacy_ids = {u['employee_id'] for u in json.loads(snapshot[0])['users'] if 'owner_ids' not in u}
                             users = accounts.parse(snapshot[0].encode('utf-8'))
-                    users = accounts.validate({'version': 1, 'users': users})
                     bindings = db.execute('SELECT owner_id,employee_id FROM bindings').fetchall()
+                    for user in users:
+                        if user['employee_id'] in legacy_ids:
+                            user['owner_ids'] = [r[0] for r in bindings if r[1] == user['employee_id']]
+                    users = accounts.validate({'version': 1, 'users': users})
                     analyses = db.execute('SELECT id,payload,updated_at,revision FROM analyses').fetchall()
                     if not any(u['enabled'] and u['role'] == 'admin' for u in users):
                         raise ValueError('备份中缺少管理员')
@@ -288,7 +318,6 @@ class WorkspaceStore:
                     for table in ('bindings', 'analyses'):
                         db.execute('DELETE FROM ' + table)
                     self._snapshot_accounts(db, users)
-                    db.executemany('INSERT INTO bindings VALUES(?,?)', bindings)
                     db.executemany('INSERT INTO analyses VALUES(?,?,?,?)', [(r[0], r[1], r[2], revision) for r in analyses])
                     accounts.replace(self.accounts_path, replacement, previous)
                     replaced = True

@@ -16,6 +16,32 @@ from . import scoring_policy, questionnaire
 
 ADMIN_PATH = Path(__file__).resolve().parents[2] / 'var' / 'scoring-admin.json'
 ITERATIONS = 600_000
+_login_failures = []
+_login_lock = Lock()
+
+
+def workspace_password(data):
+    """Use the existing local administrator credential for workspace login."""
+    password = data.get('password')
+    if not isinstance(password, str) or not 8 <= len(password) <= 128:
+        raise HTTPException(400, '管理员密码长度须为8至128位')
+    with _login_lock, file_lock(ADMIN_PATH.with_suffix('.lock')):
+        stamp = monotonic()
+        _login_failures[:] = [t for t in _login_failures if stamp - t < 60]
+        if len(_login_failures) >= 5:
+            raise HTTPException(429, '密码尝试过多，请一分钟后重试')
+        if not ADMIN_PATH.exists():
+            if data.get('confirmation') != password:
+                raise HTTPException(400, '首次登录请设置密码，两次输入须一致')
+            salt = secrets.token_bytes(32)
+            atomic_write(ADMIN_PATH, json.dumps({'salt': salt.hex(), 'hash': pbkdf2_hmac('sha256', password.encode(), salt, ITERATIONS).hex()}).encode())
+        else:
+            record = json.loads(ADMIN_PATH.read_bytes())
+            digest = pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(record['salt']), ITERATIONS).hex()
+            if not hmac.compare_digest(record['hash'], digest):
+                _login_failures.append(stamp)
+                raise HTTPException(403, '管理员密码不正确')
+        _login_failures.clear()
 
 
 @contextmanager

@@ -62,6 +62,12 @@ class AIJobTests(unittest.TestCase):
         self.assertEqual(400, self.post('jobs', {'analysis_id': self.analysis.analysis_id}).status_code)
         self.assertEqual([], self.calls)
 
+    def test_completed_assessment_rejects_new_ai_work(self):
+        self.analysis.assessment['completed'] = True
+        self.post('test')
+        self.assertEqual(409, self.start().status_code)
+        self.assertEqual([], self.calls)
+
     def test_missing_policy_blocks_job_before_model_call(self):
         self.post('test')
         with patch('tdt_scoring.ai_jobs.load_policy', side_effect=ValueError('未读取判定配置：文件不存在，分析已阻止。')):

@@ -14,7 +14,7 @@
           <div class="topbar">
             <div>
               <p class="eyebrow">TDT EXPERT REVIEW</p>
-              <h1>V0.6四维事实统计版</h1>
+              <h1>评审人考核系统</h1>
             </div>
             <span class="project-summary" id="project-summary">尚未读取评审表</span>
             <div class="spacer"></div>
@@ -90,7 +90,6 @@
                 <p class="section-index" id="import-mode-label">方案 1 · 集中统计 · 步骤 1</p>
                 <div class="heading-with-note"><h2>读取TDRX评审表</h2><button class="info-tip" type="button" aria-label="两种来源进入同一套解析、校验与统计流程。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">两种来源进入同一套解析、校验与统计流程。</span></button></div>
               </div>
-              <button class="ghost-button back-to-mode" type="button">返回方案选择</button>
             </div>
 
             <div class="manager-meta is-hidden" id="manager-meta">
@@ -138,6 +137,7 @@
               <div class="batch-summary usage-note is-hidden" id="batch-summary"></div>
               <div class="report-progress-list" id="report-list"></div>
               <div class="issue-list" id="issue-summary"></div>
+              <section id="workspace-manager-errors" hidden></section>
               <section class="assessment-setup" id="assessment-setup">
                 <div class="assessment-setup-heading"><h3>考核评审人名单</h3><button class="info-tip" type="button" aria-label="只考核名单上的评审人"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">只考核名单上的评审人</span></button></div>
                 <div class="assessment-input-grid"><span>导入名单 Excel（含姓名列）</span><button id="assessment-upload-roster" type="button" class="secondary-button">上传名单单击此处</button><input id="assessment-roster-file" type="file" accept=".xlsx" hidden /><button id="assessment-preview" type="button" class="secondary-button">手动匹配名单</button><button id="assessment-restore-roster" type="button" class="secondary-button" disabled>还原导入名单</button></div>
@@ -184,7 +184,7 @@
             <div id="subjective-page-one">
             <div class="subjective-layout">
               <aside class="subjective-rail" aria-label="选择评审人">
-                <label class="field subjective-manager-field"><span>评价经理</span><select id="assessment-manager"></select></label>
+                <label class="field subjective-manager-field"><span>评价项目经理</span><select id="assessment-manager"></select></label>
                 <p id="subjective-assignment-message" role="status"></p>
                 <p id="subjective-progress" class="muted"></p>
                 <div id="subjective-experts"></div>
@@ -197,8 +197,9 @@
 
             </div>
             <div id="subjective-page-two" hidden></div>
-            <div id="subjective-policy-footer" class="subjective-archive objective-table-footer"><div class="note-row">数据留存<button class="info-tip" type="button" aria-label="显示已保存后，问卷已写入本机；刷新和重启仍可读取。管理员可在考核列表下载完整备份。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">显示已保存后，问卷已写入本机；刷新和重启仍可读取。管理员可在考核列表下载完整备份。</span></button></div></div>
+            <div id="subjective-policy-footer" class="subjective-archive objective-table-footer"><div class="note-row">数据留存<button class="info-tip" type="button" aria-label="显示已保存后，问卷已写入本机；刷新和重启仍可读取，工作区自动每日备份。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">显示已保存后，问卷已写入本机；刷新和重启仍可读取，工作区自动每日备份。</span></button></div></div>
             <div class="subjective-page-footer"><button class="primary-button" id="subjective-page-toggle" type="button" data-dimension-page="subjective:2">查看主观打分 →</button></div>
+            <div class="subjective-page-footer" id="workspace-my-return" hidden><button class="primary-button" type="button" onclick="workspace.home()">← 返回我的问卷</button></div>
           </section>
           <section class="panel is-hidden" id="score-statistics-panel">
             <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><div class="heading-with-note"><h2>总分统计</h2><span id="score-method-note"></span></div></div>
@@ -208,10 +209,12 @@
             <div id="score-statistics-message" role="status"></div>
             <div class="score-statistics-table-wrap" id="score-statistics-table"></div>
             <div id="score-statistics-details"></div>
+            <div class="assessment-pager"><button class="primary-button" id="workspace-complete" type="button" disabled>完成本期考评</button></div>
           </section>
         </div>
       </main>
     </div>
+    <dialog id="workspace-dialog" aria-labelledby="workspace-dialog-title"><h3 id="workspace-dialog-title"></h3><div id="workspace-dialog-body"></div><p id="workspace-dialog-error" role="status"></p><div class="policy-editor-actions"><button class="secondary-button" type="button" onclick="document.querySelector('#workspace-dialog').close()">关闭</button><button class="primary-button" id="workspace-dialog-confirm" type="button">确认</button></div></dialog>
     <dialog class="evidence-drawer" id="evidence-drawer" aria-labelledby="evidence-drawer-title">
       <div class="evidence-drawer-heading"><div><p class="section-index">参评意见明细</p><h3 id="evidence-drawer-title">四维统计详情</h3></div><button class="ghost-button" id="close-evidence" type="button">关闭</button></div>
       <div id="evidence-drawer-content"></div>
@@ -258,6 +261,7 @@
       <form id="policy-editor-form">
         <fieldset id="policy-fields" disabled></fieldset>
         <div id="policy-change-preview" class="policy-note" hidden></div>
+        <div id="policy-task-history" hidden></div>
         <div class="policy-editor-actions"><button class="secondary-button" id="policy-relock" type="button" hidden>结束修改</button><button class="primary-button" id="policy-save" type="submit" disabled>预览修改</button></div>
       </form>
     </dialog>

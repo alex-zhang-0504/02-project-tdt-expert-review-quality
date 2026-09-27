@@ -9,10 +9,18 @@ POLICY_PATH = Path(__file__).resolve().parents[2] / 'config/subjective-policy-v0
 IDS = ('preparation', 'judgment', 'guidance', 'verification', 'collaboration', 'contribution')
 
 
+def evidence_rules(data):
+    return data.get('evidence', {k: [] if k == 'preparation' else ['high'] if k == 'contribution' else ['low'] for k in IDS})
+
+
 def parse(raw):
     try:
         data = json.loads(raw)
-        if set(data) != {'version','instructions','unable','contribution_prompt','dimensions','scores'}: raise ValueError()
+        if set(data) - {'evidence'} != {'version','instructions','unable','contribution_prompt','dimensions','scores'}: raise ValueError()
+        rules = evidence_rules(data)
+        if not isinstance(rules, dict) or set(rules) != set(IDS): raise ValueError()
+        for key, values in rules.items():
+            if not isinstance(values, list) or len(values) != len(set(values)) or set(values) - ({'high','low'} if key == 'contribution' else {'high','medium','low'}): raise ValueError()
         def text(value):
             if not isinstance(value, str) or not value.strip() or len(value) > 2000: raise ValueError()
         for key in ('version','instructions','contribution_prompt'): text(data[key])
@@ -54,6 +62,7 @@ def dimensions(analysis=None, receipt=None):
     data = (receipt or snapshot(analysis))['parameters']
     result = deepcopy(data['dimensions'])
     for d in result:
+        d['required_options'] = evidence_rules(data)[d['id']]
         d['unable_title'] = data['unable']['title']
         for o in d['options']: o['score'] = data['scores'][d['id']][o['id']]
     return result

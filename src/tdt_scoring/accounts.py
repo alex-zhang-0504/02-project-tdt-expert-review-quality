@@ -9,10 +9,11 @@ from tempfile import TemporaryDirectory
 def validate(data):
     if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('users'), list):
         raise ValueError('账号配置须包含version为1及users数组')
-    users, seen = [], set()
+    users, seen, owners = [], set(), set()
     for user in data['users']:
-        if not isinstance(user, dict) or set(user) != {'employee_id', 'name', 'role', 'enabled'}:
-            raise ValueError('每个账号须包含employee_id、name、role和enabled四个字段')
+        required = {'employee_id', 'name', 'role', 'enabled'}
+        if not isinstance(user, dict) or not required <= set(user) or set(user) - required - {'owner_ids'}:
+            raise ValueError('账号须包含employee_id、name、role、enabled，可设置owner_ids数组')
         eid, name = user['employee_id'], user['name']
         if not isinstance(eid, str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,64}', eid):
             raise ValueError('工号须为1至64位字母、数字、点、短横线或下划线，保留前导零')
@@ -22,8 +23,14 @@ def validate(data):
             raise ValueError('请填写有效姓名和角色')
         if type(user['enabled']) is not bool:
             raise ValueError('enabled须为true或false')
+        ids = user.get('owner_ids', [])
+        if not isinstance(ids, list) or any(not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', owner) for owner in ids):
+            raise ValueError('owner_ids须为ID字符串数组，仅允许字母、数字、下划线和短横线')
+        if len(set(ids)) != len(ids) or owners.intersection(ids):
+            raise ValueError('同一owner ID只能归属一个账号，配置中不能重复')
+        owners.update(ids)
         seen.add(eid)
-        users.append({**user, 'name': name.strip()})
+        users.append({**user, 'name': name.strip(), 'owner_ids': ids})
     if users and not any(u['enabled'] and u['role'] == 'admin' for u in users):
         raise ValueError('不能删除或停用最后一个管理员账号，也不能将其改为项目经理')
     return users

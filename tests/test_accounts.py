@@ -21,9 +21,12 @@ class AccountMigrationTests(unittest.TestCase):
                 ''')
                 db.execute('INSERT INTO users VALUES(?,?,?)', ('0001', '虚拟旧管理员', 'admin'))
                 db.execute('INSERT INTO users VALUES(?,?,?)', ('0010', '虚拟旧经理', 'manager'))
+                db.execute('INSERT INTO bindings VALUES(?,?)', ('ou_legacy', '0010'))
             legacy = store.path.read_bytes()
             self.assertEqual(['0001', '0010'], [u['employee_id'] for u in store.users()])
             self.assertTrue(store.accounts_path.exists())
+            self.assertEqual(['ou_legacy'], store.user('0010')['owner_ids'])
+            self.assertEqual({'ou_legacy':'0010'}, store.bindings())
             self.assertEqual(1, len(list((Path(directory)/'backups').glob('before-accounts-*.sqlite3'))))
             with sqlite3.connect(store.path, factory=Connection) as db:
                 self.assertEqual(2, db.execute('PRAGMA user_version').fetchone()[0])
@@ -32,6 +35,7 @@ class AccountMigrationTests(unittest.TestCase):
             store.restore(legacy)
             self.assertTrue(store.user('0010')['enabled'])
             self.assertEqual('虚拟旧经理', store.user('0010')['name'])
+            self.assertEqual(['ou_legacy'], store.user('0010')['owner_ids'])
             store.accounts_path.rename(Path(directory)/'missing-accounts.json')
             with self.assertRaisesRegex(ValueError, '缺失'):
                 WorkspaceStore(directory).users()

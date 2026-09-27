@@ -19,7 +19,7 @@ from tdt_scoring.assessment_api import create_router
 from tdt_scoring.service import ScoringService
 from tdt_scoring.storage import WorkspaceStore
 from tdt_scoring.subjective import ReviewInput, DIMENSIONS
-from tdt_scoring.workspace import Workspace, WorkspaceGate, create_workspace_router, COOKIE
+from tdt_scoring.workspace import Workspace, WorkspaceGate, create_workspace_router, COOKIE, AUTH_COOKIE
 from tests.test_assessment import sample
 
 
@@ -30,6 +30,7 @@ class WorkspaceTests(unittest.TestCase):
         self.store = WorkspaceStore(self.temp.name)
         self.service = ScoringService(store=self.store)
         self.workspace = Workspace(self.service, self.store)
+        self.workspace.sessions['unit-admin-session'] = '0001'
         self.admin = self.store.add_user('0001', '虚拟管理员', 'admin', first=True)
         self.manager = self.store.add_user('a', '虚拟经理甲')
         self.other = self.store.add_user('b', '虚拟经理乙')
@@ -63,13 +64,14 @@ class WorkspaceTests(unittest.TestCase):
         return jsonable_encoder(asdict(analysis))
 
     def request(self, path, data=None, method='GET', user='0001'):
+        self.workspace.sessions['unit-admin-session-' + user] = user
         async def run():
             url = urlsplit(path)
             body = data if isinstance(data, bytes) else json.dumps(data).encode()
             scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'},
                      'http_version': '1.1', 'method': method, 'scheme': 'http', 'path': url.path,
                      'query_string': url.query.encode(), 'headers': [(b'host', b'127.0.0.1:8872'),
-                     (b'cookie', f'{COOKIE}={user}'.encode()), (b'content-type', b'application/json')],
+                     (b'cookie', f'{COOKIE}={user}; {AUTH_COOKIE}=unit-admin-session-{user}'.encode()), (b'content-type', b'application/json')],
                      'client': ('127.0.0.1', 12345), 'server': ('127.0.0.1', 8872), 'root_path': ''}
             messages = []
             async def receive():
@@ -128,6 +130,48 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(200, code)
         self.assertEqual('虚拟页面修改', WorkspaceStore(self.temp.name).user('0020')['name'])
         self.assertIn(updated, json.loads(self.store.accounts_path.read_text(encoding='utf-8'))['users'])
+
+    def test_fixed_owner_ids_match_without_name_inference_and_freeze(self):
+        with self.service.edit_analysis(self.id) as analysis:
+            analysis.assessment = {}
+            for report in [*analysis.reports, *analysis.sessions]:
+                report.manager_identity = dict(owner_id='ou_virtual', name='虚拟经理甲', status='resolved', source_token='virtual-token')
+        matches = self.request('/api/workspace/manager-matches?analysis_id='+self.id)[1]
+        self.assertEqual(1, len(matches['errors']))
+        self.assertEqual(2, len(matches['errors'][0]['reports']))
+        self.assertFalse(self.store.bindings())  # Same name never establishes a mapping.
+        self.assertEqual(403, self.request('/api/workspace/manager-matches?analysis_id='+self.id, user='a')[0])
+        self.assertEqual(200, self.request('/api/workspace/bindings', dict(owner_id='ou_virtual', employee_id='a'), 'POST')[0])
+        self.assertIn('ou_virtual', self.store.user('a')['owner_ids'])
+        self.assertFalse(self.request('/api/workspace/manager-matches?analysis_id='+self.id)[1]['errors'])
+        self.assertEqual({'ou_virtual': 'a'}, WorkspaceStore(self.temp.name).bindings())
+        self.assertEqual(200, self.request('/api/assessment/roster', {'analysis_id':self.id, 'names':[self.name], 'confirm':True}, 'POST')[0])
+        frozen = deepcopy(self.analysis.assessment['manager_accounts'])
+        self.store.bind('ou_virtual', 'b')
+        self.assertEqual(frozen, self.analysis.assessment['manager_accounts'])
+
+    def test_owner_disabled_or_missing_blocks_confirmation_and_ids_are_unique(self):
+        with self.service.edit_analysis(self.id) as analysis:
+            analysis.assessment = {}
+            for report in [*analysis.reports, *analysis.sessions]:
+                report.manager_identity = dict(owner_id='ou_virtual', name='虚拟经理甲', status='resolved', source_token='virtual-token')
+        self.store.bind('ou_virtual','a')
+        user = self.store.user('a')
+        self.store.update_user('a', {**user, 'enabled':False}, user)
+        matches = self.workspace.manager_matches(self.analysis)
+        self.assertEqual('账号已停用', matches['errors'][0]['reason'])
+        self.assertEqual(400, self.request('/api/assessment/roster', {'analysis_id':self.id,'names':[self.name],'confirm':True},'POST')[0])
+        user = self.store.user('b')
+        with self.assertRaisesRegex(ValueError,'只能归属一个'):
+            self.store.update_user('b',{**user,'owner_ids':['ou_virtual']}, user)
+        self.assertIsNone(self.store.user('a'))
+        self.assertEqual([], self.store.user('b')['owner_ids'])
+        with self.service.edit_analysis(self.id) as analysis:
+            for report in analysis.reports:
+                report.source_type='feishu_sheet'
+                report.manager_identity={}
+        matches=self.workspace.manager_matches(self.analysis)
+        self.assertTrue(all(not e['can_assign'] for e in matches['errors']))
 
     def test_account_conflict_disabling_and_history_retention(self):
         self.save()
@@ -241,6 +285,18 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(4, len(history))
         self.assertEqual('high', history[1]['before']['ratings']['preparation']['option'])
         self.assertEqual('medium', history[1]['after']['ratings']['preparation']['option'])
+
+    def test_summary_counts_valid_answers_instead_of_selected_cards(self):
+        payload = self.payload()
+        payload['ratings']['contribution'] = {'option': 'high'}
+        self.assertEqual(200, self.save(payload)[0])
+        summary = self.workspace.summary(self.analysis, self.manager)
+        manager = summary['managers'][0]
+        self.assertEqual(0, manager['completed'])
+        self.assertEqual({'status': '待补依据或原因', 'answered': 5, 'selected': 6}, manager['reviews'][self.name])
+        self.assertTrue(manager['started'])
+        self.assertEqual(200, self.save(self.payload(revision=1))[0])
+        self.assertEqual(1, self.workspace.summary(self.analysis, self.manager)['managers'][0]['completed'])
 
     def test_disk_failure_rolls_back_and_restart_restores_dates_and_audit(self):
         with patch.object(self.store, 'save', side_effect=OSError('virtual disk failure')):

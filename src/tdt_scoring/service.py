@@ -43,13 +43,16 @@ class ScoringService:
             self._revisions[analysis.analysis_id] = self.store.save(analysis, self._revisions.get(analysis.analysis_id, 0))
 
     @contextmanager
-    def edit_analysis(self, analysis_id):
+    def edit_analysis(self, analysis_id, persist=True):
         with self._fact_lock:
             analysis = self.get_analysis(analysis_id)
+            if analysis.assessment.get('completed'):
+                raise ValueError('本期考评已完成，历史任务只读')
             previous = deepcopy(analysis)
             try:
                 yield analysis
-                self.persist(analysis)
+                if persist:
+                    self.persist(analysis)
             except Exception:
                 for item in fields(analysis):
                     setattr(analysis, item.name, getattr(previous, item.name))
@@ -253,7 +256,10 @@ class ScoringService:
 
     def get_analysis(self, analysis_id: str) -> WorkbookAnalysis:
         try:
-            return self._analyses[analysis_id]
+            result = self._analyses[analysis_id]
+            if result.assessment.get('deleted'):
+                raise KeyError(analysis_id)
+            return result
         except KeyError as exc:
             raise KeyError("统计分析不存在或本地服务已重启，请重新导入评审表") from exc
 

@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TDT考核系统 · 交互草稿 V3</title>
+<style>
+:root{--ink:#363636;--muted:#787878;--line:#e2e2e2;--surface:#f6f6f6;--accent:#0a9bf5;--soft:#e6f4fe;--radius:2px;--danger:#d44c47}
+*{box-sizing:border-box}body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI","Microsoft YaHei",sans-serif;font-size:15px;line-height:1.65}button,input,select,textarea{font:inherit;color:var(--ink)}button{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:10px 18px;cursor:pointer;font-weight:600;transition:transform .18s,filter .18s}button:hover:not(:disabled){transform:translateY(-3px);filter:brightness(.96)}button:active:not(:disabled){transform:translateY(0)}button:disabled{cursor:not-allowed;color:var(--muted);background:var(--surface)}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button.ghost{background:#fff}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}input,select,textarea{border:1px solid #b8b8b8;border-radius:2px;background:white;padding:10px 12px;width:100%}textarea{resize:vertical;min-height:84px}label.field{display:grid;gap:6px}h1,h2,h3,p{margin:0}h1{font-size:22px;line-height:1.3}h2{font-size:28px;line-height:1.4}h3{font-size:18px}p+p{margin-top:8px}.muted{color:var(--muted)}.eyebrow{font-size:12px;letter-spacing:1px;color:var(--muted)}.app-header{border-bottom:1px solid var(--line);background:#fff;padding:20px 32px 16px}.header-row,.heading,.row{display:flex;align-items:center;justify-content:space-between;gap:20px}.identity{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:flex-end}.identity span{color:var(--ink)}.version{font-size:12px;background:var(--soft);padding:4px 10px;white-space:nowrap}.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:18px}.tabs button{min-height:44px;padding:8px;display:flex;justify-content:center;align-items:center;gap:8px}.tabs button.active{background:var(--accent);border-color:var(--accent);color:white}.lock{width:15px;height:15px;flex:none}.shell{max-width:1260px;margin:0 auto;padding:28px 32px 36px}.draft-note{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:9px 32px;color:var(--muted);font-size:12px;background:var(--surface)}.draft-note strong{color:var(--ink);font-weight:500}.login{max-width:460px;margin:42px auto 60px;border:1px solid var(--line);padding:30px}.login form{display:grid;gap:20px;margin-top:24px}.login h2{font-size:25px}.login-error{min-height:24px}.list{margin-top:24px;display:grid;gap:14px}.assessment{border:1px solid var(--line);padding:22px 24px;border-radius:2px}.assessment p{margin-top:6px}.badge{font-size:13px;padding:3px 10px;background:var(--soft);white-space:nowrap}.list .details-row{display:flex;align-items:center;gap:18px;margin-top:16px}.progress{height:5px;background:var(--line);max-width:340px;flex:1}.progress>span{display:block;height:100%;background:var(--accent)}.pager{display:flex;justify-content:center;margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}.pager button{min-width:220px}.settings{border-top:1px solid var(--line);margin-top:26px;padding-top:18px}.settings summary{cursor:pointer}.settings-content{padding-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}.source{margin-top:22px;padding:22px;border:1px solid var(--line)}.source-tools{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-top:14px}.scenarios{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:18px;font-size:13px}.scenarios input{width:auto;accent-color:var(--accent)}.scan{margin-top:22px}.scan-row{border-bottom:1px solid var(--line);padding:14px 0;display:flex;justify-content:space-between;gap:16px}.scan-row span:last-child{white-space:nowrap}.scanbar{height:4px;background:var(--line);margin-top:12px}.scanbar>span{height:100%;display:block;background:var(--accent);transition:width .3s}.exception{border:1px solid var(--line);padding:18px;margin-top:20px;color:var(--ink)}.error-label{color:var(--danger);font-weight:600}.exception .row{margin-top:12px}.exception select{max-width:360px}.roster{margin-top:24px;border-top:1px solid var(--line);padding-top:22px}.roster-upload{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;margin:18px 0}.roster-upload .file-name{text-align:left;font-weight:500}.roster-results{margin-top:14px;border-top:1px solid var(--line)}.roster-result{display:grid;grid-template-columns:80px 60px 1fr;gap:12px;border-bottom:1px solid var(--line);padding:10px 12px}.roster-result:first-child{background:var(--soft)}.roster-actions{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin-top:20px;flex-wrap:wrap}.receipt{margin-top:16px;padding:14px 18px;background:var(--surface)}.receipt summary{cursor:pointer}.receipt code{font-size:12px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0}.metric{border:1px solid var(--line);padding:20px}.metric strong{font-size:28px;display:block}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;margin-top:22px;white-space:nowrap}th,td{padding:13px 16px;border:1px solid var(--line);text-align:left}th{background:var(--accent);color:white;font-weight:500}tbody tr:nth-child(even){background:var(--surface)}.questions{display:grid;gap:20px;margin-top:24px}.question{border:1px solid var(--line);padding:20px}.question h3{font-size:16px}.options{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}.option{border:1px solid var(--line);padding:13px;cursor:pointer;display:flex;align-items:center;gap:10px}.option:has(input:checked){border-color:var(--accent);background:var(--soft)}.option input{width:auto;accent-color:var(--accent)}.status{font-size:13px;color:var(--muted)}.review-top{display:flex;align-items:center;gap:12px;margin-top:16px}.review-top select{width:auto}.person{color:var(--ink)!important}.mini-note{font-size:13px;color:var(--muted);margin-top:12px}dialog{border:1px solid var(--line);border-radius:2px;padding:26px;max-width:760px;width:calc(100% - 48px);color:var(--ink)}dialog::backdrop{background:rgba(54,54,54,.22)}dialog textarea{min-height:320px;font:13px/1.6 Consolas,monospace;margin-top:16px}dialog .actions{display:flex;justify-content:flex-end;gap:12px;margin-top:16px}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);max-width:90%;padding:12px 20px;background:var(--ink);color:#fff;z-index:10}.toast[hidden]{display:none}button.small{padding:6px 12px;font-size:13px}.info{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--ink);border-radius:50%;width:16px;height:16px;font-size:11px;margin-left:8px;cursor:help;vertical-align:middle}
+@media(max-width:760px){.app-header{padding:16px}.header-row{align-items:flex-start;flex-direction:column;gap:12px}.identity{justify-content:flex-start;gap:12px;font-size:13px}.shell{padding:22px 16px}.draft-note{padding:8px 16px;align-items:flex-start}.tabs{gap:4px}.tabs button{font-size:13px}.heading{align-items:flex-start}.assessment{padding:18px}.assessment .row{align-items:flex-start}.roster-upload{grid-template-columns:1fr}.source-tools{grid-template-columns:1fr}.exception .row{flex-wrap:wrap}.options{grid-template-columns:1fr}.metrics{grid-template-columns:1fr}.login{margin:20px auto}.roster-result{grid-template-columns:70px 40px 1fr}.draft-note span{max-width:60%}}
+@media(prefers-reduced-motion:reduce){button,.scanbar>span{transition:none}button:hover:not(:disabled){transform:none}}
+</style>
+<style>
+:root{--surface-soft:#f6f6f6;--accent-soft:#e6f4fe;--line-strong:#b8b8b8;--font-weight-control:600;--font-size-content:16px;--font-size-supporting:14px}
+[hidden]{display:none!important}.password-wrap{position:relative}.password-wrap input{padding-right:52px}.password-eye{position:absolute;right:4px;top:4px;bottom:4px;width:42px;padding:8px;display:grid;place-items:center;border:0;background:transparent}.password-eye svg{width:22px;height:22px}.login-error:empty{display:none}.inline-title{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.count-note{font-size:14px;font-weight:400;color:var(--muted)}
+.project-info{position:relative;display:inline-flex;align-items:center}.project-info>button{padding:0;margin:0;width:20px;height:20px;background:white;border-radius:50%;border-color:var(--ink);font-size:13px;font-weight:400;line-height:1}.project-popover{display:none;position:absolute;z-index:5;top:100%;left:0;width:min(430px,calc(100vw - 64px));padding:16px;background:white;border:1px solid var(--line-strong);box-shadow:0 2px 8px #0000000a;font-size:14px;font-weight:400;color:var(--ink)}.project-popover ul{margin:10px 0 0;padding-left:20px;max-height:240px;overflow:auto}.project-popover li{padding:5px 0;overflow-wrap:anywhere}.project-info:hover .project-popover,.project-info:focus-within .project-popover,.project-info.pinned .project-popover{display:block}
+#subjective-panel{margin-top:24px}.subjective-dimension{min-width:0;margin:0 0 12px;padding:12px 0 16px;border:0;border-top:1px solid var(--line)}.subjective-dimension legend{padding:0 14px 0 0;font-weight:600;font-size:16px}.subjective-question{margin:0 0 8px;font-weight:600}.subjective-boundary{margin:0 0 14px;color:var(--ink);font-size:14px}p.subjective-boundary{margin-top:0}
+.subjective-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.subjective-options:has(>.subjective-option:nth-child(2):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}.subjective-option{position:relative;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-soft);transition:transform .18s ease,background-color .18s ease,border-color .18s ease,filter .18s ease}.subjective-option:hover{transform:translateY(-3px);filter:brightness(.94);border-color:var(--accent)}.subjective-option:active{transform:translateY(0) scale(.98);filter:brightness(.88)}.subjective-option:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}.subjective-option:focus-within{outline:2px solid var(--accent);outline-offset:2px}.subjective-option label{display:flex;align-items:flex-start;gap:10px;padding:14px;cursor:pointer;min-height:106px;height:100%}.subjective-option input{width:16px;height:16px;margin:4px 0 0;accent-color:var(--accent);flex-shrink:0}.subjective-option strong{display:block;font-size:16px;font-weight:600}.subjective-description{display:block;margin-top:8px;font-size:14px;line-height:1.5;color:var(--muted)}
+.subjective-rating-tools{margin-top:8px}.subjective-evidence{font-size:14px;padding:10px 12px;border-left:2px solid var(--line-strong);background:var(--surface-soft)}.subjective-evidence summary{cursor:pointer;color:var(--muted)}.subjective-evidence-fields{display:grid;grid-template-columns:minmax(150px,1fr) 2fr auto;gap:12px;align-items:end;margin:10px 0}.subjective-evidence-fields input,.subjective-evidence-fields select{width:100%;min-width:0}.subjective-footer{display:flex;gap:18px;align-items:center;padding:8px 0;font-size:14px}.subjective-footer progress{width:130px;height:4px;accent-color:var(--accent)}
+@media(max-width:760px){.subjective-options,.subjective-options:has(>.subjective-option:nth-child(2):last-child),.subjective-evidence-fields{grid-template-columns:1fr}.subjective-options{gap:8px}.subjective-option label{min-height:0;gap:6px}.count-note{font-size:13px}}
+@media(prefers-reduced-motion:reduce){.subjective-option{transition:none}.subjective-option:hover,.subjective-option:active{transform:none}}
+.inline-title{position:relative}.project-info{position:static}.project-popover{left:0;right:auto}#subjective-panel{font-family:"Aptos","Segoe UI",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","微软雅黑","Hiragino Sans GB",sans-serif;line-height:1.55}
+</style>
+<style>
+/* Selected presentation rules copied from main. */
+.score-table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: var(--font-size-body); }
+.score-table th, .score-table td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 12px 10px; text-align: left; vertical-align: middle; }
+.score-table tbody th { overflow-wrap: anywhere; }
+.score-table .ghost-button { min-height: 34px; padding: 6px 8px; font-size: var(--font-size-supporting); white-space: nowrap; }
+.score-table thead th { background: var(--accent); color: var(--accent-ink); border-right-color: var(--head-cell-line); }
+.score-table tbody tr:nth-child(even) { background: var(--surface-soft); }
+.score-table tbody th { border-right-color: var(--line-strong); }
+.score-table small { display: block; color: var(--muted); font-weight: var(--font-weight-body); font-size: var(--font-size-micro); overflow-wrap: anywhere; }
+.dimension-one-controls { min-width: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+.dimension-one-controls > * { min-width: 0; }
+.dimension-one-controls > .field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.dimension-one-controls > .field > span, .dimension-one-export .field > span { white-space: nowrap; }
+.dimension-one-export { display: flex; flex: 1 1 480px; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dimension-one-export .field { flex: 1 1 210px; min-width: 0; }
+.dimension-one-export .field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.dimension-one-export button { flex: 0 0 auto; white-space: nowrap; }
+.dimension-one-table { width: max(100%, var(--dimension-table-width)); min-width: var(--dimension-table-width); border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: var(--font-size-supporting); }
+.dimension-one-table th { position: sticky; top: 0; z-index: 5; height: 44px; padding: 9px 10px; border-right: 1px solid var(--head-cell-line); border-bottom: 1px solid var(--head-cell-line); background: var(--accent); color: var(--accent-ink); font-weight: var(--font-weight-heading); text-align: center; white-space: nowrap; }
+.dimension-one-table thead tr:nth-child(2) th { top: 44px; z-index: 6; }
+.dimension-one-table th[rowspan="2"] { z-index: 7; }
+.dimension-one-table td { height: 48px; padding: 8px 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); vertical-align: middle; }
+.dimension-one-table tbody tr:nth-child(even) td { background: var(--surface-soft); }
+.dimension-one-table .sticky-1, .dimension-one-table .evidence-sticky { position: sticky; z-index: 3; }
+.dimension-one-table .sticky-1 { left: 0; width: 120px; min-width: 120px; }
+.dimension-one-table .evidence-sticky { right: 0; width: 72px; min-width: 72px; }
+.dimension-one-table thead .sticky-1, .dimension-one-table thead .evidence-sticky { z-index: 9; background: var(--accent); }
+.dimension-one-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.dimension-one-table .row-evidence-button { min-height: 30px; padding: 4px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; white-space: nowrap; }
+.evidence-drawer { width: min(1120px, calc(100% - 40px)); max-width: calc(100% - 40px); box-sizing: border-box; min-width: 0; margin: auto; max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+.evidence-drawer-heading { display: flex; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.evidence-drawer-heading h3 { margin: 4px 0 0; font-size: 20px; }
+.facts-table .sticky-1 { border-right-color: var(--line-strong); }
+.facts-table .evidence-sticky { width: 88px; min-width: 88px; }
+.facts-table tbody td:nth-last-child(2) { position: sticky; right: 88px; z-index: 3; border-left: 1px solid var(--line-strong); }
+.facts-table thead tr:first-child th:nth-last-child(2) { right: 88px; z-index: 9; }
+.facts-table .fact-number { width: 100%; min-height: 32px; padding: 4px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: right; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.fact-number:hover, .fact-number:focus-visible { background: var(--accent-soft); outline: 1px solid var(--accent); }
+.opinion-record { padding: 12px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.solution-actions { display: flex; gap: 8px; margin: 10px 0; }
+.solution-actions [aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.evidence-drawer::backdrop { background: var(--backdrop); }
+#evidence-drawer-content { min-height: 0; min-width: 0; width: 100%; box-sizing: border-box; max-height: calc(90vh - 98px); overflow: auto; scrollbar-gutter: stable; }
+.evidence-drawer { overflow: hidden; }
+.evidence-drawer[open] { display: flex; flex-direction: column; }
+.evidence-drawer-heading { flex: 0 0 auto; }
+.evidence-drawer .table-scroll-content { min-height: 0; max-height: calc(90vh - 98px); }
+.fact-hint { display: block; color: var(--muted); font-size: var(--font-size-micro); white-space: nowrap; }
+.facts-table td, .facts-table th, .facts-table .fact-number { text-align: center; }
+.review-project { padding: 16px 20px; border-bottom: 1px solid var(--line-strong); font-size: var(--font-size-supporting); overflow-wrap: anywhere; }
+.review-project h3, .review-project h4, .review-project p, .review-project button { font-size: inherit; }
+.review-project h3 { margin: 0 0 16px; }
+.review-stage { border-left: 2px solid var(--line); padding: 0 16px; margin: 16px 0; }
+.review-stage + .review-stage { border-top: 1px solid var(--line); padding-top: 16px; }
+.review-stage h4 { margin: 0 0 12px; }
+.review-stage .opinion-record { min-width: 0; }
+.review-stage .opinion-record:first-of-type { border-top: 0; }
+.review-stage .solution-actions { flex-wrap: wrap; }
+.review-stage p { margin: 6px 0; line-height: 1.6; }
+.evidence-drawer-heading h3 { min-width: 0; overflow-wrap: anywhere; }
+.evidence-drawer-heading > div { min-width: 0; }
+.evidence-drawer-heading > button { flex-shrink: 0; }
+.dimension-one-controls { display: grid; grid-template-columns: 250px minmax(280px, 1fr); align-items: stretch; }
+.dimension-one-export { display: contents; }
+.facts-table .row-evidence-button { background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink); font-weight: 600; }
+.review-stage .needs-confirmation { background: var(--warning-bg); border-left: 3px solid var(--warning); padding: 12px; margin: 10px 0; }
+.facts-table .fact-header-formula { display: block; width: 100%; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; text-align: center; cursor: pointer; }
+.fact-header-formula:hover, .fact-header-formula:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
+.table-symbol-note { margin: 8px 0; color: var(--muted); font-size: var(--font-size-supporting); font-weight: var(--font-weight-body); }
+.objective-table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.objective-table-footer .policy-settings-button { min-height: 32px; padding: 5px 8px; font-size: var(--font-size-supporting); font-weight: 400; background: transparent; color: var(--muted); border: 1px solid var(--line); flex-shrink: 0; }
+.objective-table-footer .policy-settings-button svg { width: 14px; height: 14px; }
+</style><style>
+.task-grid{display:grid;grid-template-columns:1fr;gap:18px;margin-top:24px}.task-card{display:block;width:100%;text-align:left;padding:24px;background:white;font-weight:400;border:1px solid var(--line);transition:transform .18s ease,filter .18s ease,border-color .18s ease}.task-card:hover{border-color:var(--accent)}.task-card:active{transform:translateY(0) scale(.99)}.task-title{font-size:20px}.task-meta{display:block;margin:10px 0;color:var(--muted);font-size:14px}.task-progress{display:flex;justify-content:space-between;gap:16px;margin-top:16px;font-size:14px}.task-card>.progress{display:block;max-width:none;margin-top:8px;height:4px}.new-task{min-height:110px;display:flex;align-items:center;justify-content:center;gap:12px;border-style:dashed;background:var(--surface)}.plus{font-size:30px;font-weight:400}.creation-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.import-config{display:flex;align-items:end;gap:16px;margin:24px 0 16px}.import-config label{flex:1}#creation-error{color:var(--ink);margin-top:14px}.history-dialog{max-width:1100px;max-height:90vh;overflow:auto}.history-dialog .heading{margin-bottom:20px}.dimension-one-controls{display:flex;gap:20px;align-items:end;margin:22px 0}.dimension-one-controls label{width:220px}.dimension-one-table-wrap,.score-statistics-table-wrap{overflow:auto;max-width:100%}.facts-table{table-layout:fixed;width:var(--dimension-table-width);min-width:100%;margin:0}.facts-table th,.facts-table td{padding:12px 8px;text-align:center;white-space:normal}.facts-table .sticky-1{position:sticky;left:0;z-index:1}.facts-table td.sticky-1{background:white;color:var(--ink)}.facts-table .evidence-sticky{position:sticky;right:0}.facts-table td.evidence-sticky{background:white}.score-table th,.score-table td{text-align:center}.score-table td:first-child{color:var(--ink)}.row-evidence-button,.fact-number{padding:4px 6px;font-size:14px}.fact-header-formula{padding:0;background:transparent;border:0;color:inherit;font-size:14px}.reviewer-filter{position:relative;text-align:left}.reviewer-filter summary{cursor:pointer;white-space:nowrap}.reviewer-filter>div{position:absolute;top:100%;left:0;z-index:4;background:white;color:var(--ink);border:1px solid var(--line);padding:14px;min-width:185px}.reviewer-filter label{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:14px}.reviewer-filter input{width:16px;accent-color:var(--accent)}.parameter-entry{display:flex;justify-content:flex-end;margin-top:12px}.parameter-entry button{display:flex;align-items:center;gap:6px}.evidence-drawer,.evidence-drawer-heading{background:#fff}.evidence-drawer .review-project h3{font-size:16px}.evidence-drawer-heading p{margin:0}.objective-table-footer{margin-top:12px}.table-symbol-note{font-size:14px;color:var(--muted)}#formula-body{padding-top:16px}#identify-dialog p{margin-top:16px}@media(max-width:760px){.creation-fields{grid-template-columns:1fr}.import-config{flex-wrap:wrap}.task-card{padding:18px}.task-title{font-size:17px}.task-progress{flex-wrap:wrap;gap:6px}.dimension-one-controls{flex-wrap:wrap}.history-dialog .heading{align-items:flex-start}.history-dialog h2{font-size:21px}}
+</style><style>:root{--accent-ink:#fff;--font-size-micro:12px;--font-weight-body:400}.reviewer-filter-trigger { padding: 2px 4px; min-height: 32px; border: 0; background: transparent; color: var(--accent-ink); font: inherit; cursor: pointer; }
+.reviewer-filter-trigger small { display: block; color: inherit; font-size: var(--font-size-micro); font-weight: var(--font-weight-body); }
+#reviewer-filter-dialog { position: fixed; margin: 0; width: min(300px, calc(100vw - 16px)); max-height: calc(100vh - 16px); padding: 14px; border: 1px solid var(--line-strong); color: var(--ink); background: var(--surface); z-index: 30; box-sizing: border-box; overflow: auto; }
+.reviewer-filter-heading, .reviewer-filter-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.reviewer-filter-heading { justify-content: space-between; }
+#reviewer-filter-search { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+.reviewer-filter-actions button, .reviewer-filter-heading button { min-height: 32px; padding: 4px 8px; }
+#reviewer-filter-count { font-size: var(--font-size-supporting); }
+#reviewer-filter-list { max-height: 240px; overflow-y: auto; }
+#reviewer-filter-list label { display: flex; align-items: center; gap: 8px; padding: 8px 2px; color: var(--ink); font-weight: var(--font-weight-body); cursor: pointer; }
+#reviewer-filter-list input { width: auto; margin: 0; }
+.reviewer-filter-actions label { display: flex; align-items: center; gap: 8px; font-weight: var(--font-weight-body); cursor: pointer; }
+.reviewer-filter-actions { justify-content: space-between; }
+#reviewer-filter-dialog input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+#reviewer-filter-dialog input[type="checkbox"] { appearance: none; display: inline-grid; place-content: center; border: 1px solid var(--muted); border-radius: 3px; background: var(--surface); cursor: pointer; }
+#reviewer-filter-dialog input[type="checkbox"]:checked, #reviewer-filter-dialog input[type="checkbox"]:indeterminate { background: var(--accent); border-color: var(--accent); }
+#reviewer-filter-dialog input[type="checkbox"]:checked::after { content: ''; width: 5px; height: 9px; border: solid var(--accent-ink); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+#reviewer-filter-dialog input[type="checkbox"]:indeterminate::after { content: ''; width: 10px; height: 2px; border: 0; background: var(--accent-ink); transform: none; }
+#reviewer-filter-dialog input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#reviewer-filter-dialog input[type="checkbox"]:disabled { opacity: .5; cursor: default; }#reviewer-filter-dialog{background:white}#reviewer-filter-dialog input[type="checkbox"]{padding:0}</style></head>
+<body>
+<div class="draft-note"><strong>交互草稿 V3 · 待确认</strong><span>全部为虚拟数据，仅在本页模拟；刷新可重置。</span></div>
+<header class="app-header" id="header"></header><main class="shell" id="main"></main>
+
+<dialog class="evidence-drawer" id="evidence-drawer" aria-labelledby="evidence-drawer-title"><div class="evidence-drawer-heading"><div><p class="eyebrow">参评意见明细</p><h3 id="evidence-drawer-title"></h3></div><button class="ghost" data-close="evidence-drawer">关闭</button></div><div id="evidence-drawer-content"></div></dialog>
+<dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title"><div class="heading"><h2 id="history-title"></h2><button class="ghost" data-close="history-dialog">关闭</button></div><div id="history-body"></div><div class="actions"><button class="primary" data-action="export-history">导出总分统计</button></div></dialog>
+<dialog id="formula-dialog" aria-labelledby="formula-title"><div class="heading"><h3 id="formula-title"></h3><button class="ghost" data-close="formula-dialog">关闭</button></div><div id="formula-body"></div></dialog>
+    <dialog id="reviewer-filter-dialog" aria-labelledby="reviewer-filter-title">
+      <div class="reviewer-filter-heading"><strong id="reviewer-filter-title">筛选评审人</strong><button type="button" class="ghost-button" data-reviewer-filter-close>关闭</button></div>
+      <input type="search" id="reviewer-filter-search" aria-label="筛选姓名搜索" placeholder="姓名／全拼，可用空格分隔多个关键词" />
+      <div class="reviewer-filter-actions"><label><input type="checkbox" id="reviewer-filter-all" />全选</label><span id="reviewer-filter-count"></span></div>
+      <div id="reviewer-filter-list"></div>
+    </dialog>
+<dialog id="identify-dialog" aria-labelledby="identify-title"><h2 id="identify-title">对策有效性识别</h2><p>本次仅模拟识别流程，使用虚拟意见，不发送报告、不调用AI、不产生费用。</p><div class="actions"><button data-close="identify-dialog">取消</button><button class="primary" data-action="run-identify">开始模拟识别</button></div></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const lock='<svg class="lock" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="4" y="9" width="12" height="9" rx="1"/><path d="M6 9V6a4 4 0 018 0v3"/><path d="M10 12v3"/></svg>';
+let accounts=[{employee_id:'0001',name:'虚拟管理员',role:'admin',enabled:true,owner_ids:['ou_demo_admin']},{employee_id:'1001',name:'虚拟项目经理甲',role:'project_manager',enabled:true,owner_ids:['ou_demo_a']},{employee_id:'1002',name:'虚拟项目经理乙',role:'project_manager',enabled:true,owner_ids:['ou_demo_b']}];
+const state={user:null,page:'login',scenario:'normal',scanned:false,scanning:false,percent:0,bound:false,confirmed:false,policy:false,names:'虚拟评审人甲\n虚拟评审人乙',roster:null,expert:'虚拟评审人甲',manager:'1001',answers:{},objective:false,created:false};
+const questionnairePolicy={"version":"4","instructions":"请回顾本考核周期内，你与该评审人共同参与的项目评审。前五题看他平时的表现，不只看最近一次或印象最深的一次；第六题看有没有具体的突出贡献。不了解或没有足够依据时，选择暂无法判断，不要把不了解当作表现不好。","unable":{"title":"暂无法判断","description":"我对他这方面的表现了解不够，或现有记录不足，无法作出判断。","reason_prompt":"请说明原因，不作为低档评价。"},"contribution_prompt":"哪个项目？他具体做了什么？带来了什么重要变化？有什么记录可以证明？","dimensions":[{"id":"preparation","title":"评审准备与重点把握","prompt":"回顾本考核周期，在你参加的项目评审中，该评审人能否抓住本专业需要重点讨论的问题？","boundary":"看讨论中能否抓住重点，并充分讨论。不以发言快慢或多少来判断；材料未提供等外部原因，不直接归责于评审人。","options":[{"id":"high","title":"能抓住重点","description":"大多数时候，了解项目目标、技术方案和主要限制，能抓住本专业最需要关注的问题，让讨论围绕重点展开。"},{"id":"medium","title":"能完成基本评审","description":"通常了解项目背景和资料，能完成本专业的基本评审；但哪些问题最关键、应该先讨论什么，有时需要别人提醒。"},{"id":"low","title":"准备或理解不足","description":"在已收到必要资料的情况下，多次因不了解项目或理解错误，抓不住重点、明显偏离议题，影响评审。"}]},{"id":"judgment","title":"风险辨识与专业判断","prompt":"回顾本考核周期，该评审人能否发现评审技术中的重要风险，并说清楚为什么这样判断、可能造成什么影响？","boundary":"看判断是否有依据，不只看提出了多少条意见，并要结合看在项目结束、落地产品、或截止目前是否获得了相关实践。","options":[{"id":"high","title":"能发现重要风险，并说明依据","description":"大多数时候，能发现重要风险，说清判断依据、可能影响和哪些需要优先处理；拿不准的地方也会明确说明，帮助团队作出决定。"},{"id":"medium","title":"能发现常见问题，判断基本合理","description":"通常能发现常见问题，判断基本合理；但为什么这样判断、影响有多大或哪个更紧急，有时还需要进一步追问。"},{"id":"low","title":"漏掉重要风险，或作出无依据的重要判断","description":"对本专业负责、且当时信息已足够判断的事项，多次漏掉应当发现的重要风险，或缺少依据，却作出影响项目决策的重要判断。"}]},{"id":"guidance","title":"技术建议与方案指导","prompt":"回顾本考核周期，遇到需要他提供专业建议的问题时，该评审人能否提出具体、可行的做法，让团队知道下一步怎么做？","boundary":"只评价需要他提供专业建议的事项。看建议是否合理、能否实施，并且被采纳为标准，但不要求他替研发团队完成全部方案。","options":[{"id":"high","title":"建议具体，能指导下一步行动","description":"大多数时候，能提出具体做法，说明什么条件下适用，并考虑项目的时间、成本或技术限制，让团队知道下一步怎么改、怎么验证。"},{"id":"medium","title":"方向合理，具体做法还需补充","description":"通常能指出合理的改进方向，但具体怎么做、什么条件下能用，有留白，需要团队进一步明确。"},{"id":"low","title":"建议空泛，或明显行不通","description":"对确实需要其专业建议的问题，多次只说“要优化”“再完善”，没有具体指导；或忽略已知限制，提出明显无法执行的建议。"}]},{"id":"verification","title":"验证证据与评审把关","prompt":"回顾本考核周期，在需要他检查验证结果、确认问题是否解决时，该评审人能否核对证据，判断是否可以通过？","boundary":"只评价他负责检查或确认的事项。项目团队没有按时解决问题，不直接算作他把关不到位；本期没有承担这类任务，也不按表现不足处理。","options":[{"id":"high","title":"能明确通过要求，并核对证据","description":"大多数时候，能根据当前评审阶段，说清要验证什么、达到什么要求才算通过；会核对证据是否支持结论，不足时要求补充。"},{"id":"medium","title":"能检查主要结果，发现明显不足","description":"通常会检查主要验证结果，对明显不符合要求或材料缺失的情况，能提出补充要求。"},{"id":"low","title":"证据没核清就通过，或随意改要求","description":"对自己负责确认的事项，多次未核实关键证据就同意通过；或没有新的事实依据，却随意更改通过要求。"}]},{"id":"collaboration","title":"专业表达与评审担当","prompt":"回顾本考核周期，该评审人能否对自己负责的问题给出明确判断，并在意见不一致时，围绕事实把问题讨论清楚？","boundary":"不以是否好相处、是否赞同项目团队来判断。意见严格、坚持不同意见或最终没有达成一致，不直接算协作差。","options":[{"id":"high","title":"能说明理由，也能处理分歧","description":"通常能说清理由，在分歧中把事实和问题讲清楚，推动形成明确的评审结论。有依据时坚持意见，出现新证据时也愿意调整判断。"},{"id":"medium","title":"能表达意见，完成自己的专业判断","description":"通常能说清自己的意见、配合讨论，并对自己负责的问题作出明确判断；遇到复杂分歧，还需要他人帮助协调。"},{"id":"low","title":"回避应作出的判断，或妨碍讨论","description":"对需要自己作出判断的问题，多次回避或不表态；或用没有依据的说法阻碍讨论，影响形成明确结论。"}]},{"id":"contribution","title":"可核实的突出技术贡献","prompt":"本考核周期内，该评审人是否在你的项目中，作出过明显超出日常评审要求的贡献，而且有具体事例和证据可以说明？","boundary":"普通建议被采纳，不直接算突出贡献；没有突出贡献，也不代表日常评审做得不好。一件符合条件的贡献即可，不要求多次发生。预计能带来的好处，要与已经实现的结果分开说明。","options":[{"id":"high","title":"有突出贡献，能提供依据","description":"能说清他具体做了什么，因此避免了什么关键问题或带来了什么明显改善，并提供证据。例如，推动重大技术风险得到有效处理、解决关键技术难题，或使技术方案明显改善。"},{"id":"low","title":"未发现符合条件的突出贡献","description":"在你了解的项目中，未发现达到上述标准、且有证据支持的贡献。这个选项不代表他的日常评审表现不合格。"}]}],"scores":{"preparation":{"high":10,"medium":7,"low":2},"judgment":{"high":15,"medium":10,"low":0},"guidance":{"high":15,"medium":10,"low":0},"verification":{"high":10,"medium":7,"low":0},"collaboration":{"high":10,"medium":7,"low":0},"contribution":{"high":10,"low":0}}};
+const experts=['虚拟评审人甲','虚拟评审人乙'];
+const modules=[['list','读取评审表'],['objective','客观数据评价'],['subjective','主观评价'],['total','总分统计']];
+let timer,toastTimer;
+function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,2600)}
+function goto(page){saveActiveTask();state.page=page;render();window.scrollTo({top:0,behavior:'instant'})}
+function requiresEvidence(id,option){return id==='contribution'?option==='high':id!=='preparation'&&option==='low'}
+function answerProgress(e,mid=state.manager){const ratings=state.answers[mid+'|'+e]||{};let valid=0,selected=0;for(const d of questionnairePolicy.dimensions){const r=ratings[d.id];if(!r)continue;const allowed=d.options.some(o=>o.id===r.option)||(d.id!=='contribution'&&r.option==='unable');if(!allowed)continue;selected++;if(r.option==='unable'){if(r.reason?.trim())valid++}else if(requiresEvidence(d.id,r.option)){const rows=(r.evidence||[]).filter(x=>x.project_code||x.note?.trim());if(rows.length&&rows.every(x=>commonProjects(e,mid).some(p=>p.code===x.project_code)&&x.note?.trim()))valid++}else valid++}return {valid,selected}}
+function completed(e,mid=state.manager){return answerProgress(e,mid).valid===6}
+function commonProjects(e=state.expert,mid=state.manager){const names=mid==='1002'?(e===experts[0]?['虚拟散热优化项目','虚拟可靠性项目']:['虚拟通信项目','虚拟连接稳定性项目']):(e===experts[0]?['虚拟低功耗项目','虚拟通信项目','虚拟平台升级项目','虚拟续航优化项目','虚拟音频降噪项目','虚拟显示优化项目','虚拟结构验证项目','虚拟连接稳定性项目']:['虚拟通信项目','虚拟显示优化项目']);return names.map((name,i)=>({code:`DEMO-${mid}-${experts.indexOf(e)+1}-${i+1}`,name}))}
+function currentRatings(){return state.answers[state.manager+'|'+state.expert]||={}}
+function saveIndicator(){const p=answerProgress(state.expert);const label=`已保存 · ${p.valid}／6题${p.selected>p.valid?' · 待补依据或原因':''}`;$('#save-status').textContent=label;$('#subjective-completion').textContent=p.valid===6?'6／6题 · 已完成':`${p.valid}／6题 · 待完成`;$('#subjective-completion-bar').value=p.valid}
+function eyeIcon(visible){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">${visible?'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>':'<path d="m3 3 18 18M9.5 5.4A12 12 0 0112 5c6.5 0 10 7 10 7a19 19 0 01-3.1 3.9M6.1 6.1A21 21 0 002 12s3.5 7 10 7a12 12 0 005.9-1.8M10 10a3 3 0 004 4"/>'}</svg>`}
+function roleName(u){return u.role==='admin'?'管理员':'项目经理'}
+function render(){
+ const u=state.user,admin=u?.role==='admin',isList=['list','my-list'].includes(state.page),active=['read','list','create'].includes(state.page)?'list':state.page==='my-list'?'subjective':state.page;
+ $('#header').innerHTML=`<div class="header-row"><div><p class="eyebrow">TDT REVIEW</p><h1>评审人考核系统</h1></div><div class="identity">${u?`<span class="person">${esc(u.name)} · ${esc(u.employee_id)} · ${roleName(u)}</span>`:''}<span class="version">试用版 v0.6 · 模拟</span>${u&&isList?'<button class="ghost small" data-action="switch">log out</button>':''}</div></div>${u?`<nav class="tabs" aria-label="考核模块">${modules.map(([id,label])=>`<button ${!admin&&id!=='subjective'?'disabled aria-label="'+label+'，已锁定" title="仅管理员可操作"':''} class="${active===id?'active':''}" data-nav="${id}" ${active===id?'aria-current="page"':''}>${!admin&&id!=='subjective'?lock:''}${label}</button>`).join('')}</nav>`:''}`;
+ $('#main').innerHTML=state.page==='login'?login():state.page==='list'?list():state.page==='create'?createTaskPage():state.page==='read'?read():state.page==='my-list'?myList():state.page==='subjective'?subjective():state.page==='objective'?objective():total();
+ if(state.page==='objective')mountObjective();
+ if(state.page==='create')mountCreate();
+ if(state.page==='login'){updateLogin();$('#login-account').onchange=updateLogin;$('#login-form').onsubmit=loginSubmit}
+ if(state.page==='read'){$('#roster-names')?.addEventListener('input',e=>{state.names=e.target.value;state.roster=null});document.querySelectorAll('[name=scenario]').forEach(r=>r.onchange=()=>{state.scenario=r.value;state.scanned=false;state.bound=false;state.confirmed=false;state.policy=false;state.objective=false;state.opinionDecisions={};render()})}
+ if(state.page==='subjective'){$('#review-manager')?.addEventListener('change',e=>{state.manager=e.target.value;render()});saveIndicator();bindQuestionnaire()}
+}
+function login(){return `<section class="login"><h2>选择账号登录</h2><form id="login-form"><label class="field">姓名与工号<select id="login-account">${accounts.filter(u=>u.enabled).map(u=>`<option value="${esc(u.employee_id)}">${esc(u.name)} · ${esc(u.employee_id)}</option>`).join('')}</select></label><div id="password-area"><label class="field" for="login-password">管理员密码</label><div class="password-wrap"><input type="password" id="login-password" autocomplete="off" placeholder="请输入密码" /><button type="button" class="password-eye" data-action="password-eye" aria-label="显示密码" aria-pressed="false">${eyeIcon(false)}</button></div></div><button class="primary" type="submit">登录系统</button><p id="login-error" class="login-error" role="status"></p></form></section>`}
+function updateLogin(){const u=accounts.find(u=>u.employee_id===$('#login-account').value);$('#password-area').hidden=u?.role!=='admin';$('#login-password').required=u?.role==='admin';$('#login-password').type='password';$('#login-password').value='';const eye=$('.password-eye');eye.innerHTML=eyeIcon(false);eye.setAttribute('aria-label','显示密码');eye.setAttribute('aria-pressed','false');$('#login-error').textContent=''}
+function loginSubmit(e){e.preventDefault();const u=accounts.find(u=>u.employee_id===$('#login-account').value);if(!u)return;if(u.role==='admin'&&$('#login-password').value!=='demo123'){$('#login-error').textContent='演示密码不正确，请输入 demo123。';return}state.user=u;state.manager=u.role==='admin'?'1001':u.employee_id;goto(u.role==='admin'?'list':'my-list')}
+function pager(action,label){return `<div class="pager"><button class="primary" data-action="${action}">${label}</button></div>`}
+function read(){let bad=state.scanned&&state.scenario==='exception'&&!state.bound;return `<div class="heading"><div><p class="eyebrow">读取评审表 · 第2页</p><h2>读取与匹配</h2></div><span class="badge">${state.confirmed?'名单与参数已固定':'待确认'}</span></div><section class="source"><h3>飞书批量文件扫描</h3><div class="source-tools"><label class="field">飞书归档文件夹<input aria-label="飞书归档文件夹" value="https://example.feishu.cn/drive/folder/demo" /></label><button class="primary" data-action="scan" ${state.scanning||state.confirmed?'disabled':''}>${state.scanning?'正在扫描…':'模拟读取评审表'}</button></div><div class="scenarios"><span class="muted">试用场景</span><label><input type="radio" name="scenario" value="normal" ${state.scenario==='normal'?'checked':''} ${state.scanning?'disabled':''}/> 全部owner ID已配置</label><label><input type="radio" name="scenario" value="exception" ${state.scenario==='exception'?'checked':''} ${state.scanning?'disabled':''}/> 有一个owner ID未配置</label></div>${state.scanning?`<div class="scanbar"><span style="width:${state.percent}%"></span></div><p class="mini-note" id="scan-progress">正在读取 ${state.percent}%</p>`:''}${state.scanned?`<div class="scan"><div class="scan-row"><span>虚拟低功耗项目 · TDR1评审报告</span><span>检查通过</span></div><div class="scan-row"><span>虚拟通信项目 · TDR3评审报告</span><span>检查通过</span></div><p class="mini-note">已读取2份报告。${bad?'项目经理归属有1项待确认。':'项目经理已按owner ID自动匹配。'}</p></div>`:''}${bad?`<section class="exception"><span class="error-label">1项待确认</span><h3>项目经理匹配异常</h3><p class="person">虚拟项目经理乙 · ou_demo_new</p><p class="muted">该ID未登记，涉及2份报告。选择一次后建立固定关联。</p><div class="row"><select id="bind-account" aria-label="异常owner ID对应账号"><option value="">请选择对应账号</option>${accounts.filter(u=>u.enabled).map(u=>`<option value="${esc(u.employee_id)}">${esc(u.name)} · ${esc(u.employee_id)}</option>`).join('')}</select><button data-action="bind">确认归属</button></div></section>`:''}</section>${state.scanned?roster():''}${pager('back-list','← 返回考核任务信息')}`}
+function roster(){return `<section class="roster"><h3>考核评审人名单<span class="info" tabindex="0" title="只考核名单与已读取报告的交集">!</span></h3><div class="roster-upload"><span>导入名单 Excel（含姓名列）</span><button class="file-name" data-action="sample-roster" ${state.confirmed?'disabled':''}>TDT技术项目评审人员名单.xlsx（示例）</button><button data-action="match" ${state.confirmed?'disabled':''}>手动匹配名单</button></div><label class="field"><strong>待考核姓名</strong><textarea id="roster-names" ${state.confirmed?'disabled':''}>${esc(state.names)}</textarea></label>${state.roster?`<div class="roster-results">${[['已匹配',state.roster.matched],['未匹配',state.roster.unmatched],['未纳入',experts.filter(e=>!state.roster.matched.includes(e))]].map(([title,names])=>`<div class="roster-result"><strong>${title}</strong><span>${names.length}人</span><span class="person">${esc(names.join('、')||'无')}</span></div>`).join('')}</div>`:''}<div class="roster-actions"><span class="status">${state.policy?'评分参数已读取并固定 · V0.9':'确认时自动读取并校验评分参数'}</span><button class="primary" data-action="confirm-roster" ${state.confirmed||state.scenario==='exception'&&!state.bound?'disabled':''}>${state.confirmed?'名单已确认':'确认名单并开始考核'}</button></div>${state.policy?receipt():''}</section>`}
+function receipt(){return '<details class="receipt"><summary>评分参数已固定 · V0.9 · 查看读取凭据</summary><p>客观30分＋主观70分，阶段权重4∶2∶4。</p><p class="muted">配置快照仅用于此次模拟考核；正式版本以实际配置为准。</p><code>config/scoring-policy-v0.1.json · 模拟读取成功</code></details>'}
+function match(){const names=[...new Set(state.names.split(/[\s、,，;；]+/).filter(Boolean))];state.roster={matched:names.filter(n=>experts.includes(n)),unmatched:names.filter(n=>!experts.includes(n))}}
+function myList(){const done=experts.filter(e=>completed(e)).length;return `<div class="heading"><div class="inline-title"><h2>我的问卷</h2><span class="count-note">共 ${experts.length} 个评审人</span></div><span class="status">${done}／${experts.length} 已完成${done===experts.length?' · 全部完成':''}</span></div><div class="list">${experts.map(e=>{const p=answerProgress(e);return `<article class="assessment"><div class="row"><h3 class="person">${esc(e)}</h3><button class="primary" data-expert="${esc(e)}">${p.selected?'查看／修改问卷':'填写问卷'}</button></div><p class="status">${p.selected?'已保存':'待填写'} · ${p.valid}／6题${p.valid===6?' · 已完成':p.selected>p.valid?' · 待补依据或原因':''}</p></article>`}).join('')}</div>`}
+function subjective(){return `<div class="heading"><div class="inline-title"><h2 class="person">${esc(state.expert)}</h2><span class="project-info"><button type="button" aria-label="查看共同项目" aria-expanded="false" aria-controls="common-projects" data-action="projects">!</button><span class="project-popover" id="common-projects" role="region" aria-label="共同项目列表"><strong>共同项目（${commonProjects().length}个）</strong><ul>${commonProjects().map(p=>`<li>${esc(p.name)}（${esc(p.code)}）</li>`).join('')}</ul></span></span><button class="secondary-button small" data-action="review-details">查看评审过程详情</button></div><span class="status" id="save-status" aria-live="polite"></span></div>${state.user.role==='admin'?`<div class="review-top"><label for="review-manager">评价归属项目经理</label><select id="review-manager">${accounts.filter(u=>u.role==='project_manager').map(u=>`<option value="${esc(u.employee_id)}" ${state.manager===u.employee_id?'selected':''}>${esc(u.name)}</option>`).join('')}</select></div>`:''}<div id="subjective-panel">${questionnairePolicy.dimensions.map((d,i)=>`<fieldset class="subjective-dimension" id="dimension-${d.id}">${dimensionMarkup(d,i)}</fieldset>`).join('')}<div class="subjective-footer"><span id="subjective-completion" aria-live="polite"></span><progress id="subjective-completion-bar" max="6" value="0" aria-label="问卷填答进度"></progress></div></div>${pager(state.user.role==='admin'?'back-list':'my-list',state.user.role==='admin'?'← 返回考核任务信息':'← 返回我的问卷')}`}
+function dimensionMarkup(d,i){const r=currentRatings()[d.id];const options=[...d.options,...(d.id==='contribution'?[]:[{id:'unable',...questionnairePolicy.unable}])];return `<legend>${i+1}．${esc(d.title)}</legend><p class="subjective-question">${esc(d.prompt)}</p><p class="subjective-boundary">职责边界：${esc(d.boundary)}</p><div class="subjective-options">${options.map(o=>`<div class="subjective-option"><label for="${d.id}-${o.id}"><input type="radio" name="${d.id}" id="${d.id}-${o.id}" value="${o.id}" data-rating="${d.id}" ${r?.option===o.id?'checked':''}/><span><strong>${esc(o.title)}</strong><span class="subjective-description">${esc(o.description)}</span></span></label></div>`).join('')}</div>${r?.option==='unable'?`<div class="subjective-rating-tools"><label class="field"><span>原因（必填）</span><input data-reason="${d.id}" maxlength="500" value="${esc(r.reason||'')}" placeholder="${esc(questionnairePolicy.unable.reason_prompt)}"/></label></div>`:r&&requiresEvidence(d.id,r.option)?`<div class="subjective-rating-tools"><details class="subjective-evidence" open><summary>事实依据（必填）</summary><p>${d.id==='contribution'?esc(questionnairePolicy.contribution_prompt):'可关联多个共同项目或同项目的多次记录，以支持周期判断。'}</p>${r.evidence.map((e,j)=>`<div class="subjective-evidence-fields"><label class="field"><span>关联项目</span><select data-project="${d.id}" data-index="${j}"><option value="">关联项目</option>${commonProjects().map(p=>`<option value="${esc(p.code)}" ${e.project_code===p.code?'selected':''}>${esc(p.name)}（${esc(p.code)}）</option>`).join('')}</select></label><label class="field"><span>事实及证据位置（每条100字）</span><input data-note="${d.id}" data-index="${j}" maxlength="100" value="${esc(e.note)}"/></label><button type="button" data-remove-evidence="${d.id}" data-index="${j}">移除</button></div>`).join('')}<button type="button" data-add-evidence="${d.id}">增加依据</button></details></div>`:''}`}
+function refreshDimension(id,focusId){const i=questionnairePolicy.dimensions.findIndex(d=>d.id===id);$('#dimension-'+id).innerHTML=dimensionMarkup(questionnairePolicy.dimensions[i],i);bindQuestionnaire($('#dimension-'+id));saveIndicator();if(focusId)document.getElementById(focusId)?.focus({preventScroll:true})}
+function chooseRating(id,option){const old=currentRatings()[id];if(old?.option===option){delete currentRatings()[id]}else{currentRatings()[id]={option,reason:old?.reason||'',evidence:requiresEvidence(id,option)?(old?.evidence?.length?old.evidence:[{project_code:'',note:''}]):[]}}}
+function bindQuestionnaire(root=$('#subjective-panel')){
+ root.querySelectorAll('.subjective-option label').forEach(label=>label.onclick=event=>{event.preventDefault();const input=label.querySelector('input');chooseRating(input.name,input.value);refreshDimension(input.name,input.id)});
+ root.querySelectorAll('[data-rating]').forEach(input=>input.onchange=()=>{if(currentRatings()[input.name]?.option!==input.value){chooseRating(input.name,input.value);refreshDimension(input.name,input.id)}});
+ root.querySelectorAll('[data-reason]').forEach(input=>input.oninput=()=>{currentRatings()[input.dataset.reason].reason=input.value;saveIndicator()});
+ root.querySelectorAll('[data-note]').forEach(input=>input.oninput=()=>{currentRatings()[input.dataset.note].evidence[Number(input.dataset.index)].note=input.value;saveIndicator()});
+ root.querySelectorAll('[data-project]').forEach(input=>input.onchange=()=>{currentRatings()[input.dataset.project].evidence[Number(input.dataset.index)].project_code=input.value;saveIndicator()});
+ root.querySelectorAll('[data-add-evidence]').forEach(button=>button.onclick=()=>{const id=button.dataset.addEvidence;currentRatings()[id].evidence.push({project_code:'',note:''});refreshDimension(id)});
+ root.querySelectorAll('[data-remove-evidence]').forEach(button=>button.onclick=()=>{const id=button.dataset.removeEvidence;currentRatings()[id].evidence.splice(Number(button.dataset.index),1);refreshDimension(id)});
+}
+function download(name,value,type='application/json'){const url=URL.createObjectURL(new Blob([value],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;if(b.dataset.nav){goto(b.dataset.nav==='subjective'&&state.user.role!=='admin'?'my-list':b.dataset.nav);return}if(b.dataset.expert){state.expert=b.dataset.expert;goto('subjective');return}switch(b.dataset.action){
+case 'switch':state.user=null;goto('login');break;
+case 'password-eye':{const input=$('#login-password'),visible=input.type==='password';input.type=visible?'text':'password';b.innerHTML=eyeIcon(visible);b.setAttribute('aria-label',visible?'隐藏密码':'显示密码');b.setAttribute('aria-pressed',String(visible));break}
+case 'projects':{const wrap=b.closest('.project-info');const opened=wrap.classList.toggle('pinned');b.setAttribute('aria-expanded',String(opened));if(!opened)b.blur();break}
+case 'new':creation={year:'2027',period:'年度',half:'上半年',users:null,error:''};goto('create');break;
+case 'open-assessment':state.scanned=true;goto('read');break;
+case 'back-list':goto('list');break;
+case 'my-list':goto('my-list');break;
+case 'history':openHistory(tasks.find(t=>t.done));break;
+case 'scan':state.scanning=true;state.percent=0;state.scanned=false;render();clearInterval(timer);timer=setInterval(()=>{state.percent+=25;if(state.percent>=100){clearInterval(timer);state.scanning=false;state.scanned=true;if(state.scenario==='normal')state.bound=true;if(state.page==='read')render()}else if(state.page==='read'){$('.scanbar>span').style.width=state.percent+'%';$('#scan-progress').textContent='正在读取 '+state.percent+'%'}},260);break;
+case 'bind':{const u=accounts.find(u=>u.employee_id===$('#bind-account').value);if(!u){toast('请先选择对应账号');break}if(!u.owner_ids.includes('ou_demo_new'))u.owner_ids.push('ou_demo_new');state.bound=true;render();toast('已建立固定关联，2份报告一起完成匹配（演示）');break}
+case 'sample-roster':state.names=experts.join('\n');match();render();toast('已导入示例名单');break;
+case 'match':match();render();break;
+case 'confirm-roster':match();if(!state.roster.matched.length){render();toast('至少需要一位匹配的评审人');break}state.policy=true;state.confirmed=true;goto('objective');toast('评分参数读取成功，名单与参数快照已固定（演示）');break;
+case 'score':state.objective=true;render();toast('模拟客观评分完成');break;
+case 'export':download('TDT模拟结果-draft-v3.csv','\ufeff评审人,结果状态\n虚拟评审人甲,演示结果\n虚拟评审人乙,演示结果','text/csv;charset=utf-8');break;
+}});
+/* MAIN_FACT_RENDERERS */
+const FACT_METRICS = [
+  ["attendance_rate", "出勤率", "attended", "expected", "实参场次÷应参场次×100％", "实参包含按原规则归属的代理参评。"],
+  ["signoff_rate", "会签率", "signed", "expected", "已填会签场次÷应参场次×100％", "会签结果非空且不是横杠即计入，以项目经理填写为准。"],
+  ["opinion_average", "意见提出平均数", "opinions", "attended", "意见总条数÷实参场次", "同场多条意见逐条累计，每场可超过1条。"],
+];
+const PROXY_METRIC = ["proxy_rate", "代理情况", "proxy", "expected", "代理场次÷应参场次×100％", "跨全部阶段统计，代理事实归原评审人。"];
+const FACT_COLUMNS = [
+  ["expected", "应参场次", 72, "应参<br>场次"], ["attended", "实参场次", 72, "实参<br>场次"],
+  ["attendance_rate", "出勤率", 80], ["signed", "已会签场次", 84, "已会签<br>场次"],
+  ["signoff_rate", "会签率", 80], ["opinions", "意见条数", 72, "意见<br>条数"],
+  ["opinion_average", "意见提出平均数", 88, "意见提出<br>平均数"], ["solutions", "含对策意见条数", 100, "含对策<br>意见条数"],
+];
+function visibleFactGroups(value) {
+  return value === "overall" ? ["全部阶段"] : ["TDR1", "TDR2", "TDR3"].includes(value) ? [value] : ["TDR1", "TDR2", "TDR3"];
+}
+function factCellText(stats, key) {
+  if (stats.expected === 0) return "—";
+  if (key === "proxy_rate") return stats.proxy + "/" + stats.expected;
+  if (stats.unknown && ["attendance_rate", "opinion_average"].includes(key)) return "待确认";
+  if (key === "opinion_average") return stats[key] == null ? "—" : Number(stats[key]).toFixed(1);
+  if (key.endsWith("_rate")) return percent(stats[key]);
+  if (key === "solutions" && stats.pending) return "待识别";
+  return String(stats[key]);
+}
+function subtaskDisplayName(name) {
+  const separator = name.indexOf("-");
+  return separator < 0 ? name : name.slice(separator + 1).trim() || name;
+}
+let evidenceReturnFocus = null;
+let evidenceExpertName = "";
+let factsMutating = false;
+
+function percent(value) {
+  return value === null || value === undefined ? "—" : Number(value).toLocaleString("zh-CN", {maximumFractionDigits: 2}) + "％";
+}
+
+function renderDimensionOneTable() {
+  if (!state.analysis) return;
+  const experts = objectiveReviewers().filter(e => objectiveReviewerVisible(e.expert_name));
+  state.dimensionOneVisibleRows = experts;
+  const groups = visibleFactGroups(elements.dimensionOneStage.value);
+  elements.analysisSummary.textContent = experts.length + "位评审人";
+  window.reviewAI?.refresh();
+  const metricCell = (value, row, group, metric) => '<td class="numeric">'
+    + (metric[0] === 'proxy_rate' ? '<button type="button" class="fact-number" data-proxy="' + row + '" aria-label="代理情况代理人清单">' : '<span>')
+    + factCellText(value, metric[0]) + (metric[0] === 'solutions' && value.suspected ? '<span class="solution-alert" title="' + value.suspected + '条疑似待确认，尚未计入" aria-label="' + value.suspected + '条疑似待确认">!</span>' : '')
+    + (metric[0] === 'proxy_rate' ? '</button>' : '</span>')
+    + (metric[0] === 'attended' && value.unknown ? '<small class="fact-hint">' + value.unknown + '场待确认</small>' : '') + '</td>';
+  elements.dimensionOneTableWrap.innerHTML = '<table class="dimension-one-table facts-table" style="--dimension-table-width:'
+    + (408 + groups.length * FACT_COLUMNS.reduce((n, c) => n + c[2], 0)) + 'px"><colgroup><col style="width:120px">'
+    + groups.map(() => FACT_COLUMNS.map(c => '<col style="width:' + c[2] + 'px">').join("")).join("")
+    + '<col style="width:112px"><col style="width:88px"><col style="width:88px"></colgroup><thead><tr>'
+    + '<th class="sticky-1" rowspan="2">' + objectiveReviewerHeader() + '</th>'
+    + groups.map(g => '<th colspan="8" scope="colgroup">' + g + '</th>').join("")
+    + '<th rowspan="2">总参与<br>评审场次</th><th rowspan="2">代理情况</th><th class="evidence-sticky" rowspan="2">详情</th></tr><tr>'
+    + groups.map(() => FACT_COLUMNS.map(m => '<th scope="col" aria-label="' + m[1] + '">' + '<button type="button" class="fact-header-formula" data-formula="' + m[0] + '" aria-label="' + m[1] + '公式">' + (m[3] || m[1]) + '</button></th>').join("")).join("")
+    + '</tr></thead><tbody>'
+    + experts.map((e, row) => '<tr><td class="sticky-1">' + escapeHtml(e.expert_name) + '</td>'
+      + groups.map(g => FACT_COLUMNS.map(m => metricCell(g === "全部阶段" ? e.overall : e.stages[g], row, g, m)).join("")).join("")
+      + '<td class="numeric"><button type="button" class="fact-number" data-participation="' + row + '">'
+      + (e.overall.unknown ? '待确认' : e.overall.attended + '场') + '</button></td>'
+      + metricCell(e.overall, row, "全部阶段", PROXY_METRIC)
+      + '<td class="evidence-sticky"><button class="row-evidence-button" type="button" data-details="' + row + '">详情查看</button></td></tr>').join("")
+    + (experts.length ? '' : '<tr><td colspan="' + (4 + groups.length * 8) + '">没有匹配的评审人，请修改筛选。</td></tr>') + '</tbody></table>';
+  makeTableScrollable(elements.dimensionOneTableWrap);
+  elements.dimensionOneTableWrap.querySelectorAll('[data-proxy]').forEach(button => button.addEventListener('click', () => showProxyDetails(experts[Number(button.dataset.proxy)])));
+  elements.dimensionOneTableWrap.querySelectorAll('[data-formula]').forEach(button => button.addEventListener('click', () => showHeaderFormula(button.dataset.formula)));
+  elements.dimensionOneTableWrap.querySelectorAll("[data-participation]").forEach(button => button.addEventListener("click", () => {
+    const expert = experts[Number(button.dataset.participation)];
+    document.querySelector("#formula-title").textContent = expert.expert_name + " · 评审参与度";
+    document.querySelector("#formula-body").innerHTML = '<p>本批次全部阶段有效参评共' + expert.overall.attended
+      + '场，出勤待确认' + expert.overall.unknown + '场。按项目编码＋阶段去重，代理归原评审人，单阶段筛选不改变此范围。</p><p>达到3场后，按完整批次前两个不同数量档计5／3分，其余0分，并列同分；分数在第四模块计算。</p>'
+      + '<ul>' + expert.sessions.filter(s => s.attended === true).map(s => '<li>'
+        + escapeHtml(s.project_name + '／' + s.project_code + '／' + s.stage) + '</li>').join('') + '</ul>';
+    document.querySelector("#formula-dialog").showModal();
+  }));
+  elements.dimensionOneTableWrap.querySelectorAll("[data-details]").forEach(button => button.addEventListener("click", () => {
+    evidenceReturnFocus = button;
+    openDimensionOneEvidence(experts[Number(button.dataset.details)].expert_name);
+  }));
+}
+
+function showHeaderFormula(key) {
+  const column = FACT_COLUMNS.find(c => c[0] === key);
+  const metric = FACT_METRICS.find(m => m[0] === key);
+  const counts = {
+    expected: '应参场次＝所选阶段内列入评审人名单的去重场次数',
+    attended: '实参场次＝所选阶段内确认实际参评的去重场次数（含归属本人的代理参评）',
+    signed: '已会签场次＝所选阶段内会签结果非空且非横杠的场次数',
+    opinions: '意见条数＝所选阶段内按拆条、归属及去重规则计入的意见条数之和',
+    solutions: '含对策意见条数＝所选阶段内已确认计入的含有效对策意见条数之和',
+  };
+  document.querySelector('#formula-title').textContent = column[1];
+  document.querySelector('#formula-body').innerHTML = '<p>' + escapeHtml(metric ? metric[4] : counts[key]) + '</p>';
+  document.querySelector('#formula-dialog').showModal();
+}
+function showProxyDetails(expert) {
+  const sessions = expert.sessions.filter(s => s.proxy_name);
+  document.querySelector('#formula-title').textContent = expert.expert_name + ' · 全部阶段 · 代理情况';
+  document.querySelector('#formula-body').innerHTML = sessions.length
+    ? '<p>共' + sessions.length + '场代理参评</p><ul class="proxy-meeting-list">' + sessions.map(s => '<li><div>'
+      + escapeHtml(s.project_name) + '</div><div class="muted">' + escapeHtml(s.project_code + ' · ' + s.stage)
+      + '</div><div>代理人：<strong>' + escapeHtml(s.proxy_name) + '</strong></div></li>').join('') + '</ul>'
+    : '<p>本批次无代理参评记录。</p>';
+  document.querySelector('#formula-dialog').showModal();
+}
+function openDimensionOneEvidence(name) {
+  const expert = state.analysis?.experts.find(e => e.expert_name === name);
+  if (!expert) return;
+  if (!elements.evidenceDrawer.open) evidenceReturnFocus = document.activeElement;
+  evidenceExpertName = name;
+  const projects = [...new Set(expert.sessions.map(s => s.project_code))];
+  elements.evidenceDrawerTitle.textContent = name + " · 评审详情";
+  elements.evidenceDrawerContent.innerHTML = projects.map((code, projectIndex) => {
+    const sessions = expert.sessions.filter(s => s.project_code === code);
+    return '<section class="review-project"><h3>' + (projectIndex + 1) + '　'
+      + escapeHtml(subtaskDisplayName(sessions[0].project_name)) + '　｜　项目编码：' + escapeHtml(code) + '</h3>'
+      + ['TDR1', 'TDR2', 'TDR3'].map(stage => {
+        const stageSessions = sessions.filter(s => s.stage === stage);
+        const imported = (state.analysis.sessions || []).some(s => s.project_code === code && s.stage === stage)
+          || state.analysis.experts.some(e => e.sessions.some(s => s.project_code === code && s.stage === stage));
+        return '<section class="review-stage" data-stage="' + stage + '">'
+          + (stageSessions.length ? stageSessions.map(session => '<h4>' + stage + '　｜　参评：'
+            + escapeHtml(session.attendance || (session.attended === true ? '已参加' : session.attended === false ? '未参加' : '待确认'))
+            + (session.proxy_name ? '（代理：' + escapeHtml(session.proxy_name) + '）' : '')
+            + '　｜　会签：' + escapeHtml(session.signoff || '未填写') + '</h4>'
+            + (session.opinions.length ? session.opinions.map((o, i) => renderOpinion(o, session, i)).join('')
+              : '<p>评审意见：无</p>')).join('')
+            : '<h4>' + stage + '　｜　' + (imported ? '未列入本阶段评审名单' : '本批次未导入该阶段报告') + '</h4>')
+          + '</section>';
+      }).join('') + '</section>';
+  }).join('');
+  elements.evidenceDrawerContent.querySelectorAll("[data-opinion]").forEach(button => button.addEventListener("click", () =>
+    selectSolution(button.dataset.opinion, button.dataset.include === "null" ? null : button.dataset.include === "true")));
+  if (!elements.evidenceDrawer.open) elements.evidenceDrawer.showModal();
+
+}
+
+
+function renderOpinion(o, session, index) {
+  const labels = {pending: "待AI识别", yes: "包含", no: "不包含", suspected: "疑似"};
+  const unresolved = o.ai_status === 'suspected' && o.included == null;
+  const selection = unresolved ? null : (o.included ?? (o.ai_status === 'yes'));
+  const excerpt = o.excerpt === o.text ? "见上述意见" : o.excerpt;
+  let html = '<article class="opinion-record' + (unresolved ? ' needs-confirmation' : '') + '"><p class="opinion-text"><strong>意见' + (index + 1) + '：</strong>' + escapeHtml(o.text) + '</p>';
+  html += '<p class="opinion-text"><strong>对策：</strong>' + labels[o.ai_status]
+    + (excerpt ? '（' + escapeHtml(excerpt) + '）' : '')
+    + (o.ai_status !== 'pending' ? ' · ' + (unresolved ? '待人工确认，暂未计入' : selection ? '计入统计' : '不计入统计') : '') + '</p>';
+  if (o.reason) html += '<p>判定说明：' + escapeHtml(o.reason) + '</p>';
+  if (o.ai_status !== "pending") html += '<div class="solution-actions" aria-label="是否计入对策统计">'
+    + [true, false].map(include => '<button type="button" class="secondary-button" data-opinion="' + o.opinion_id
+      + '" data-include="' + include + '" aria-pressed="' + (selection === include)
+      + '">' + (include ? '计入统计' : '不计入统计') + '</button>').join("") + '</div>';
+  if (o.audit.length) {
+    const latest = o.audit[o.audit.length - 1];
+    const date = new Date(latest.at);
+    const time = Number.isNaN(date.getTime()) ? '时间不可用' : date.toLocaleString('zh-CN', {hour12: false});
+    html += '<p class="muted">最近修改：' + escapeHtml(time) + '</p>';
+  }
+  if (o.rule_version) html += '<p class="muted">识别版本：' + escapeHtml(o.rule_version) + '</p>';
+  return html + '</article>';
+}
+
+
+const objectiveFilter = {analysisId: null, names: null};
+
+function objectiveReviewers() {
+  if (objectiveFilter.analysisId !== state.analysis?.analysis_id) {
+    objectiveFilter.analysisId = state.analysis?.analysis_id;
+    objectiveFilter.names = null;
+  }
+  const included = state.analysis?.assessment?.included;
+  return (state.analysis?.experts || []).filter(e => !included || included.includes(e.expert_name));
+}
+function objectiveReviewerVisible(name) {
+  return objectiveFilter.names === null || objectiveFilter.names.has(name);
+}
+function objectiveReviewerHeader() {
+  const all = objectiveReviewers();
+  const selected = all.filter(e => objectiveReviewerVisible(e.expert_name)).length;
+  return `<button type="button" class="reviewer-filter-trigger" data-reviewer-filter aria-haspopup="dialog">评审人 <span aria-hidden="true">▾</span><small>${selected === all.length ? '全部' : '已选' + selected + '人'}</small></button>`;
+}
+function refreshObjectiveFilter() {
+  renderDimensionOneTable();
+  const scoreHost = document.querySelector('#objective-page-two');
+  scoreHost.querySelectorAll('tbody tr[data-reviewer]').forEach(row => {
+    row.hidden = !objectiveReviewerVisible(row.dataset.reviewer);
+  });
+  scoreHost.querySelectorAll('thead th:first-child').forEach(th => th.innerHTML = objectiveReviewerHeader());
+  const empty = scoreHost.querySelector('[data-reviewer-empty]');
+  if (empty) empty.hidden = !!objectiveReviewers().some(e => objectiveReviewerVisible(e.expert_name));
+}
+function matchingReviewerChoices() {
+  const query = document.querySelector('#reviewer-filter-search').value;
+  return objectiveReviewers().filter(e => reviewerMatchesSearch(e, query));
+}
+function updateReviewerSelectAll() {
+  const experts = matchingReviewerChoices();
+  const selected = experts.filter(e => objectiveReviewerVisible(e.expert_name)).length;
+  const checkbox = document.querySelector('#reviewer-filter-all');
+  checkbox.checked = experts.length > 0 && selected === experts.length;
+  checkbox.indeterminate = selected > 0 && selected < experts.length;
+  checkbox.disabled = experts.length === 0;
+  document.querySelector('#reviewer-filter-count').textContent = experts.length + '人';
+}
+function renderReviewerChoices() {
+  const experts = matchingReviewerChoices();
+  document.querySelector('#reviewer-filter-list').innerHTML = experts.map(e => `<label><input type="checkbox" value="${escapeHtml(e.expert_name)}" ${objectiveReviewerVisible(e.expert_name) ? 'checked' : ''} /><span>${escapeHtml(e.expert_name)}</span></label>`).join('') || '<p>没有匹配的评审人。</p>';
+  updateReviewerSelectAll();
+}
+document.addEventListener('click', event => {
+  const dialog = document.querySelector('#reviewer-filter-dialog');
+  const trigger = event.target.closest('[data-reviewer-filter]');
+  if (trigger) {
+    const rect = trigger.getBoundingClientRect();
+    document.querySelector('#reviewer-filter-search').value = '';
+    renderReviewerChoices();
+    dialog.show();
+    dialog.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - dialog.offsetWidth - 8)) + 'px';
+    dialog.style.top = Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - dialog.offsetHeight - 8)) + 'px';
+    document.querySelector('#reviewer-filter-search').focus();
+    return;
+  }
+  if (event.target.closest('[data-reviewer-filter-close]') || (dialog.open && !dialog.contains(event.target))) dialog.close();
+});
+document.addEventListener('input', event => {
+  if (event.target.id === 'reviewer-filter-search') renderReviewerChoices();
+});
+document.addEventListener('change', event => {
+  if (!event.target.matches('#reviewer-filter-list input, #reviewer-filter-all')) return;
+  if (objectiveFilter.names === null) objectiveFilter.names = new Set(objectiveReviewers().map(e => e.expert_name));
+  const names = event.target.id === 'reviewer-filter-all' ? matchingReviewerChoices().map(e => e.expert_name) : [event.target.value];
+  names.forEach(name => {
+    if (event.target.checked) objectiveFilter.names.add(name);
+    else objectiveFilter.names.delete(name);
+  });
+  refreshObjectiveFilter();
+  renderReviewerChoices();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') document.querySelector('#reviewer-filter-dialog').close();
+});
+
+function normalizedReviewerSearch(value) {
+  return value.toLocaleLowerCase("zh-CN").replace(/\s+/g, "");
+}
+
+function reviewerMatchesSearch(expert, search) {
+  const keywords = search.trim().split(/\s+/).filter(Boolean).map(normalizedReviewerSearch);
+  const candidates = [expert.expert_name, expert.expert_name_pinyin].filter(Boolean).map(normalizedReviewerSearch);
+  return !keywords.length || keywords.some(keyword => candidates.some(candidate => candidate.includes(keyword)));
+}
+
+
+/* V3_WORKFLOW — virtual data only; no service or real account writes. */
+const escapeHtml=esc;
+const taskKeys=['scenario','scanned','confirmed','policy','names','roster','bound','objective','answers','opinionDecisions'];
+const tasks=[{id:'annual-2026',title:'2026年度评审人考核',year:'2026',period:'年度',done:false,users:structuredClone(accounts),data:{scenario:'normal',scanned:true,confirmed:true,policy:true,names:experts.join('\n'),roster:{matched:[...experts],unmatched:[]},bound:true,objective:false,answers:{}}},{id:'half-2026',title:'2026上半年评审人考核',year:'2026',period:'上半年',done:true,reportCount:8,finished:'2026-07-15',rows:[{name:experts[0],objective:33,subjective:61,total:94},{name:experts[1],objective:30,subjective:56,total:86}]}];
+let activeTaskId='annual-2026',creation={year:'2027',period:'年度',half:'上半年',users:null,error:''},taskSerial=1,objectivePage=1,stageView='overall',elements={},historyTask=null;
+function activeTask(){return tasks.find(t=>t.id===activeTaskId&&!t.done)}
+function saveActiveTask(){const t=activeTask();if(t)for(const k of taskKeys)t.data[k]=state[k]}
+function selectTask(t){saveActiveTask();clearInterval(timer);state.scanning=false;activeTaskId=t.id;Object.assign(state,t.data);objectivePage=1;objectiveFilter.names=null;state.manager=t.users.find(u=>u.role!=='admin'&&u.enabled)?.employee_id||state.manager}
+Object.assign(state,activeTask().data);
+function taskManagers(t=activeTask()){return t?.users.filter(u=>u.enabled&&u.role!=='admin')||[]}
+function taskProgress(t){const previous=state.answers;state.answers=t.data.answers;let done=0;for(const u of taskManagers(t))for(const e of experts)if(completed(e,u.employee_id))done++;state.answers=previous;return {done,total:taskManagers(t).length*experts.length}}
+function list(){saveActiveTask();return `<div class="heading"><h2>考核任务信息</h2></div><div class="task-grid">${tasks.map(t=>{const p=t.done?null:taskProgress(t);return `<button type="button" class="task-card" data-task="${t.id}"><span class="row"><strong class="task-title">${esc(t.title)}</strong><span class="badge">${t.done?'已完成':'进行中'}</span></span>${t.done?`<span class="task-meta">${t.reportCount}份报告 · ${t.rows.length}位评审人 · 已确认结果</span><span class="task-meta">完成时间：${t.finished}</span>`:`<span class="task-meta">${t.data.scanned?'报告已读取':'报告待读取'} · ${experts.length}位评审人 · ${taskManagers(t).length}位项目经理</span><span class="task-progress"><span>客观数据评价</span><span>${t.data.objective?'已完成':t.data.confirmed?'待对策识别与评分':t.data.scanned?'待确认名单':'待读取报告'}</span></span><span class="progress"><span style="width:${t.data.objective?100:t.data.confirmed?50:t.data.scanned?25:0}%"></span></span><span class="task-progress"><span>主观评价</span><span>${p.done}／${p.total}份问卷已完成</span></span><span class="progress"><span style="width:${p.total?p.done/p.total*100:0}%"></span></span>`}</button>`}).join('')}<button class="task-card new-task" data-action="new"><span class="plus">＋</span><strong>新建考评任务</strong></button></div>`}
+function createTaskPage(){return `<div class="heading"><h2>新建考评任务</h2><button class="ghost small" data-action="back-list">取消</button></div><section class="source"><div class="creation-fields"><label class="field">年份<select id="task-year">${['2024','2025','2026','2027','2028','2029','2030'].map(y=>`<option ${y===creation.year?'selected':''}>${y}</option>`).join('')}</select></label><label class="field">考评周期<select id="task-period"><option ${creation.period==='年度'?'selected':''}>年度</option><option ${creation.period==='半年度'?'selected':''}>半年度</option></select></label><label class="field" id="half-field" ${creation.period==='年度'?'hidden':''}>半年度范围<select id="task-half"><option ${creation.half==='上半年'?'selected':''}>上半年</option><option ${creation.half==='下半年'?'selected':''}>下半年</option></select></label></div><div class="import-config"><label class="field">导入项目经理名单<input type="file" id="task-accounts" accept=".json,application/json"/></label><button data-action="sample-accounts">使用示例配置</button></div><p id="config-receipt" role="status">${creation.users?`已导入 ${creation.users.filter(u=>u.enabled&&u.role!=='admin').length} 位项目经理，姓名、工号与owner ID校验通过。`:'请选择账号配置 JSON 文件。'}</p>${creation.users?`<div class="table-wrap"><table><thead><tr><th>姓名</th><th>工号</th><th>角色</th><th>owner ID</th></tr></thead><tbody>${creation.users.filter(u=>u.enabled&&u.role!=='admin').map(u=>`<tr><td class="person">${esc(u.name)}</td><td>${esc(u.employee_id)}</td><td>项目经理</td><td>${u.owner_ids.map(esc).join('、')}</td></tr>`).join('')}</tbody></table></div>`:''}<p id="creation-error" role="alert">${esc(creation.error)}</p></section>${pager('create-next','下一步 →')}`}
+function validateRoster(data){if(data?.version!==1||!Array.isArray(data.users))throw Error('配置须包含version为1及users数组。');const ids=new Set(),owners=new Set();const users=data.users.map(u=>{if(!u||typeof u.employee_id!=='string'||! /^[A-Za-z0-9._-]{1,64}$/.test(u.employee_id)||typeof u.name!=='string'||!u.name.trim()||!['admin','manager','project_manager'].includes(u.role)||typeof u.enabled!=='boolean'||!Array.isArray(u.owner_ids))throw Error('请检查姓名、字符串工号、角色、启用状态和owner_ids。');if(ids.has(u.employee_id))throw Error('工号重复，请修正配置。');ids.add(u.employee_id);for(const id of u.owner_ids){if(typeof id!=='string'||! /^[A-Za-z0-9_-]{1,128}$/.test(id)||owners.has(id))throw Error('owner ID格式错误或重复，请修正配置。');owners.add(id)}if(u.enabled&&u.role!=='admin'&&!u.owner_ids.length)throw Error('启用的项目经理须填写owner ID。');const existing=accounts.find(a=>a.employee_id===u.employee_id);if(existing&&(existing.name!==u.name.trim()||(existing.role==='admin')!==(u.role==='admin')))throw Error('导入账号与演示中已有身份冲突，请核对工号。');return {...u,name:u.name.trim(),role:u.role==='manager'?'project_manager':u.role}});if(!users.some(u=>u.enabled&&u.role!=='admin'))throw Error('名单至少需要一位启用的项目经理。');return users}
+function mountCreate(){for(const [id,key] of [['task-year','year'],['task-period','period'],['task-half','half']])$('#'+id).onchange=e=>{creation[key]=e.target.value;$('#half-field').hidden=creation.period==='年度'};$('#task-accounts').onchange=async e=>{const file=e.target.files[0];if(!file)return;creation.users=null;try{creation.users=validateRoster(JSON.parse((await file.text()).replace(/^\uFEFF/,'')));creation.error=''}catch(error){creation.error=error instanceof SyntaxError?'JSON格式错误，请检查配置文件。':error.message}if(state.page==='create')render()}}
+function createTask(){if(!creation.users){creation.error='请先导入项目经理名单。';render();return}const period=creation.period==='半年度'?creation.half:'年度';if(tasks.some(t=>t.year===creation.year&&t.period===period)){creation.error='该年份和周期已有任务，请从任务清单打开。';render();return}const t={id:'demo-task-'+taskSerial++,title:creation.year+period+'评审人考核',year:creation.year,period,done:false,users:structuredClone(creation.users),data:{scenario:'normal',scanned:false,confirmed:false,policy:false,names:experts.join('\n'),roster:null,bound:false,objective:false,answers:{}}};for(const u of t.users)if(u.enabled&&u.role!=='admin'&&!accounts.some(a=>a.employee_id===u.employee_id))accounts.push(structuredClone(u));tasks.push(t);selectTask(t);goto('list');toast('考评任务已创建（演示）')}
+function showModal(id){const dialog=$('#'+id);if(!dialog.open)dialog.showModal()}
+function openHistory(t){historyTask=t;$('#history-title').textContent=t.title+' · 历史总分统计';$('#history-body').innerHTML=`<p class="status">已完成 · ${t.finished} · 按历史任务快照展示</p>${resultTable(t.rows,true)}`;showModal('history-dialog')}
+function resultTable(rows,history=false){return `<div class="table-wrap"><table class="score-table"><thead><tr><th>评审人</th><th>客观总得分（含奖励）</th><th>主观最终分</th><th>总分／100</th><th>状态</th><th>依据</th></tr></thead><tbody>${rows.map((r,i)=>`<tr><td class="person">${esc(r.name)}</td><td>${r.objective??'—'}</td><td>${r.subjective??'—'}</td><td>${r.total??'—'}</td><td>${history?'已确认':r.total==null?'待统计':'试算'}</td><td><button class="small" data-result-detail="${i}" data-history="${history}">查看明细</button></td></tr>`).join('')}</tbody></table></div>`}
+function total(){if(!activeTask())return '<h2>请先选择进行中的任务</h2>';return `<div class="heading"><div><h2>总分统计</h2><p class="status">${esc(activeTask().title)}</p></div><button class="primary" data-action="export-current">导出总分统计</button></div>${resultTable(currentResults())}`}
+function currentResults(){return experts.map((name,i)=>{const ready=taskManagers().length&&taskManagers().every(u=>completed(name,u.employee_id));const subjective=ready?subjectiveScore(name):null;const objective=state.objective?demoObjectiveValues(name).at(-1):null;return {name,objective,subjective,total:objective!==null&&subjective!==null?Math.min(100,+(objective+subjective).toFixed(2)):null}})}
+function subjectiveScore(name){let sum=0;for(const d of questionnairePolicy.dimensions){const values=taskManagers().map(u=>state.answers[u.employee_id+'|'+name]?.[d.id]).filter(r=>r&&r.option!=='unable').map(r=>questionnairePolicy.scores[d.id][r.option]);if(!values.length)return null;sum+=d.id==='contribution'?Math.max(...values):values.reduce((a,b)=>a+b,0)/values.length}return +sum.toFixed(2)}
+function objective(){if(!state.confirmed)return `<h2>客观数据评价</h2><p>请先读取报告并确认考核评审人名单。</p>${pager('to-read','返回读取与匹配 →')}`;return `<section id="objective-shell"><div class="heading"><div><p class="eyebrow">步骤 2</p><h2>客观数据评价</h2></div><button class="primary" data-action="export-objective">导出评价结果</button></div><div id="objective-page-one" ${objectivePage===2?'hidden':''}><div class="dimension-one-controls"><label class="field"><span>统计视图</span><select id="dimension-one-stage">${[['','分阶段'],['overall','全部阶段汇总'],['TDR1','仅TDR1'],['TDR2','仅TDR2'],['TDR3','仅TDR3']].map(([v,n])=>`<option value="${v}" ${stageView===v?'selected':''}>${n}</option>`).join('')}</select></label><button data-action="identify">对策有效性识别</button></div><div class="dimension-one-table-wrap" id="dimension-one-table-wrap"></div><div class="objective-table-footer"><p class="table-symbol-note">「—」表示本批次无应参记录或该项不适用；「0」表示有统计依据，但数量为零。</p></div></div><div id="objective-page-two" ${objectivePage===1?'hidden':''}></div><div class="objective-table-footer parameter-entry"><button class="small" data-action="parameters">${lock} 评分参数</button></div>${pager('objective-toggle',objectivePage===1?'查看客观评分 →':'← 返回数据统计')}</section>`}
+function buildAnalysis(){const people=experts.map((name,i)=>{const count=commonProjects(name).length;const stages={};for(const stage of ['TDR1','TDR2','TDR3'])stages[stage]={expected:count,attended:count,signed:count,opinions:count,solutions:state.objective?1:0,attendance_rate:100,signoff_rate:100,opinion_average:1,proxy:0,unknown:0,pending:!state.objective,suspected:0};const sessions=commonProjects(name).flatMap((p,index)=>['TDR1','TDR2','TDR3'].map(stage=>({project_code:p.code,project_name:p.name,stage,attendance:'已参加',attended:true,signoff:'G',opinions:[{opinion_id:p.code+'-'+stage,text:'建议补充边界条件下的稳定性验证，并明确验收要求。',ai_status:state.objective?(index===0?'yes':'no'):'pending',included:state.opinionDecisions?.[p.code+'-'+stage]??(state.objective&&index===0),excerpt:'增加边界条件验证',reason:state.objective?'包含可执行验证措施（虚拟识别结果）。':'',audit:[],rule_version:'demo-v3'}]})));for(const stage of ['TDR1','TDR2','TDR3'])stages[stage].solutions=sessions.filter(s=>s.stage===stage).flatMap(s=>s.opinions).filter(o=>o.included).length;return {expert_name:name,expert_name_pinyin:i?'xunipingshenrenyi':'xunipingshenrenjia',stages,overall:{expected:count*3,attended:count*3,signed:count*3,opinions:count*3,solutions:Object.values(stages).reduce((sum,s)=>sum+s.solutions,0),attendance_rate:100,signoff_rate:100,opinion_average:1,proxy:0,unknown:0,pending:!state.objective,suspected:0},sessions}});return {analysis_id:activeTaskId,experts:people,sessions:people.flatMap(e=>e.sessions)}}
+function makeTableScrollable(el){el.classList.add('table-scroll-content');el.tabIndex=0;el.setAttribute('role','region');el.setAttribute('aria-label','可横向滚动的表格')}
+function demoObjectiveValues(name){const analysis=buildAnalysis();const e=analysis.experts.find(e=>e.expert_name===name);const tier=[...new Set(analysis.experts.map(e=>e.overall.attended))].sort((a,b)=>b-a);const participation=e.overall.attended<3?0:tier.indexOf(e.overall.attended)===0?5:tier.indexOf(e.overall.attended)===1?3:0;const reward=e.overall.solutions*2;return [25,25,25,25,participation,25+participation,0,reward,25+participation+reward]}
+function mountObjective(){if(!state.confirmed)return;state.analysis=buildAnalysis();elements={dimensionOneStage:$('#dimension-one-stage'),dimensionOneTableWrap:$('#dimension-one-table-wrap'),analysisSummary:document.createElement('span'),evidenceDrawer:$('#evidence-drawer'),evidenceDrawerTitle:$('#evidence-drawer-title'),evidenceDrawerContent:$('#evidence-drawer-content')};renderDimensionOneTable();$('#dimension-one-stage').onchange=e=>{stageView=e.target.value;renderDimensionOneTable();};const headers=['评审人','TDR1／25','TDR2／25','TDR3／25','阶段加权／25','参与度／5','基础得分','评审意见超额得分','输出有效对策得分','客观总得分'];$('#objective-page-two').innerHTML=`<div class="table-wrap"><table class="score-table"><thead><tr>${headers.map((h,i)=>`<th>${i===0?objectiveReviewerHeader():esc(h)}</th>`).join('')}</tr></thead><tbody>${experts.map((e,i)=>`<tr data-reviewer="${esc(e)}" ${objectiveReviewerVisible(e)?'':'hidden'}><td class="person">${esc(e)}</td>${demoObjectiveValues(e).map(n=>`<td>${state.objective?n:'待识别'}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="status">客观总得分包含全部奖励，可超过基础分；待识别项不按零处理。</p>`;}
+function openReviewDetails(){state.analysis=buildAnalysis();if(state.user.role!=='admin'){const allowed=new Set(commonProjects().map(p=>p.code));state.analysis.experts=state.analysis.experts.filter(e=>e.expert_name===state.expert).map(e=>({...e,sessions:e.sessions.filter(s=>allowed.has(s.project_code))}))}elements.evidenceDrawer=$('#evidence-drawer');elements.evidenceDrawerTitle=$('#evidence-drawer-title');elements.evidenceDrawerContent=$('#evidence-drawer-content');openDimensionOneEvidence(state.expert);if(state.user.role!=='admin')elements.evidenceDrawerContent.querySelectorAll('.solution-actions').forEach(el=>el.remove())}
+function selectSolution(id,included){if(state.user?.role!=='admin')return;const o=state.analysis?.experts.flatMap(e=>e.sessions).flatMap(s=>s.opinions).find(o=>o.opinion_id===id);if(o){(state.opinionDecisions||={})[id]=included;o.included=included;saveActiveTask();o.audit.push({at:new Date().toISOString()});openDimensionOneEvidence(evidenceExpertName);toast('已更新虚拟统计，关闭详情后可查看。')}}
+function exportRows(rows,name){download(name,'\ufeff评审人,客观总得分,主观最终分,总分\n'+rows.map(r=>[r.name,r.objective??'',r.subjective??'',r.total??''].join(',')).join('\n'),'text/csv;charset=utf-8');toast('已导出演示CSV；正式系统沿用Excel导出。')}
+document.addEventListener('click',event=>{const b=event.target.closest('button');if(!b||b.disabled)return;if(b.dataset.task){const t=tasks.find(t=>t.id===b.dataset.task);if(t.done)openHistory(t);else{selectTask(t);goto('read')}return}if(b.dataset.close){$('#'+b.dataset.close).close();if(b.dataset.close==='evidence-drawer'&&state.page==='objective')mountObjective();return}if(b.dataset.resultDetail){const rows=b.dataset.history==='true'?historyTask.rows:currentResults();const r=rows[Number(b.dataset.resultDetail)];$('#formula-title').textContent=r.name+' · 计分依据';$('#formula-body').innerHTML=`<p>客观总得分${r.objective??'待完成'}＋主观最终分${r.subjective??'待完成'}，总分${r.total??'待统计'}。</p><p>本页为${b.dataset.history==='true'?'历史任务快照':'当前任务'}虚拟数据。</p>`;showModal('formula-dialog');return}switch(b.dataset.action){
+case 'create-next':createTask();break;
+case 'sample-accounts':creation.users=validateRoster({version:1,users:accounts});creation.error='';render();break;
+case 'review-details':openReviewDetails();break;
+case 'to-read':goto('read');break;
+case 'objective-toggle':objectivePage=objectivePage===1?2:1;render();break;
+case 'identify':showModal('identify-dialog');break;
+case 'run-identify':$('#identify-dialog').close();state.objective=true;saveActiveTask();render();toast('演示识别已完成，未调用AI服务。');break;
+case 'parameters':$('#formula-title').textContent='评分参数';$('#formula-body').innerHTML=receipt();showModal('formula-dialog');break;
+case 'export-current':exportRows(currentResults(),'当前任务-演示结果.csv');break;
+case 'export-history':exportRows(historyTask.rows,'历史任务-演示结果.csv');break;
+case 'export-objective':download('客观评价-演示.csv','\ufeff评审人,应参场次,实参场次,已会签场次,意见条数,含对策意见条数,客观总得分\n'+experts.map((e,i)=>[e,commonProjects(e).length*3,commonProjects(e).length*3,commonProjects(e).length*3,commonProjects(e).length*3,state.objective?demoObjectiveValues(e)[7]/2:'待识别',state.objective?demoObjectiveValues(e).at(-1):'待识别'].join(',')).join('\n'),'text/csv;charset=utf-8');toast('已导出演示CSV；正式导出沿用main的两张Excel工作表。');break;
+}});
+render();
+</script>
+</body></html>
