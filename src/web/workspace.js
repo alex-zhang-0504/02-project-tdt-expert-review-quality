@@ -3,7 +3,7 @@ window.workspace = {
   user: null, users: [], bindings: {}, saveTimer: null,
   async initialize() {
     const session = await requestJson('/api/workspace/session');
-    this.user = session.user; this.users = session.users;
+    this.user = session.user; this.users = session.users; this.accountsFile = session.accounts_file;
     document.body.dataset.workspaceRole = this.user?.role || 'guest';
     document.querySelectorAll('.back-to-mode').forEach(b=>b.textContent='返回考核列表');
     let header = sq('#workspace-account');
@@ -36,7 +36,7 @@ window.workspace = {
     };
   },
   userOptions(selected='') {
-    return '<option value="">请选择</option>' + this.users.map(u=>`<option value="${escapeHtml(u.employee_id)}" ${selected===u.employee_id?'selected':''}>${escapeHtml(u.name)} · ${escapeHtml(u.employee_id)}</option>`).join('');
+    return '<option value="">请选择</option>' + this.users.filter(u=>u.enabled!==false).map(u=>`<option value="${escapeHtml(u.employee_id)}" ${selected===u.employee_id?'selected':''}>${escapeHtml(u.name)} · ${escapeHtml(u.employee_id)}</option>`).join('');
   },
   async home() {
     if (!await flushSubjectiveChanges()) return;
@@ -44,6 +44,11 @@ window.workspace = {
     const host=sq('#workspace-panel');
     showPanel(host); activateStep(0); host.innerHTML='<p>正在读取已保存考核…</p>';
     try {
+      const session=await requestJson('/api/workspace/session');
+      this.user=session.user;this.users=session.users;this.accountsFile=session.accounts_file;
+      if(!this.user)return this.initialize();
+      document.body.dataset.workspaceRole=this.user.role;
+      sq('#workspace-account > span').textContent=`${this.user.name} · ${this.user.employee_id} · ${this.user.role==='admin'?'管理员':'项目经理'}`;
       const rows=await requestJson('/api/workspace/analyses');
       const admin=this.user.role==='admin';
       if(admin) this.bindings=await requestJson('/api/workspace/bindings');
@@ -60,9 +65,9 @@ window.workspace = {
         sq('#workspace-add-user').onsubmit=async e=>{
           e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;
           try{
-            const user=await assessmentPost('/api/workspace/users',Object.fromEntries(new FormData(form)));
-            this.users.push(user);this.renderUsers();
+            await assessmentPost('/api/workspace/users',Object.fromEntries(new FormData(form)));
             form.elements.name.value='';form.elements.employee_id.value='';
+            await this.refreshAccounts();
             sq('#workspace-error').textContent='';
           }catch(err){sq('#workspace-error').textContent=err.message;}
           finally{button.disabled=false;}
@@ -80,9 +85,27 @@ window.workspace = {
   },
   renderUsers() {
     const host=sq('#workspace-users');
-    host.innerHTML=this.users.map(u=>`<div class="workspace-user-row"><span>${escapeHtml(u.name)} · ${escapeHtml(u.employee_id)}（${u.role==='admin'?'管理员':'项目经理'}）</span>${u.employee_id===this.user.employee_id?'<span class="muted">当前登录</span>':`<button type="button" class="ghost-button" data-delete-user="${escapeHtml(u.employee_id)}" aria-label="删除账号 ${escapeHtml(u.name)} ${escapeHtml(u.employee_id)}">删除账号</button>`}</div>`).join('')+'<div id="workspace-delete-confirm" role="status"></div>';
+    host.innerHTML=`<p>账号配置文件：<code>${escapeHtml(this.accountsFile||'')}</code></p><button type="button" class="secondary-button" id="workspace-users-refresh">刷新账号配置</button><p id="workspace-users-status" role="status"></p>`+this.users.map(u=>`<div class="workspace-user-row"><span>${escapeHtml(u.name)} · ${escapeHtml(u.employee_id)}（${u.role==='admin'?'管理员':'项目经理'}）${u.enabled?'':' · 已停用'}</span><button type="button" class="ghost-button" data-edit-user="${escapeHtml(u.employee_id)}" aria-label="编辑账号 ${escapeHtml(u.name)} ${escapeHtml(u.employee_id)}">编辑账号</button>${u.employee_id===this.user.employee_id?'<span class="muted">当前登录</span>':`<button type="button" class="ghost-button" data-delete-user="${escapeHtml(u.employee_id)}" aria-label="删除账号 ${escapeHtml(u.name)} ${escapeHtml(u.employee_id)}">删除账号</button>`}</div>`).join('')+'<div id="workspace-user-edit"></div><div id="workspace-delete-confirm" role="status"></div>';
+    sq('#workspace-users-refresh').onclick=()=>this.refreshAccounts().catch(err=>sq('#workspace-users-status').textContent=err.message);
+    host.querySelectorAll('[data-edit-user]').forEach(button=>button.onclick=()=>{
+      const user=this.users.find(u=>u.employee_id===button.dataset.editUser);
+      sq('#workspace-delete-confirm').innerHTML='';
+      const editor=sq('#workspace-user-edit');
+      editor.innerHTML=`<h3>编辑账号 · ${escapeHtml(user.employee_id)}</h3><form id="workspace-edit-user" class="workspace-actions"><label class="field"><span>账号姓名</span><input name="name" value="${escapeHtml(user.name)}" maxlength="80" required /></label><label class="field"><span>账号角色</span><select name="role"><option value="manager" ${user.role==='manager'?'selected':''}>项目经理</option><option value="admin" ${user.role==='admin'?'selected':''}>管理员</option></select></label><label class="field"><span>账号状态</span><select name="enabled"><option value="true" ${user.enabled?'selected':''}>启用</option><option value="false" ${user.enabled?'':'selected'}>停用</option></select></label><button class="secondary-button">保存账号</button><button type="button" class="ghost-button" id="workspace-edit-cancel">取消编辑</button></form><p id="workspace-edit-message" role="status"></p>`;
+      sq('#workspace-edit-cancel').onclick=()=>{editor.innerHTML='';};
+      sq('#workspace-edit-user').onsubmit=async e=>{
+        e.preventDefault();const form=e.target,buttons=[...host.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+        try{
+          const data=Object.fromEntries(new FormData(form));data.enabled=data.enabled==='true';data.expected=user;
+          await requestJson('/api/workspace/users/'+encodeURIComponent(user.employee_id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+          await this.refreshAccounts();
+        }catch(err){const message=sq('#workspace-edit-message');if(message)message.textContent=err.message;}
+        finally{buttons.forEach(b=>b.disabled=false);}
+      };
+    });
     host.querySelectorAll('[data-delete-user]').forEach(button=>button.onclick=()=>{
       const user=this.users.find(u=>u.employee_id===button.dataset.deleteUser);
+      sq('#workspace-user-edit').innerHTML='';
       const confirmation=sq('#workspace-delete-confirm');
       confirmation.innerHTML=`<p>确认删除账号：${escapeHtml(user.name)} · ${escapeHtml(user.employee_id)}？删除后将无法选择该身份登录。</p><div class="workspace-actions"><button type="button" class="secondary-button" id="workspace-delete-submit">确认删除</button><button type="button" class="ghost-button" id="workspace-delete-cancel">取消</button></div><p id="workspace-delete-message"></p>`;
       sq('#workspace-delete-cancel').onclick=()=>{confirmation.innerHTML='';button.focus();};
@@ -98,6 +121,14 @@ window.workspace = {
       };
       sq('#workspace-delete-cancel').focus();
     });
+  },
+  async refreshAccounts() {
+    const session=await requestJson('/api/workspace/session');
+    this.user=session.user;this.users=session.users;this.accountsFile=session.accounts_file;
+    if(this.user?.role!=='admin')return this.initialize();
+    sq('#workspace-account > span').textContent=`${this.user.name} · ${this.user.employee_id} · 管理员`;
+    this.renderUsers();
+    sq('#workspace-users-status').textContent='已读取最新账号配置。';
   },
   async open(id, manager='') {
     if(!await flushSubjectiveChanges())return;

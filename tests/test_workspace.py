@@ -109,6 +109,74 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(400, self.request(path, method='DELETE')[0])
         self.assertEqual(before, self.store.load_all())
 
+    def edit_accounts_file(self, change):
+        data = json.loads(self.store.accounts_path.read_text(encoding='utf-8'))
+        change(data['users'])
+        self.store.accounts_path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+
+    def test_account_file_and_api_sync_in_both_directions(self):
+        code, added = self.request('/api/workspace/users', dict(employee_id='0010', name='虚拟新增经理'), 'POST')
+        self.assertEqual(200, code)
+        disk = json.loads(self.store.accounts_path.read_text(encoding='utf-8'))
+        self.assertIn(added, disk['users'])
+        self.edit_accounts_file(lambda users: users.append(dict(employee_id='0020', name='虚拟文件经理', role='manager', enabled=True)))
+        self.assertIn('0020', [u['employee_id'] for u in self.request('/api/workspace/session')[1]['users']])
+        self.edit_accounts_file(lambda users: users[-1].update(name='虚拟文件修改', role='admin'))
+        self.assertEqual(200, self.request('/api/statistics/scores', user='0020')[0])
+        expected = self.store.user('0020')
+        code, updated = self.request('/api/workspace/users/0020', {**expected, 'name': '虚拟页面修改', 'expected': expected}, 'PUT')
+        self.assertEqual(200, code)
+        self.assertEqual('虚拟页面修改', WorkspaceStore(self.temp.name).user('0020')['name'])
+        self.assertIn(updated, json.loads(self.store.accounts_path.read_text(encoding='utf-8'))['users'])
+
+    def test_account_conflict_disabling_and_history_retention(self):
+        self.save()
+        before = self.store.load_all()
+        expected = self.store.user('a')
+        self.edit_accounts_file(lambda users: next(u for u in users if u['employee_id']=='a').update(name='虚拟文件改名'))
+        data = {**expected, 'name': '虚拟过时修改', 'expected': expected}
+        self.assertIn('另一端修改', self.request('/api/workspace/users/a', data, 'PUT')[1]['detail'])
+        expected = self.store.user('a')
+        data = {**expected, 'enabled': False, 'expected': expected}
+        self.assertEqual(403, self.request('/api/workspace/users/a', data, 'PUT', user='b')[0])
+        self.assertEqual(200, self.request('/api/workspace/users/a', data, 'PUT')[0])
+        self.assertEqual(401, self.request('/api/workspace/analyses', user='a')[0])
+        self.assertNotIn('a', [u['employee_id'] for u in self.request('/api/workspace/session', user='')[1]['users']])
+        self.assertIn('a', [u['employee_id'] for u in self.request('/api/workspace/session')[1]['users']])
+        self.assertEqual(before, self.store.load_all())
+        self.edit_accounts_file(lambda users: next(u for u in users if u['employee_id']=='a').update(enabled=True))
+        self.assertEqual(200, self.request('/api/workspace/analyses', user='a')[0])
+
+    def test_invalid_account_file_and_last_admin_are_rejected(self):
+        original = self.store.accounts_path.read_bytes()
+        expected = self.store.user('0001')
+        for changes in ({'enabled': False}, {'role': 'manager'}, {'employee_id': 'new'}):
+            self.assertEqual(400, self.request('/api/workspace/users/0001', {**expected, **changes, 'expected': expected}, 'PUT')[0])
+            self.assertEqual(original, self.store.accounts_path.read_bytes())
+        for change in (lambda users: users.append(dict(users[0])),
+                       lambda users: users[0].update(enabled=False),
+                       lambda users: users[0].update(role='unknown'),
+                       lambda users: users.remove(next(u for u in users if u['employee_id']=='a'))):
+            self.edit_accounts_file(change)
+            self.assertEqual(400, self.request('/api/workspace/session')[0])
+            self.store.accounts_path.write_bytes(original)
+        self.store.accounts_path.write_text('{broken', encoding='utf-8')
+        self.assertIn('格式错误', self.request('/api/workspace/session')[1]['detail'])
+        self.assertIn('格式错误', self.request('/api/workspace/analyses')[1]['detail'])
+        self.store.accounts_path.write_bytes(original)
+        with patch('tdt_scoring.accounts.os.replace', side_effect=OSError('disk failure')):
+            with self.assertRaises(OSError): self.store.update_user('0001', {**expected, 'name':'虚拟失败修改'}, expected)
+        self.assertEqual(original, self.store.accounts_path.read_bytes())
+
+    def test_backup_preserves_disabled_accounts_and_external_changes(self):
+        self.edit_accounts_file(lambda users: next(u for u in users if u['employee_id']=='a').update(enabled=False, name='虚拟停用经理'))
+        backup = self.store.backup()
+        self.edit_accounts_file(lambda users: next(u for u in users if u['employee_id']=='a').update(enabled=True))
+        self.store.restore(backup)
+        self.assertIsNone(self.store.user('a'))
+        record = next(u for u in WorkspaceStore(self.temp.name).users(include_disabled=True) if u['employee_id']=='a')
+        self.assertEqual('虚拟停用经理', record['name'])
+
     def test_delete_protects_current_and_last_admin(self):
         path = '/api/workspace/users/0001'
         self.assertIn('最后一个管理员', self.request(path, method='DELETE')[1]['detail'])

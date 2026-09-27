@@ -129,7 +129,7 @@ class WorkspaceGate:
                     if path == '/api/subjective/catalog' and user['role'] != 'admin':
                         self.workspace.visible(self.workspace.service.get_analysis(request.query_params.get('analysis_id', '')), user)
                 except (HTTPException, ValueError, KeyError) as exc:
-                    response = JSONResponse({'detail': exc.detail if isinstance(exc, HTTPException) else '考核不存在或没有可访问的问卷'}, status_code=exc.status_code if isinstance(exc, HTTPException) else 404)
+                    response = JSONResponse({'detail': exc.detail if isinstance(exc, HTTPException) else str(exc) if isinstance(exc, ValueError) else '考核不存在或没有可访问的问卷'}, status_code=exc.status_code if isinstance(exc, HTTPException) else 400 if isinstance(exc, ValueError) else 404)
                     return await response(scope, receive, send)
         await self.app(scope, receive, send)
 
@@ -145,7 +145,10 @@ def create_workspace_router(workspace, encode, busy):
 
     @router.get('/session')
     def session(request: Request):
-        return {'user': store.user(request.cookies.get(COOKIE, '')), 'users': store.users()}
+        users = store.users(include_disabled=True)
+        user = next((u for u in users if u['employee_id'] == request.cookies.get(COOKIE, '') and u['enabled']), None)
+        return {'user': user, 'users': users if user and user['role'] == 'admin' else [u for u in users if u['enabled']],
+                'accounts_file': str(store.accounts_path)}
 
     @router.post('/bootstrap')
     async def bootstrap(request: Request):
@@ -167,9 +170,9 @@ def create_workspace_router(workspace, encode, busy):
 
     @router.post('/users')
     async def users(request: Request):
-        workspace.authorize(request, admin=True)
+        user = workspace.authorize(request, admin=True)
         data = await request.json()
-        return store.add_user(data.get('employee_id'), data.get('name'), data.get('role', 'manager'))
+        return store.add_user(data.get('employee_id'), data.get('name'), data.get('role', 'manager'), actor_id=user['employee_id'])
 
     @router.delete('/users/{employee_id}')
     def delete_user(employee_id: str, request: Request):
@@ -180,6 +183,12 @@ def create_workspace_router(workspace, encode, busy):
             store.delete_user(employee_id, user['employee_id'])
             workspace.restores.pop(employee_id, None)
         return {'ok': True}
+
+    @router.put('/users/{employee_id}')
+    async def update_user(employee_id: str, request: Request):
+        user = workspace.authorize(request, admin=True)
+        data = await request.json()
+        return store.update_user(employee_id, data, data.get('expected'), actor_id=user['employee_id'])
 
     @router.get('/bindings')
     def bindings(request: Request):
