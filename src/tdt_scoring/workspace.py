@@ -25,8 +25,18 @@ class Workspace:
         self.service, self.store = service, store
         self.restores = {}
         self.sessions = {}
+        from .policy_admin import credential_version
+        self.credential_version = credential_version()
+
+    def sync_admin_sessions(self):
+        from .policy_admin import credential_version
+        current = credential_version()
+        if current != self.credential_version:
+            self.sessions.clear()
+            self.credential_version = current
 
     def authorize(self, request, admin=False):
+        self.sync_admin_sessions()
         user = self.store.user(request.cookies.get(COOKIE, ''))
         if not user:
             raise HTTPException(401, '请先选择姓名和工号登录')
@@ -57,6 +67,9 @@ class Workspace:
         users = self.store.users(include_disabled=True)
         by_id = {u['employee_id']: u for u in users}
         by_owner = {owner: u for u in users for owner in u['owner_ids']}
+        roster = analysis.assessment.get('task_users')
+        eligible = {u['employee_id'] for u in roster if u['enabled']} if roster is not None else set(by_id)
+        candidates = [u for u in users if u['enabled'] and u['employee_id'] in eligible]
         errors = {}
         if not analysis.assessment.get('manager_accounts'):
             for report in analysis.reports:
@@ -64,14 +77,20 @@ class Workspace:
                 owner = identity.get('owner_id', '')
                 local = report.source_type == 'local_excel' and not identity.get('source_token')
                 user = by_id.get(owner[6:]) if local and owner.startswith('local:') else by_owner.get(owner)
-                if user and user['enabled'] and identity.get('status') == 'resolved':
+                if not user and not local and owner and identity.get('status') == 'resolved':
+                    matches = [u for u in candidates if u['name'] == identity.get('name', '').strip()]
+                    if len(matches) == 1:
+                        user = matches[0]
+                        self.store.bind(owner, user['employee_id'])
+                        by_owner[owner] = user
+                if user and user['enabled'] and user['employee_id'] in eligible and identity.get('status') == 'resolved':
                     continue
                 key = owner if owner else report.source_name
-                reason = '账号已停用' if user and not user['enabled'] else 'owner ID未登记到账号配置' if owner and not local else '本地报告尚未指定项目经理' if local else '未读取到有效的原文件所有者ID，请重新扫描'
+                reason = '账号已停用' if user and not user['enabled'] else '项目经理不在本任务启用名单中' if user and user['employee_id'] not in eligible else '原文件所有者姓名未唯一匹配启用的项目经理，请确认归属' if owner and not local else '本地报告尚未指定项目经理' if local else '未读取到有效的原文件所有者ID，请重新扫描'
                 entry = errors.setdefault(key, {'owner_id': owner, 'name': identity.get('name', ''),
                     'reason': reason, 'local': local, 'can_assign': local or bool(owner), 'reports': []})
                 entry['reports'].append(report.source_name)
-        return {'errors': list(errors.values()), 'users': [u for u in users if u['enabled']]}
+        return {'errors': list(errors.values()), 'users': candidates}
 
     def task_list(self, analysis, user):
         data = tasks(analysis)
@@ -166,7 +185,7 @@ class WorkspaceGate:
     async def handle(self, scope, receive, send):
         if scope['type'] == 'http':
             path, method = scope['path'], scope['method']
-            public = {('GET', '/api/health'), ('GET', '/api/workspace/session'), ('POST', '/api/workspace/bootstrap'), ('POST', '/api/workspace/login')}
+            public = {('GET', '/api/health'), ('GET', '/api/workspace/session'), ('POST', '/api/workspace/bootstrap'), ('POST', '/api/workspace/login'), ('POST', '/api/workspace/password')}
             if path.startswith('/api/') and (method, path) not in public:
                 request = Request(scope)
                 try:
@@ -188,6 +207,7 @@ def create_workspace_router(workspace, encode, busy):
     store, service = workspace.store, workspace.service
 
     def logged_in(user):
+        workspace.sync_admin_sessions()
         response = JSONResponse({'user': user})
         response.set_cookie(COOKIE, user['employee_id'], httponly=True, samesite='strict')
         token = secrets.token_urlsafe(32)
@@ -197,6 +217,7 @@ def create_workspace_router(workspace, encode, busy):
 
     @router.get('/session')
     def session(request: Request):
+        workspace.sync_admin_sessions()
         users = store.users(include_disabled=True)
         user = next((u for u in users if u['employee_id'] == request.cookies.get(COOKIE, '') and u['enabled']), None)
         if user and user['role'] == 'admin' and workspace.sessions.get(request.cookies.get(AUTH_COOKIE, '')) != user['employee_id']:
@@ -232,6 +253,24 @@ def create_workspace_router(workspace, encode, busy):
     def logout(request: Request):
         response = JSONResponse({'ok': True})
         workspace.sessions.pop(request.cookies.get(AUTH_COOKIE, ''), None)
+        response.delete_cookie(COOKIE)
+        response.delete_cookie(AUTH_COOKIE)
+        return response
+
+    @router.post('/password')
+    async def change_password(request: Request):
+        current = store.user(request.cookies.get(COOKIE, ''))
+        if current and current['role'] != 'admin':
+            raise HTTPException(403, '请退出登录后使用原管理员密码修改')
+        if request.headers.get('origin') not in (None, str(request.base_url).rstrip('/')):
+            raise HTTPException(403, '拒绝跨站密码请求')
+        from .policy_admin import workspace_password
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(400, '密码请求格式错误')
+        workspace_password(data, change=True)
+        workspace.sync_admin_sessions()
+        response = JSONResponse({'ok': True})
         response.delete_cookie(COOKIE)
         response.delete_cookie(AUTH_COOKIE)
         return response

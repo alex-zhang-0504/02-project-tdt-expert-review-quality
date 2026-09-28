@@ -20,17 +20,31 @@ _login_failures = []
 _login_lock = Lock()
 
 
-def workspace_password(data):
+def credential_version():
+    return sha256(ADMIN_PATH.read_bytes()).hexdigest() if ADMIN_PATH.exists() else None
+
+
+def workspace_password(data, *, change=False):
     """Use the existing local administrator credential for workspace login."""
     password = data.get('password')
     if not isinstance(password, str) or not 8 <= len(password) <= 128:
         raise HTTPException(400, '管理员密码长度须为8至128位')
+    if change:
+        new_password = data.get('new_password')
+        if not isinstance(new_password, str) or not 8 <= len(new_password) <= 128:
+            raise HTTPException(400, '新密码长度须为8至128位')
+        if new_password != data.get('confirmation'):
+            raise HTTPException(400, '两次输入的新密码不一致')
+        if new_password == password:
+            raise HTTPException(400, '新密码不能与原密码相同')
     with _login_lock, file_lock(ADMIN_PATH.with_suffix('.lock')):
         stamp = monotonic()
         _login_failures[:] = [t for t in _login_failures if stamp - t < 60]
         if len(_login_failures) >= 5:
             raise HTTPException(429, '密码尝试过多，请一分钟后重试')
         if not ADMIN_PATH.exists():
+            if change:
+                raise HTTPException(409, '尚未设置管理员密码，请重新登录')
             if data.get('confirmation') != password:
                 raise HTTPException(400, '首次登录请设置密码，两次输入须一致')
             salt = secrets.token_bytes(32)
@@ -41,6 +55,15 @@ def workspace_password(data):
             if not hmac.compare_digest(record['hash'], digest):
                 _login_failures.append(stamp)
                 raise HTTPException(403, '管理员密码不正确')
+        if change:
+            salt = secrets.token_bytes(32)
+            content = json.dumps({'salt': salt.hex(), 'hash': pbkdf2_hmac('sha256', new_password.encode(), salt, ITERATIONS).hex()}).encode()
+            try:
+                atomic_write(ADMIN_PATH, content)
+                if ADMIN_PATH.read_bytes() != content:
+                    raise OSError()
+            except OSError:
+                raise HTTPException(500, '密码保存或核验失败，请重新登录确认') from None
         _login_failures.clear()
 
 
@@ -101,7 +124,7 @@ def create_policy_admin_router():
     def authorize(request):
         guard(request)
         token = request.headers.get('x-policy-session', '')
-        if token not in sessions:
+        if token not in sessions or sessions[token] != credential_version():
             raise HTTPException(401, '管理员授权已失效，请重新解锁')
 
     async def body(request):
@@ -157,7 +180,7 @@ def create_policy_admin_router():
                     raise HTTPException(403, '管理员密码不正确或尚未设置')
             failures.clear()
             token = secrets.token_urlsafe(32)
-            sessions[token] = True
+            sessions[token] = credential_version()
             return {'token': token}
 
     @router.post('/lock')

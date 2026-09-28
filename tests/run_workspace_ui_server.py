@@ -1,5 +1,6 @@
 """Isolated real UI acceptance with virtual reports and separate credentials/config."""
 import json
+import asyncio
 import os
 from pathlib import Path
 import sys
@@ -25,4 +26,11 @@ for suffix, code in [('a','B260001'), ('b','B260002')]:
         {'stage':'TDR1','problems':[]}], project='虚拟项目-'+code))
 wb = Workbook(); wb.active.append(['姓名']); wb.active.append(['虚拟专家甲']); wb.save(folder / 'roster.xlsx')
 from tdt_scoring.api import app
+if os.environ.get('TDT_UI_DELAY_REVIEWS') == '1':
+    @app.middleware('http')
+    async def delay_review_response(request, call_next):
+        response = await call_next(request)
+        if request.method == 'POST' and request.url.path == '/api/subjective/review':
+            await asyncio.sleep(2)
+        return response
 uvicorn.run(app, host='127.0.0.1', port=int(sys.argv[1]))

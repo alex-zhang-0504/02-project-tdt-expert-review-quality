@@ -173,7 +173,7 @@ function applyServiceHealth(health) {
   if (state.analysisStale) {
     setServiceStatus("服务已重新启动", SERVICE_RESTARTED_MESSAGE, false);
   } else {
-    setServiceStatus(`试用版 ${health.version}`, "本地统计服务运行正常", true);
+    setServiceStatus(`Beta ${health.version}`, "本地统计服务运行正常", true);
   }
   syncServiceActions();
   return true;

@@ -8,5 +8,5 @@
   "fallback_to_creator_or_editor": false,
   "missing_owner": "unresolved",
   "local_excel": "explicit_assignment",
-  "description": "飞书原文件所有者即项目经理。姓名仅用于显示，owner_id用于身份去重。无法获取时明确待识别，不使用创建人或最后编辑人替代。本地Excel须明确指定项目经理。"
+  "description": "飞书原文件所有者即项目经理。所有者姓名唯一匹配启用名单后关联工号，owner_id保留为内部来源标识。无法获取时明确待识别，不使用创建人或最后编辑人替代。本地Excel须明确指定项目经理。"
 }

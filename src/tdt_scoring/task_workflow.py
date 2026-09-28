@@ -55,20 +55,13 @@ def create_task_router(workspace, encode, busy):
         year, period = str(data.get('year', '')), data.get('period')
         if not year.isdigit() or not 2000 <= int(year) <= 2100 or period not in ('年度', '上半年', '下半年'):
             raise ValueError('请选择有效年份与考评周期')
-        imported = accounts.validate(data.get('accounts'))
-        if not any(u['enabled'] and u['role'] == 'manager' for u in imported):
-            raise ValueError('配置至少需要一位启用的项目经理')
         with service._fact_lock:
             if any(a.assessment.get('year') == year and a.assessment.get('period') == period and not a.assessment.get('deleted') for a in service._analyses.values()):
                 raise ValueError('该年份与周期已有任务，请从任务卡片打开')
-            # Import only additive/identical identities; edits use the existing account directory.
             current = store.users(include_disabled=True)
-            merged = {u['employee_id']: u for u in current}
-            for u in imported:
-                if u['employee_id'] in merged and merged[u['employee_id']] != u:
-                    raise ValueError('导入名单与已有账号配置不一致，请先核对账号配置文件')
-                merged[u['employee_id']] = u
-            users = accounts.validate({'version': 1, 'users': list(merged.values())})
+            imported, users = accounts.import_directory(data.get('accounts'), current)
+            if not any(u['enabled'] and u['role'] == 'manager' for u in imported):
+                raise ValueError('配置至少需要一位启用的项目经理')
             definition = questionnaire.load()
             a = WorkbookAnalysis(uuid4().hex, 'workspace', year + period + '评审人考核', [], [], [])
             a.assessment = {'year': year, 'period': period, 'created_at': now(), 'created_by': user['employee_id'],
@@ -91,6 +84,50 @@ def create_task_router(workspace, encode, busy):
             service._revisions[a.analysis_id] = revision
             service._analyses[a.analysis_id] = a
             return encode(a)
+
+    @router.get('/{task_id}/managers')
+    def read_managers(task_id: str, request: Request):
+        admin(request)
+        a = service.get_analysis(task_id)
+        return {'users': a.assessment.get('task_users', []),
+                'revision': service._revisions[task_id],
+                'accounts_hash': sha256(store.accounts_path.read_bytes()).hexdigest()}
+
+    @router.put('/{task_id}/managers')
+    async def update_managers(task_id: str, request: Request):
+        user = admin(request)
+        data = await request.json()
+        if busy():
+            raise HTTPException(409, '请等待报告读取及分析结束后再修改名单')
+        with service.edit_analysis(task_id, persist=False) as a, store._lock:
+            if data.get('confirmed') is not True or data.get('revision') != service._revisions[task_id]:
+                raise HTTPException(409, '请重新打开名单，核对最新任务后确认保存')
+            current = store.users(include_disabled=True)
+            raw = store.accounts_path.read_bytes()
+            if data.get('accounts_hash') != sha256(raw).hexdigest():
+                raise HTTPException(409, '账号配置已变化，请重新打开名单')
+            imported, users = accounts.import_directory(data.get('accounts'), current)
+            if not any(u['enabled'] and u['role'] == 'manager' for u in imported):
+                raise ValueError('配置至少需要一位启用的项目经理')
+            a.assessment.setdefault('manager_roster_history', []).append({
+                'at': now(), 'actor': user, 'before': deepcopy(a.assessment.get('task_users', [])), 'after': imported})
+            a.assessment['task_users'] = imported
+            a.assessment['finalized'] = False
+            replacement = accounts.content(users)
+            replaced = False
+            try:
+                with store.connect() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    store._snapshot_accounts(db, users)
+                    revision = store.save(a, service._revisions[task_id], db)
+                    accounts.replace(store.accounts_path, replacement, raw)
+                    replaced = True
+            except Exception:
+                if replaced:
+                    accounts.replace(store.accounts_path, raw, replacement)
+                raise
+            service._revisions[task_id] = revision
+        return {'ok': True}
 
     @router.post('/{task_id}/reports')
     async def adopt(task_id: str, request: Request):

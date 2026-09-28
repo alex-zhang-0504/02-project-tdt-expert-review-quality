@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>V0.6四维事实统计版</title>
+    <title>TDT技术项目评审人考核系统</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css?build=__BUILD_ID__" />
   </head>
@@ -14,7 +14,7 @@
           <div class="topbar">
             <div>
               <p class="eyebrow">TDT EXPERT REVIEW</p>
-              <h1>评审人考核系统</h1>
+              <h1>TDT技术项目评审人考核系统</h1>
             </div>
             <span class="project-summary" id="project-summary">尚未读取评审表</span>
             <div class="spacer"></div>
@@ -158,7 +158,7 @@
                   <p id="analysis-summary"></p>
                 </div>
               </div>
-              <div class="heading-actions"><button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled>导出评价结果</button></div>
+              <div class="heading-actions"><button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled hidden>导出评价结果</button></div>
             </div>
             <div id="objective-page-one">
             <div class="dimension-one-controls">
@@ -179,7 +179,7 @@
           <section class="panel is-hidden" id="subjective-panel">
             <div class="panel-heading">
               <div><p class="section-index">步骤 3 · 维度二</p><h2>主观评价</h2></div>
-              <button class="primary-button" id="export-subjective" type="button">导出评价结果</button>
+              <button type="button" class="ghost-button" id="workspace-history" hidden>查看修改记录</button>
             </div>
             <div id="subjective-page-one">
             <div class="subjective-layout">
@@ -192,6 +192,7 @@
               <div class="subjective-content">
                 <div id="subjective-editor"></div>
                 <p id="subjective-message" role="status" aria-live="polite"></p>
+                <button type="button" class="secondary-button" id="subjective-save-retry" hidden>重试保存</button>
               </div>
             </div>
 

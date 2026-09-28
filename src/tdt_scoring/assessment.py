@@ -100,6 +100,8 @@ def tasks(analysis):
     require_selected(analysis)
     result = {}
     unresolved = set()
+    roster = analysis.assessment.get('task_users')
+    eligible = {u['employee_id'] for u in roster if u['enabled']} if roster is not None else None
     for expert in selected_experts(analysis):
         # Actual project intersection, not merely being on an invitation list.
         projects = {s.project_code for s in expert.sessions if s.attended}
@@ -111,6 +113,8 @@ def tasks(analysis):
                 unresolved.add(report.source_name)
                 continue
             mid = analysis.assessment.get('manager_accounts', {}).get(identity['owner_id'], identity['owner_id'])
+            if eligible is not None and 'manager_accounts' in analysis.assessment and mid not in eligible:
+                continue
             name = analysis.assessment.get('manager_names', {}).get(mid, identity['name'])
             manager = result.setdefault(mid, {'manager_id': mid, 'name': name, 'experts': {}})
             manager['experts'].setdefault(expert.expert_name, set()).add(report.project_code)

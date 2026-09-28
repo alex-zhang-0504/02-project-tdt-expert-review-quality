@@ -1,4 +1,4 @@
-const subjective = {analysisId: null, catalog: null, expert: "", drafts: new Map(), busy: false};
+const subjective = {analysisId: null, catalog: null, expert: "", drafts: new Map(), busy: false, backgroundSaving: false};
 const sq = selector => document.querySelector(selector);
 let subjectiveGuideSeen = false;
 
@@ -95,7 +95,7 @@ function renderSubjectiveEditor() {
     `<option value="${escapeHtml(code)}" ${code === selected ? "selected" : ""}>${escapeHtml(name)}（${escapeHtml(code)}）</option>`).join("");
   sq("#subjective-editor").innerHTML = `<form id="subjective-form">
       <div class="subjective-heading"><h3>${escapeHtml(expert.expert_name)}</h3>${window.workspace?.user?.role==='manager'?`<button class="info-tip" type="button" aria-label="查看共同项目"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">共同项目${projects.map(([code,name])=>`<span class="shared-project">${escapeHtml(name)}（${escapeHtml(code)}）</span>`).join('')}</span></button>`:''}<button class="secondary-button" type="button" id="subjective-facts">查看评审过程详情</button></div>
-    <fieldset class="subjective-fields" ${subjective.busy || window.workspace?.readonly() ? "disabled" : ""}>
+    <fieldset class="subjective-fields" ${(subjective.busy && !subjective.backgroundSaving) || window.workspace?.readonly() ? "disabled" : ""}>
       ${managerSaved(expert.expert_name) && managerSaved(expert.expert_name).rule_version !== subjective.catalog?.[0]?.rule_version ? '<p class="subjective-boundary">旧版问卷已保留，请按本版题目重新确认；旧答案不自动参与新规则计分。</p>' : ''}
       ${subjectiveExclusion() ? `<p class="subjective-boundary">此任务已有排除记录：${escapeHtml(subjectiveExclusion())}。原记录保留。</p>` : ''}
       ${subjective.catalog.map((d, index) => {
@@ -148,9 +148,11 @@ async function flushSubjectiveChanges(background=false) {
   if (subjective.analysisId !== state.analysis?.analysis_id) return true;
   const pending = [...subjective.drafts.entries()].filter(([, draft]) => draft.dirty);
   if (!pending.length) return true;
+  sq('#subjective-save-retry').hidden = true;
   const analysis = state.analysis;
   let failedKey = pending[0][0];
   subjective.busy = true;
+  subjective.backgroundSaving = background;
   sq('#assessment-manager').disabled = true;
   if (!background && sq('.subjective-fields')) sq('.subjective-fields').disabled = true;
   if (sq('#subjective-save-state')) sq('#subjective-save-state').textContent = '正在提交…';
@@ -176,44 +178,32 @@ async function flushSubjectiveChanges(background=false) {
     sq('#assessment-manager').value = assessmentUI.managerId;
     showPanel(sq('#subjective-panel')); activateStep(3);
     sq('#subjective-page-one').hidden = false; sq('#subjective-page-two').hidden = true;
-    sq('#export-subjective').hidden = false;
     sq('#subjective-page-toggle').textContent = '查看主观打分 →';
     sq('#subjective-page-toggle').dataset.dimensionPage = 'subjective:2';
-    const message = `自动提交失败：${currentManager()?.name || '当前经理'}／${subjective.expert}。${error.message}。内容已保留，请重试切换或查看主观打分。`;
+    const message = `自动保存失败：${currentManager()?.name || '当前经理'}／${subjective.expert}。${error.message}。内容保留在当前页面，请重试保存，成功前不要关闭页面。`;
     sq('#subjective-message').textContent = message;
+    sq('#subjective-save-retry').hidden = false;
     if (!background && !window.workspace) window.alert(message);
     return false;
   } finally {
-    subjective.busy = false; sq('#assessment-manager').disabled = false;
+    subjective.busy = false; subjective.backgroundSaving = false; sq('#assessment-manager').disabled = false;
     renderSubjectiveRail();
-    if (!background) renderSubjectiveEditor(); else updateSubjectiveSummary();
+    if (!background) renderSubjectiveEditor(); else {
+      if (sq('.subjective-fields')) sq('.subjective-fields').disabled = !!window.workspace?.readonly();
+      updateSubjectiveSummary();
+    }
     window.workspace?.syncQuestionnaire();
   }
 }
 
-async function exportSubjective() {
-  if (subjective.busy || !await checkServiceHealth() || state.analysisStale) return;
-  if (!await flushSubjectiveChanges()) return;
-  const button = sq("#export-subjective");
-  button.disabled = true;
-  try {
-    const link = document.createElement("a");
-    link.href = `/api/subjective/export?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}`;
-    link.download = "";
-    document.body.append(link); link.click(); link.remove();
-    sq("#subjective-message").textContent = "已请求下载主观打分及经理评价依据。";
-  } catch (error) { sq("#subjective-message").textContent = error.message; }
-  finally { button.disabled = false; }
-}
-
 function initializeSubjectiveUI() {
+  sq('#subjective-save-retry').addEventListener('click', () => flushSubjectiveChanges());
   sq('#subjective-guide-known').addEventListener('click', () => {
     subjectiveGuideSeen = true;
     try { sessionStorage.setItem('tdt-subjective-guide-seen', '1'); } catch (_) {}
     sq('#subjective-guide').close();
   });
   sq('#subjective-guide').addEventListener('cancel', event => event.preventDefault());
-  sq("#export-subjective").addEventListener("click", exportSubjective);
   sq("#subjective-experts").addEventListener("click", async event => {
     const button = event.target.closest("[data-person]");
     if (!button || subjective.busy) return;

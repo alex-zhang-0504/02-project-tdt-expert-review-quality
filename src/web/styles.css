@@ -635,18 +635,20 @@ button.report-progress-row { cursor: pointer; }
 body[data-workspace-role="guest"] .module-tabs,
 body[data-workspace-role="manager"] .subjective-manager-field,
 body[data-workspace-role="manager"] #subjective-page-toggle,
-body[data-workspace-role="manager"] #export-subjective,
 body[data-workspace-role="manager"] .policy-settings-button { display:none !important; }
 /* Confirmed V6 differences; module content retains the main design. */
-.password-control { display:flex; align-items:stretch; }
-.password-control input { flex:1; min-width:0; }
-.password-control button { display:grid; place-items:center; padding:8px 12px; }
+.password-control { display:block; position:relative; }
+.password-control input { width:100%; min-width:0; padding-right:48px; }
+.password-control button { position:absolute; right:4px; top:50%; transform:translateY(-50%); display:grid; place-items:center; width:40px; height:40px; min-height:0; padding:0; border:0; background:transparent; box-shadow:none; user-select:none; touch-action:none; }
+.password-control button:hover, .password-control button:active { transform:translateY(-50%); background:transparent; box-shadow:none; }
+.file-picker-button { width:100%; min-height:54px; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#workspace-history[hidden], #subjective-save-retry[hidden] { display:none; }
 #workspace-password-fields[hidden], #workspace-my-return[hidden] { display:none; }
 .workspace-task-entry { position:relative; }
 .workspace-task { display:block; width:100%; text-align:left; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); color:var(--ink); padding:24px; transition:transform 180ms ease,filter 180ms ease,border-color 180ms ease; }
 .workspace-task:hover { transform:translateY(-3px); filter:brightness(.94); border-color:var(--accent); }
 .workspace-task.new-task { text-align:center; border-style:dashed; min-height:100px; }
-.workspace-task-heading { display:flex; align-items:center; flex-wrap:wrap; gap:14px; padding-right:420px; }
+.workspace-task-heading { display:flex; align-items:center; flex-wrap:wrap; gap:14px; padding-right:590px; }
 .workspace-task-heading strong { font-size:20px; }
 .task-badge { font-weight:var(--font-weight-body); background:var(--accent-soft); padding:5px 12px; white-space:nowrap; }
 .task-meta { display:block; margin:16px 0; color:var(--muted); font-weight:var(--font-weight-body); }
@@ -660,11 +662,44 @@ body[data-workspace-role="manager"] .policy-settings-button { display:none !impo
 #workspace-dialog .policy-editor-actions { justify-content:flex-end; }
 body[data-workspace-role="guest"] #project-summary { visibility:hidden; }
 body[data-workspace-role="manager"] .module-tab:not([data-step="3"]) { pointer-events:none; color:var(--muted); background:var(--surface-soft); }
-body[data-workspace-role="manager"] .module-tab:not([data-step="3"])::before { content:''; width:16px; height:16px; display:inline-block; margin-right:8px; background:currentColor; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 10V7a5 5 0 0110 0v3h2v12H5V10zm2 0h6V7a3 3 0 00-6 0zm2 5v4h2v-4z'/%3E%3C/svg%3E") center/contain; }
+body[data-workspace-role="manager"] .module-tab:not([data-step="3"]) { opacity:1; color:#aaa; }
+body[data-workspace-role="manager"] .module-tab:not([data-step="3"])::before { content:'🔒'; display:inline-block; margin-right:8px; font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif; }
 body[data-workspace-role="manager"] .subjective-rail, body[data-workspace-role="manager"] #subjective-policy-footer { display:none; }
 body[data-workspace-role="manager"] .subjective-layout { grid-template-columns:1fr; }
 .workspace-task .task-meta, .workspace-task .task-progress, .workspace-task .task-badge { font-size:var(--font-size-body); }
 @media(max-width:1100px) { .workspace-task-heading { padding-right:0; } .workspace-task-entry .workspace-task { padding-top:88px; } .task-buttons { left:24px; right:auto; } }
-@media(max-width:720px) { .creation-fields { grid-template-columns:1fr; } .task-buttons { gap:6px; left:16px; } .task-buttons button { padding:8px; font-size:var(--font-size-supporting); } .task-progress { flex-wrap:wrap; } }
+@media(max-width:720px) { .creation-fields { grid-template-columns:1fr; } .task-buttons { gap:6px; left:16px; right:16px; flex-wrap:wrap; } .task-buttons button { padding:8px; font-size:var(--font-size-supporting); } .workspace-task-entry .workspace-task { padding-top:132px; } .task-progress { flex-wrap:wrap; } }
 @media(prefers-reduced-motion:reduce) { .workspace-task { transition:none; } .workspace-task:hover { transform:none; } }
 .shared-project { display: block; margin-top: 6px; }
+
+/* Approved task cards; the creation card keeps its existing white dashed surface. */
+#workspace-logout, #workspace-change-password, #service-status { box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; width:104px; height:40px; min-height:40px; padding:0; font-size:var(--font-size-supporting); line-height:20px; }
+.workspace-list { overflow-anchor:none; }
+.workspace-task-entry { background:var(--accent); border-radius:var(--radius); }
+.workspace-task-entry .workspace-task { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.workspace-task-entry .task-meta, .workspace-task-entry .task-badge { color:var(--accent-ink); background:transparent; }
+.workspace-task-entry .task-buttons button { background:transparent; border-color:rgba(255,255,255,.6); color:var(--accent-ink); }
+.workspace-task-entry .task-buttons button:hover { background:rgba(255,255,255,.1); border-color:var(--accent-ink); }
+.workspace-task-entry progress { appearance:none; border:0; background:rgba(255,255,255,.3); color:var(--accent-ink); }
+.workspace-task-entry progress::-webkit-progress-bar { background:rgba(255,255,255,.3); }
+.workspace-task-entry progress::-webkit-progress-value { background:var(--accent-ink); }
+.workspace-task-entry progress::-moz-progress-bar { background:var(--accent-ink); }
+.workspace-task:active { transform:translateY(0) scale(.98); filter:brightness(.88); }
+.workspace-task:focus-visible, .workspace-questionnaire:focus-visible { outline:2px solid var(--ink); outline-offset:3px; }
+.workspace-questionnaires { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+.workspace-questionnaire { display:flex; flex-direction:column; gap:16px; min-width:0; min-height:186px; padding:22px; border:1px solid var(--accent); border-radius:var(--radius); background:var(--accent); color:var(--accent-ink); text-align:left; cursor:pointer; transition:transform 180ms ease,filter 180ms ease; }
+.workspace-questionnaire:hover { transform:translateY(-3px); filter:brightness(.94); }
+.workspace-questionnaire:active { transform:translateY(0) scale(.98); filter:brightness(.88); }
+.questionnaire-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+.questionnaire-heading strong { font-size:20px; color:var(--accent-ink); }
+.questionnaire-badge, .questionnaire-cycle, .questionnaire-saved { font-size:var(--font-size-supporting); font-weight:var(--font-weight-body); }
+.questionnaire-bottom { display:flex; justify-content:space-between; align-items:end; margin-top:auto; font-size:24px; }
+.questionnaire-count { display:block; font-size:28px; line-height:1.2; }
+.questionnaire-count small { font-size:var(--font-size-supporting); }
+.questionnaire-saved { display:block; margin-top:6px; }
+.questionnaire-segments { display:flex; gap:5px; }
+.questionnaire-segments i { flex:1; height:3px; background:rgba(255,255,255,.3); }
+.questionnaire-segments i.filled { background:var(--accent-ink); }
+@media(max-width:1000px) { .workspace-questionnaires { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .workspace-questionnaires { grid-template-columns:1fr; } }
+@media(prefers-reduced-motion:reduce) { .workspace-questionnaire { transition:none; } .workspace-questionnaire:hover, .workspace-questionnaire:active, .workspace-task:active { transform:none; } }

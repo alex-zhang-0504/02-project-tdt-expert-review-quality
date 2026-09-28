@@ -36,6 +36,19 @@ async function main() {
   assert.equal(workspace.managerErrors.length,0);
   assert.equal(sq('#workspace-manager-errors').hidden,true);
   assert.equal(sq('#assessment-result').innerHTML,'已匹配原名单');
-  console.log('经理匹配：只显异常、保留名单、阻断未确认及忽略过时响应通过');
+  const remaining={isConnected:true,offsetHeight:200,getBoundingClientRect:()=>({top:entry.isConnected?400:160}),querySelector:()=>({focus:o=>{remaining.focusOptions=o}}),animate:(frames,options)=>{remaining.motion={frames,options}}};
+  const entry={isConnected:true,getBoundingClientRect:()=>({top:160}),nextElementSibling:remaining,remove(){this.isConnected=false}};
+  sq('#workspace-panel').querySelectorAll=()=>[entry,remaining];
+  root.document={documentElement:{scrollHeight:2200}};
+  root.window.scrollY=900;root.window.innerHeight=700;root.window.matchMedia=()=>({matches:false});root.window.scrollTo=o=>{root.scrollResult=o};
+  workspace.removeTaskCard(entry);
+  assert.equal(root.scrollResult.top,900);
+  assert.equal(remaining.focusOptions.preventScroll,true);
+  assert.equal(remaining.motion.options.duration,180);
+  assert.equal(remaining.motion.frames[0].transform,'translateY(240px)');
+  remaining.isConnected=true;root.window.matchMedia=()=>({matches:true});root.document.documentElement.scrollHeight=900;
+  sq('#workspace-create').focus=()=>{};remaining.remove=()=>{remaining.isConnected=false};
+  workspace.removeTaskCard(remaining);assert.equal(root.scrollResult.top,200);
+  console.log('经理匹配及删除卡片保留视口、补位、页面底部回收通过');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

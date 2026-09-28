@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>蓝色任务卡片 · V2</title>
+<link rel="stylesheet" href="../src/web/styles.css">
+<style>
+body{background:#fafafa}.demo-bar{padding:16px max(24px,calc((100% - 1240px)/2));border-bottom:1px solid var(--line);background:#fff}.demo-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.demo-row strong{margin-right:14px}.variant{padding:9px 14px;border:1px solid var(--line);background:white;border-radius:2px;cursor:pointer}.variant[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent)}.demo-note{margin:10px 0 0;font-size:14px;color:var(--muted)}.product-head{background:white;border-bottom:1px solid var(--line);padding:20px 24px 12px}.head-inner,.main{max-width:1240px;margin:auto}.head-row{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:18px}.brand small{color:var(--muted);letter-spacing:1.2px}.brand h1{font-size:24px;margin:0}.identity{display:flex;align-items:center;gap:12px}.identity .head-chip{display:inline-flex;justify-content:center;align-items:center;width:104px;height:40px;box-sizing:border-box;padding:0;border:0;border-radius:2px;font-size:14px;line-height:20px;background:var(--accent-soft)}.identity .version{color:var(--success)}.main{padding:32px 0 60px}.heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:24px}.heading h2{font-size:28px;margin:0}.heading h2 small{font-size:15px;font-weight:400;color:var(--muted);margin-left:12px}.cycle{color:var(--muted);margin:8px 0 0}.overall{text-align:right;font-size:14px}.overall strong{font-size:24px;color:var(--ink)}.overall progress{display:block;width:150px;height:4px;margin-top:8px;accent-color:var(--accent)}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.card{position:relative;display:flex;flex-direction:column;gap:24px;width:100%;min-width:0;min-height:186px;padding:22px;text-align:left;border:1px solid var(--accent);border-radius:2px;background:var(--accent);color:#fff;cursor:pointer;transition:transform 180ms ease,filter 180ms ease,border-color 180ms ease}.card:hover{transform:translateY(-3px);filter:brightness(.94)}.card:active{transform:translateY(0) scale(.98);filter:brightness(.88)}.card:focus-visible{outline:2px solid var(--ink);outline-offset:4px}.card-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.person-name{font-size:18px;font-weight:700;color:var(--ink);background:#fff;padding:3px 9px;border-radius:2px}.badge{font-size:13px;border:1px solid #ffffff80;padding:3px 8px;border-radius:2px;white-space:nowrap}.done .badge{background:#fff;color:#286044;border-color:#fff;font-weight:600}.card-bottom{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end}.count{font-size:28px;line-height:1.1}.count small{font-size:14px}.save-label{display:block;font-size:13px;margin-top:7px}.arrow{font-size:24px}.segments{display:flex;gap:5px;margin-top:-10px}.segments i{height:3px;flex:1;background:#ffffff40}.segments i.filled{background:#fff}.compact{grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.compact .card{min-height:158px;padding:18px;gap:19px}.compact .person-name{font-size:16px}.compact .count{font-size:24px}.group-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.group-grid .card{min-height:142px;padding:20px;gap:16px}.group-title{font-size:17px;font-weight:600;margin:28px 0 14px}.group-title:first-child{margin-top:0}.group-title span{font-size:14px;color:var(--muted);font-weight:400;margin-left:10px}.question-page{background:white;padding:28px;border:1px solid var(--line)}.question-page .subjective-heading{margin-bottom:28px}.question-page .subjective-heading h3{font-size:24px}.question-page .subjective-heading .saved{margin-left:auto;color:var(--muted);font-size:14px}.question-page .assessment-pager{margin-bottom:0}.question-page .field{margin-top:12px}.question-page .field textarea{min-height:66px}.logged-out{max-width:480px;margin:64px auto;background:white;border:1px solid var(--line);padding:36px}.logged-out h2{margin-top:0}.demo-dialog{max-width:650px;border:1px solid var(--line);padding:28px;color:var(--ink);border-radius:2px}.demo-dialog::backdrop{background:var(--backdrop)}.demo-dialog .dialog-actions{display:flex;justify-content:flex-end;margin-top:24px}
+@media(max-width:1300px){.main{margin:0 24px}}@media(max-width:1000px){.grid,.compact{grid-template-columns:repeat(2,minmax(0,1fr))}.head-row{flex-wrap:wrap}.identity{margin-left:auto}.card{min-height:170px}}@media(max-width:600px){.grid,.compact,.group-grid{grid-template-columns:1fr}.main{margin:0 16px;padding-top:24px}.heading{align-items:flex-start}.heading h2{font-size:24px}.heading h2 small{display:block;margin:6px 0}.overall progress{width:100px}.head-row{gap:16px}.identity{margin-left:0;flex-wrap:wrap}.identity>span:first-child{width:100%}.card{min-height:152px}.question-page{padding:16px}.question-page .subjective-heading{flex-wrap:wrap}.module-tab{font-size:12px}.demo-bar{padding:14px 16px}}@media(prefers-reduced-motion:reduce){.card{transition:none}.card:hover,.card:active{transform:none}}
+
+/* V2 approved differences: blue surfaces and direct white text. */
+.person-name{color:#fff;background:transparent;padding:0}.badge,.done .badge{color:#fff;background:transparent;border:0;padding:0}.done .badge{font-weight:700}.card .segments i{background:rgba(255,255,255,.3)}.card .segments i.filled{background:#fff}.module-tab:disabled{opacity:1;color:#aaa}.module-tab .lock{font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif;margin-right:7px;filter:none;opacity:1}.admin-list{display:grid;gap:20px;overflow-anchor:none}.admin-task{position:relative;background:var(--accent);border:1px solid var(--accent);border-radius:2px;color:#fff}.admin-task .task-open{display:block;width:100%;padding:26px;border:0;background:transparent;text-align:left;color:#fff;cursor:pointer;transition:filter 180ms ease,transform 180ms ease}.admin-task:hover{filter:brightness(.98)}.admin-task .task-open:hover{filter:brightness(.94)}.admin-task .task-open:active{transform:scale(.995);filter:brightness(.88)}.admin-task .task-open:focus-visible{outline:2px solid var(--ink);outline-offset:3px}.admin-title{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-right:390px}.admin-title strong{font-size:21px}.admin-status{font-size:14px;white-space:nowrap}.admin-meta{display:block;margin:16px 0 22px;font-size:14px;color:#fff}.admin-progress-label{display:flex;justify-content:space-between;gap:20px;font-size:14px;margin:19px 0 10px}.admin-task progress{display:block;width:100%;height:4px;border:0;background:rgba(255,255,255,.3);color:#fff;appearance:none}.admin-task progress::-webkit-progress-bar{background:rgba(255,255,255,.3)}.admin-task progress::-webkit-progress-value{background:#fff}.admin-task progress::-moz-progress-bar{background:#fff}.admin-controls{position:absolute;right:24px;top:22px;display:flex;gap:10px}.white-action{border:1px solid #ffffff99;background:transparent;color:#fff;padding:8px 12px;cursor:pointer;border-radius:2px;font-size:14px;transition:transform 180ms ease,filter 180ms ease,background-color 180ms ease}.white-action:hover{transform:translateY(-3px);background:#ffffff18;filter:brightness(.94)}.white-action:active{transform:translateY(0) scale(.98);filter:brightness(.88)}.white-action:focus-visible{outline:2px solid white;outline-offset:3px}.new-blue-task{display:block;width:100%;min-height:92px;background:var(--accent);border:1px dashed #ffffff99;color:white;font-size:17px;cursor:pointer;transition:transform 180ms ease,filter 180ms ease}.new-blue-task:hover{transform:translateY(-3px);filter:brightness(.94)}.new-blue-task:active{transform:scale(.98);filter:brightness(.88)}#task-feedback{min-height:24px;margin:0;color:var(--muted);font-size:14px}.delete-dialog-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}.delete-dialog-actions button{min-width:92px}.admin-empty{padding:40px;border:1px solid var(--line);background:white;text-align:center}.admin-history{display:flex;gap:28px;flex-wrap:wrap;margin:20px 0}.admin-history strong{font-size:28px}.demo-field{display:flex;flex-direction:column;gap:8px;margin:16px 0}.demo-field input,.demo-field select{padding:10px;border:1px solid var(--line)}
+@media(max-width:1000px){.admin-title{padding-right:0}.admin-controls{position:static;padding:0 26px 22px}.admin-task .task-open{padding-bottom:18px}}@media(max-width:600px){.admin-controls{flex-wrap:wrap;padding:0 18px 18px}.admin-task .task-open{padding:18px}.admin-title strong{font-size:18px}.admin-progress-label{font-size:13px}.white-action{padding:8px}.admin-meta{margin-bottom:12px}}@media(prefers-reduced-motion:reduce){.admin-task .task-open,.white-action,.new-blue-task{transition:none}.white-action:hover,.white-action:active,.new-blue-task:hover,.new-blue-task:active,.admin-task .task-open:active{transform:none}}
+</style></head><body>
+<div class="demo-bar"><div class="demo-row"><strong>蓝色任务卡片 · V2</strong><button class="variant" data-view="manager" aria-pressed="true">项目经理 · 我的问卷</button><button class="variant" data-view="admin" aria-pressed="false">管理员 · 考核任务信息</button><button class="variant" id="reset-tasks">恢复演示任务</button></div><p class="demo-note">方案 A · 三列卡片。切到管理员页，可向下滚动后连续删除虚拟任务，检查补位效果。仅演示，不影响正式数据。</p></div>
+<header class="product-head"><div class="head-inner"><div class="head-row"><div class="brand"><small>TDT EXPERT REVIEW</small><h1>评审人考核系统</h1></div><div class="identity"><span id="demo-identity">虚拟项目经理 · 1001 · 项目经理</span><button id="logout" class="ghost-button head-chip">退出登录</button><span class="head-chip version">试用版 v0.6</span></div></div><nav class="module-tabs"><button class="module-tab" disabled><span class="lock" aria-hidden="true">🔒</span>读取评审表</button><button class="module-tab" disabled><span class="lock" aria-hidden="true">🔒</span>客观数据评价</button><button class="module-tab is-active" id="home">主观评价</button><button class="module-tab" disabled><span class="lock" aria-hidden="true">🔒</span>总分统计</button></nav></div></header>
+<main class="main" id="app"></main><dialog class="demo-dialog" id="dialog"><h2 id="dialog-title"></h2><div id="dialog-content"></div><div class="dialog-actions"><button class="primary-button" id="close-dialog">已知</button></div></dialog>
+<script id="questionnaire-data" type="application/json">{
+  "version": "4",
+  "instructions": "请回顾本考核周期内，你与该评审人共同参与的项目评审。前五题看他平时的表现，不只看最近一次或印象最深的一次；第六题看有没有具体的突出贡献。不了解或没有足够依据时，选择暂无法判断，不要把不了解当作表现不好。",
+  "unable": {
+    "title": "暂无法判断",
+    "description": "我对他这方面的表现了解不够，或现有记录不足，无法作出判断。",
+    "reason_prompt": "请说明原因，不作为低档评价。"
+  },
+  "contribution_prompt": "哪个项目？他具体做了什么？带来了什么重要变化？有什么记录可以证明？",
+  "dimensions": [
+    {
+      "id": "preparation",
+      "title": "评审准备与重点把握",
+      "prompt": "回顾本考核周期，在你参加的项目评审中，该评审人能否抓住本专业需要重点讨论的问题？",
+      "boundary": "看讨论中能否抓住重点，并充分讨论。不以发言快慢或多少来判断；材料未提供等外部原因，不直接归责于评审人。",
+      "options": [
+        {
+          "id": "high",
+          "title": "能抓住重点",
+          "description": "大多数时候，了解项目目标、技术方案和主要限制，能抓住本专业最需要关注的问题，让讨论围绕重点展开。"
+        },
+        {
+          "id": "medium",
+          "title": "能完成基本评审",
+          "description": "通常了解项目背景和资料，能完成本专业的基本评审；但哪些问题最关键、应该先讨论什么，有时需要别人提醒。"
+        },
+        {
+          "id": "low",
+          "title": "准备或理解不足",
+          "description": "在已收到必要资料的情况下，多次因不了解项目或理解错误，抓不住重点、明显偏离议题，影响评审。"
+        }
+      ]
+    },
+    {
+      "id": "judgment",
+      "title": "风险辨识与专业判断",
+      "prompt": "回顾本考核周期，该评审人能否发现评审技术中的重要风险，并说清楚为什么这样判断、可能造成什么影响？",
+      "boundary": "看判断是否有依据，不只看提出了多少条意见，并要结合看在项目结束、落地产品、或截止目前是否获得了相关实践。",
+      "options": [
+        {
+          "id": "high",
+          "title": "能发现重要风险，并说明依据",
+          "description": "大多数时候，能发现重要风险，说清判断依据、可能影响和哪些需要优先处理；拿不准的地方也会明确说明，帮助团队作出决定。"
+        },
+        {
+          "id": "medium",
+          "title": "能发现常见问题，判断基本合理",
+          "description": "通常能发现常见问题，判断基本合理；但为什么这样判断、影响有多大或哪个更紧急，有时还需要进一步追问。"
+        },
+        {
+          "id": "low",
+          "title": "漏掉重要风险，或作出无依据的重要判断",
+          "description": "对本专业负责、且当时信息已足够判断的事项，多次漏掉应当发现的重要风险，或缺少依据，却作出影响项目决策的重要判断。"
+        }
+      ]
+    },
+    {
+      "id": "guidance",
+      "title": "技术建议与方案指导",
+      "prompt": "回顾本考核周期，遇到需要他提供专业建议的问题时，该评审人能否提出具体、可行的做法，让团队知道下一步怎么做？",
+      "boundary": "只评价需要他提供专业建议的事项。看建议是否合理、能否实施，并且被采纳为标准，但不要求他替研发团队完成全部方案。",
+      "options": [
+        {
+          "id": "high",
+          "title": "建议具体，能指导下一步行动",
+          "description": "大多数时候，能提出具体做法，说明什么条件下适用，并考虑项目的时间、成本或技术限制，让团队知道下一步怎么改、怎么验证。"
+        },
+        {
+          "id": "medium",
+          "title": "方向合理，具体做法还需补充",
+          "description": "通常能指出合理的改进方向，但具体怎么做、什么条件下能用，有留白，需要团队进一步明确。"
+        },
+        {
+          "id": "low",
+          "title": "建议空泛，或明显行不通",
+          "description": "对确实需要其专业建议的问题，多次只说“要优化”“再完善”，没有具体指导；或忽略已知限制，提出明显无法执行的建议。"
+        }
+      ]
+    },
+    {
+      "id": "verification",
+      "title": "验证证据与评审把关",
+      "prompt": "回顾本考核周期，在需要他检查验证结果、确认问题是否解决时，该评审人能否核对证据，判断是否可以通过？",
+      "boundary": "只评价他负责检查或确认的事项。项目团队没有按时解决问题，不直接算作他把关不到位；本期没有承担这类任务，也不按表现不足处理。",
+      "options": [
+        {
+          "id": "high",
+          "title": "能明确通过要求，并核对证据",
+          "description": "大多数时候，能根据当前评审阶段，说清要验证什么、达到什么要求才算通过；会核对证据是否支持结论，不足时要求补充。"
+        },
+        {
+          "id": "medium",
+          "title": "能检查主要结果，发现明显不足",
+          "description": "通常会检查主要验证结果，对明显不符合要求或材料缺失的情况，能提出补充要求。"
+        },
+        {
+          "id": "low",
+          "title": "证据没核清就通过，或随意改要求",
+          "description": "对自己负责确认的事项，多次未核实关键证据就同意通过；或没有新的事实依据，却随意更改通过要求。"
+        }
+      ]
+    },
+    {
+      "id": "collaboration",
+      "title": "专业表达与评审担当",
+      "prompt": "回顾本考核周期，该评审人能否对自己负责的问题给出明确判断，并在意见不一致时，围绕事实把问题讨论清楚？",
+      "boundary": "不以是否好相处、是否赞同项目团队来判断。意见严格、坚持不同意见或最终没有达成一致，不直接算协作差。",
+      "options": [
+        {
+          "id": "high",
+          "title": "能说明理由，也能处理分歧",
+          "description": "通常能说清理由，在分歧中把事实和问题讲清楚，推动形成明确的评审结论。有依据时坚持意见，出现新证据时也愿意调整判断。"
+        },
+        {
+          "id": "medium",
+          "title": "能表达意见，完成自己的专业判断",
+          "description": "通常能说清自己的意见、配合讨论，并对自己负责的问题作出明确判断；遇到复杂分歧，还需要他人帮助协调。"
+        },
+        {
+          "id": "low",
+          "title": "回避应作出的判断，或妨碍讨论",
+          "description": "对需要自己作出判断的问题，多次回避或不表态；或用没有依据的说法阻碍讨论，影响形成明确结论。"
+        }
+      ]
+    },
+    {
+      "id": "contribution",
+      "title": "可核实的突出技术贡献",
+      "prompt": "本考核周期内，该评审人是否在你的项目中，作出过明显超出日常评审要求的贡献，而且有具体事例和证据可以说明？",
+      "boundary": "普通建议被采纳，不直接算突出贡献；没有突出贡献，也不代表日常评审做得不好。一件符合条件的贡献即可，不要求多次发生。预计能带来的好处，要与已经实现的结果分开说明。",
+      "options": [
+        {
+          "id": "high",
+          "title": "有突出贡献，能提供依据",
+          "description": "能说清他具体做了什么，因此避免了什么关键问题或带来了什么明显改善，并提供证据。例如，推动重大技术风险得到有效处理、解决关键技术难题，或使技术方案明显改善。"
+        },
+        {
+          "id": "low",
+          "title": "未发现符合条件的突出贡献",
+          "description": "在你了解的项目中，未发现达到上述标准、且有证据支持的贡献。这个选项不代表他的日常评审表现不合格。"
+        }
+      ]
+    }
+  ],
+  "scores": {
+    "preparation": {
+      "high": 10,
+      "medium": 7,
+      "low": 2
+    },
+    "judgment": {
+      "high": 15,
+      "medium": 10,
+      "low": 0
+    },
+    "guidance": {
+      "high": 15,
+      "medium": 10,
+      "low": 0
+    },
+    "verification": {
+      "high": 10,
+      "medium": 7,
+      "low": 0
+    },
+    "collaboration": {
+      "high": 10,
+      "medium": 7,
+      "low": 0
+    },
+    "contribution": {
+      "high": 10,
+      "low": 0
+    }
+  }
+}
+</script>
+<script>
+const config=JSON.parse(document.getElementById('questionnaire-data').textContent), key='tdt-questionnaire-cards-draft-v2';
+const people=['甲','乙','丙','丁','戊','己','庚','辛'].map(s=>'虚拟评审人'+s);
+let variant='a',active=null,loggedIn=true,guideSeen=false,answers={};
+const esc=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+try{answers=JSON.parse(localStorage.getItem(key)||'null')||{}}catch(e){}
+if(!Object.keys(answers).length){people.forEach((_,i)=>{answers[i]={};config.dimensions.slice(0,[6,3,0,6,1,0,4,0][i]).forEach((d,j)=>answers[i][d.id]={option:j===5?'low':'medium',reason:'',note:''})})}
+function required(d,o){return d.id==='contribution'?o==='high':d.id!=='preparation'&&o==='low'}
+function summary(i){const rows=answers[i]||{};let count=0,missing=false;config.dimensions.forEach(d=>{const r=rows[d.id];if(!r)return;count++;if(r.option==='unable'?!r.reason?.trim():required(d,r.option)&&!r.note?.trim())missing=true});return{count,done:count===6&&!missing,missing}}
+function status(i){const s=summary(i);return s.done?'✓ 已完成':s.missing?'待补依据':s.count?'填写中':'未开始'}
+function store(){try{localStorage.setItem(key,JSON.stringify(answers));return true}catch(e){return false}}
+function card(i){const s=summary(i);return `<button class="card ${s.done?'done':''}" data-person="${i}" aria-label="${people[i]}，${status(i)}，${s.count}／6题"><span class="card-top"><span class="person-name">${people[i]}</span><span class="badge">${status(i)}</span></span><span class="card-bottom"><span><span class="count">${s.count}<small> ／ 6 题</small></span><span class="save-label">${s.count?'已保存':'尚未填写'}</span></span><span class="arrow" aria-hidden="true">→</span></span><span class="segments" aria-hidden="true">${Array.from({length:6},(_,n)=>`<i class="${n<s.count?'filled':''}"></i>`).join('')}</span></button>`}
+function managerHome(){
+ active=null;
+ const done=people.filter((_,i)=>summary(i).done).length;
+ const heading=`<div class="heading"><div><h2>我的问卷<small>共 ${people.length} 个评审人</small></h2><p class="cycle">2026年度评审人考核</p></div><div class="overall"><strong>${done}</strong> ／ ${people.length} 已完成<progress max="${people.length}" value="${done}"></progress></div></div>`;
+ const cards=variant==='c'?[false,true].map(complete=>{
+  const ids=people.map((_,i)=>i).filter(i=>summary(i).done===complete);
+  return `<h3 class="group-title">${complete?'已完成':'待完成'}<span>${ids.length} 份</span></h3><div class="grid group-grid">${ids.map(card).join('')||'<p>本组暂无问卷。</p>'}</div>`;
+ }).join(''):`<div class="grid ${variant==='b'?'compact':''}">${people.map((_,i)=>card(i)).join('')}</div>`;
+ document.getElementById('app').innerHTML=heading+cards;
+ document.querySelectorAll('[data-person]').forEach(b=>b.onclick=()=>openPerson(Number(b.dataset.person)));
+}
+function modal(title,html){document.getElementById('delete-actions')?.remove();document.getElementById('close-dialog').textContent='已知';document.getElementById('dialog-title').textContent=title;document.getElementById('dialog-content').innerHTML=html;document.getElementById('dialog').showModal()}
+function openPerson(i){active=i;renderQuestions();window.scrollTo(0,0);if(!guideSeen){guideSeen=true;modal('主观评价填写须知',`<p>${esc(config.instructions)}</p>`)}}
+function renderQuestions(){const i=active;document.getElementById('app').innerHTML=`<section class="question-page" id="subjective-panel"><div class="subjective-heading"><h3>${people[i]}</h3><button type="button" class="info-tip" title="虚拟低功耗项目（P001）&#10;虚拟通信项目（P002）" aria-label="查看共同项目"><span class="info-tip-icon">!</span></button><button class="secondary-button" id="facts">查看评审过程详情</button><span class="saved" id="saved-state"></span></div><div class="subjective-fields">${config.dimensions.map((d,j)=>{const r=answers[i][d.id];const opts=j===5?d.options:[...d.options,{id:'unable',...config.unable}];return `<fieldset class="subjective-dimension"><legend>${j+1}．${esc(d.title)}</legend><p class="subjective-question">${esc(d.prompt)}</p><p class="subjective-boundary">职责边界：${esc(d.boundary)}</p><div class="subjective-options">${opts.map(o=>`<div class="subjective-option"><label><input type="radio" name="${d.id}" value="${o.id}" ${r?.option===o.id?'checked':''}><span><strong>${esc(o.title)}</strong><span class="subjective-description">${esc(o.description)}</span></span></label></div>`).join('')}</div>${r?.option==='unable'?`<label class="field"><span>原因（必填）</span><textarea data-reason="${d.id}" maxlength="500">${esc(r.reason)}</textarea></label>`:r&&required(d,r.option)?`<label class="field"><span>事实依据（必填）· 虚拟共同项目 P001</span><textarea data-note="${d.id}" maxlength="100">${esc(r.note)}</textarea></label>`:''}</fieldset>`}).join('')}</div><div class="assessment-pager"><button class="primary-button" id="return">← 返回我的问卷</button></div></section>`;
+document.querySelectorAll('input[type=radio]').forEach(r=>r.onclick=e=>{e.preventDefault();const old=answers[i][r.name];if(old?.option===r.value)delete answers[i][r.name];else answers[i][r.name]={option:r.value,reason:'',note:''};store();setTimeout(renderQuestions,0)});
+document.querySelectorAll('textarea').forEach(t=>t.oninput=()=>{const id=t.dataset.reason||t.dataset.note;answers[i][id][t.dataset.reason?'reason':'note']=t.value;const ok=store();savedState(ok)});
+document.getElementById('return').onclick=()=>{home();window.scrollTo(0,0)};document.getElementById('facts').onclick=()=>modal('评审过程详情',`<p>${people[i]}</p><table><tr><th>项目</th><th>阶段</th><th>演示记录</th></tr><tr><td>虚拟低功耗项目</td><td>TDR1</td><td>已参与评审，提出意见并完成会签</td></tr></table>`);savedState(true)}
+function savedState(ok){const s=summary(active);document.getElementById('saved-state').textContent=ok?`已保存 · ${s.count}／6题${s.done?' · 已完成':s.missing?' · 待补依据':''}`:'浏览器保存失败，请勿关闭页面'}
+document.getElementById('home').onclick=()=>{if(loggedIn)home()};document.getElementById('close-dialog').onclick=()=>document.getElementById('dialog').close();
+document.getElementById('logout').onclick=()=>{loggedIn=false;active=null;document.getElementById('app').innerHTML='<section class="logged-out"><h2>已退出登录</h2><p>演示问卷已保留在当前浏览器。</p><button class="primary-button" id="login">登录系统</button></section>';document.getElementById('login').onclick=()=>{loggedIn=true;guideSeen=false;home()}};
+
+let view='manager',taskSequence=20;
+const taskStorage='tdt-card-draft-v2-tasks';
+function seedTasks(){return Array.from({length:10},(_,i)=>({id:'task-'+i,name:(2026-Math.floor(i/2))+(i%2?'上半年':'年度')+'评审人考核',completed:i>1,reportCount:21-i,expertCount:14-i,objective:i?60:100,started:i?2:3,managers:6,done:i?8:3,total:28}))}
+let demoTasks;try{demoTasks=JSON.parse(localStorage.getItem(taskStorage)||'null')}catch(e){}if(!Array.isArray(demoTasks))demoTasks=seedTasks();
+function persistTasks(){try{localStorage.setItem(taskStorage,JSON.stringify(demoTasks))}catch(e){}}
+function home(){if(view==='admin')adminHome();else managerHome()}
+function setView(next){view=next;loggedIn=true;active=null;document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===view));document.getElementById('demo-identity').textContent=view==='admin'?'虚拟管理员 · 0001 · 管理员':'虚拟项目经理 · 1001 · 项目经理';document.querySelectorAll('.module-tab').forEach((b,i)=>{b.disabled=view==='manager'&&i!==2;b.classList.toggle('is-active',view==='manager'?i===2:i===0);const lock=b.querySelector('.lock');if(lock)lock.hidden=view==='admin';if(view==='admin')b.onclick=()=>i===0?adminHome():modal(b.textContent.trim(),'<p>此处仅演示任务卡片。正式模块继续沿用现有设计。</p>');else b.onclick=()=>{if(i===2)home()}});home();window.scrollTo({top:0,behavior:'instant'})}
+function taskCard(t){return `<article class="admin-task" data-task="${t.id}"><button class="task-open" data-open="${t.id}"><span class="admin-title"><strong>${esc(t.name)}</strong><span class="admin-status">${t.completed?'✓ 已完成':'进行中'}</span></span><span class="admin-meta">${t.reportCount}份报告 · ${t.expertCount}位评审人</span>${t.completed?'<span>查看本期总分统计 →</span>':`<span class="admin-progress-label"><span>客观数据评价</span><span>${t.objective===100?'已完成':'识别与评分中'}</span></span><progress max="100" value="${t.objective}" aria-label="客观数据评价进度"></progress><span class="admin-progress-label"><span>主观评价 · 已开始${t.started}／${t.managers}人</span><span>${t.done}／${t.total}份问卷已完成</span></span><progress max="${t.total}" value="${t.done}" aria-label="主观评价进度"></progress>`}</button><div class="admin-controls">${t.completed?'':`<button class="white-action" data-policy="objective" data-id="${t.id}">客观评分参数</button><button class="white-action" data-policy="subjective" data-id="${t.id}">主观评分参数</button>`}<button class="white-action" data-delete="${t.id}">删除任务</button></div></article>`}
+function adminHome(){active=null;document.getElementById('app').innerHTML='<div class="heading"><h2>考核任务信息</h2><p id="task-feedback" role="status"></p></div><div class="admin-list"><button class="new-blue-task" id="new-task">＋ 新建考评任务</button>'+demoTasks.map(taskCard).join('')+'</div>';wireTasks();}
+function wireTasks(){document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>confirmDelete(b.dataset.delete));document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{const t=demoTasks.find(t=>t.id===b.dataset.open);modal(t.name,t.completed?'<p>本期考评已完成 · 演示历史结果</p><div class="admin-history"><span>客观得分 <strong>26</strong></span><span>主观得分 <strong>62</strong></span><span>总分 <strong>88</strong></span></div>':'<p>进入读取评审报告与匹配名单。该模块沿用现有正式页面，本 Demo 仅演示卡片入口。</p>');document.getElementById('close-dialog').textContent='关闭'});document.querySelectorAll('[data-policy]').forEach(b=>b.onclick=()=>{modal(b.dataset.policy==='objective'?'客观评分参数':'主观评分参数','<p>保留独立入口，编辑方式沿用正式系统。本 Demo 不修改评分配置。</p>')});document.getElementById('new-task').onclick=()=>{modal('新建考评任务','<label class="demo-field">年份<select id="new-year">'+[2027,2026,2025].map(y=>`<option>${y}</option>`).join('')+'</select></label><label class="demo-field">考评周期<select id="new-period"><option>年度</option><option>上半年</option><option>下半年</option></select></label><button class="primary-button" id="create-demo">创建演示任务</button>');document.getElementById('create-demo').onclick=()=>{demoTasks.unshift({id:'new-'+Date.now()+'-'+taskSequence++,name:document.getElementById('new-year').value+document.getElementById('new-period').value+'评审人考核',completed:false,reportCount:0,expertCount:0,objective:0,started:0,managers:6,done:0,total:28});persistTasks();document.getElementById('dialog').close();adminHome()}}}
+function confirmDelete(id){const t=demoTasks.find(t=>t.id===id);modal('删除任务',`<p>确认删除「${esc(t.name)}」？</p><p>仅删除本 Demo 的虚拟任务。</p>`);const actions=document.createElement('div');actions.id='delete-actions';actions.className='delete-dialog-actions';actions.innerHTML='<button class="secondary-button" id="cancel-delete">取消</button><button class="primary-button" id="confirm-delete">确认删除</button>';document.getElementById('dialog-content').append(actions);document.getElementById('close-dialog').hidden=true;document.getElementById('cancel-delete').onclick=()=>document.getElementById('dialog').close();document.getElementById('confirm-delete').onclick=()=>deleteTask(id);document.getElementById('cancel-delete').focus({preventScroll:true})}
+function deleteTask(id){
+ const element=document.querySelector(`[data-task="${id}"]`);if(!element)return;
+ const y=window.scrollY;
+ const positions=new Map([...document.querySelectorAll('[data-task]')].map(e=>[e,e.getBoundingClientRect().top]));
+ const next=element.nextElementSibling||element.previousElementSibling;
+ // Close while the original trigger still exists, then move focus without scrolling.
+ document.getElementById('dialog').close();
+ demoTasks=demoTasks.filter(t=>t.id!==id);persistTasks();element.remove();
+ (next?.querySelector('[data-delete]')||document.getElementById('new-task')).focus({preventScroll:true});
+ const maxY=Math.max(0,document.documentElement.scrollHeight-window.innerHeight);
+ window.scrollTo({top:Math.min(y,maxY),behavior:'instant'});
+ document.getElementById('task-feedback').textContent=`任务已删除，剩余 ${demoTasks.length} 项`;
+ if(!window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+  positions.forEach((top,e)=>{if(!e.isConnected)return;const now=e.getBoundingClientRect().top,dy=top-now;if(dy&&now<window.innerHeight&&now+e.offsetHeight>0)e.animate([{transform:`translateY(${dy}px)`},{transform:'translateY(0)'}],{duration:180,easing:'ease'})});
+ }
+}
+document.getElementById('dialog').addEventListener('close',()=>{document.getElementById('close-dialog').hidden=false;document.getElementById('delete-actions')?.remove()});
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+document.getElementById('reset-tasks').onclick=()=>{demoTasks=seedTasks();persistTasks();setView('admin')};
+
+home();
+</script></body></html>

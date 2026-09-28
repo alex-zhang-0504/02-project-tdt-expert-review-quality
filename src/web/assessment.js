@@ -141,7 +141,8 @@ function managerDraftKey(name=subjective.expert) {return JSON.stringify([assessm
 async function showDimensionPage(kind,page) {
   if (!await flushSubjectiveChanges()) return;
   sq(`#${kind}-page-one`).hidden=page!==1; sq(`#${kind}-page-two`).hidden=page!==2;
-  if (kind==='subjective') {
+    if (kind==='subjective') {
+      sq('#workspace-history').hidden=page!==1||window.workspace?.user?.role!=='admin'||!sq('#subjective-form');
     const toggle=sq('#subjective-page-toggle');
     toggle.textContent=page===1?'查看主观打分 →':'← 返回主观问卷';
     toggle.dataset.dimensionPage=`subjective:${page===1?2:1}`;
@@ -149,6 +150,7 @@ async function showDimensionPage(kind,page) {
   }
   document.querySelectorAll(`[data-dimension-page^="${kind}:"]`).forEach(b=>b.setAttribute('aria-pressed',b.dataset.dimensionPage===`${kind}:${page}`));
   if (kind==='objective') {
+    sq('#export-dimension-one').hidden=page!==2;
     const toggle=sq('#objective-page-toggle');
     toggle.textContent=page===1?'查看客观评分 →':'← 返回客观数据统计';
     toggle.dataset.dimensionPage=`objective:${page===1?2:1}`;

@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 
-def validate(data):
+def validate(data, *, require_admin=True):
     if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('users'), list):
         raise ValueError('账号配置须包含version为1及users数组')
     users, seen, owners = [], set(), set()
@@ -31,7 +31,7 @@ def validate(data):
         owners.update(ids)
         seen.add(eid)
         users.append({**user, 'name': name.strip(), 'owner_ids': ids})
-    if users and not any(u['enabled'] and u['role'] == 'admin' for u in users):
+    if require_admin and users and not any(u['enabled'] and u['role'] == 'admin' for u in users):
         raise ValueError('不能删除或停用最后一个管理员账号，也不能将其改为项目经理')
     return users
 
@@ -41,6 +41,39 @@ def parse(raw):
         return validate(json.loads(raw.decode('utf-8-sig')))
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError('accounts.json格式错误，请修正JSON后刷新；未覆盖文件') from exc
+
+
+def import_directory(data, current):
+    """Accept a three-field manager roster, preserving internal account metadata."""
+    if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('users'), list):
+        raise ValueError('项目经理配置须包含version为1及users数组')
+    simple = all(isinstance(u, dict) and set(u) == {'name', 'employee_id', 'enabled'} for u in data['users'])
+    if not simple:
+        imported = validate(data)
+        merged = {u['employee_id']: u for u in current}
+        for user in imported:
+            if user['employee_id'] in merged and merged[user['employee_id']] != user:
+                raise ValueError('导入名单与已有账号配置不一致，请先核对账号配置文件')
+            merged[user['employee_id']] = user
+        return imported, validate({'version': 1, 'users': list(merged.values())})
+    by_id = {u['employee_id']: u for u in current}
+    imported = validate({'version': 1, 'users': [{**row, 'role': 'manager'} for row in data['users']]}, require_admin=False)
+    names = set()
+    for row in imported:
+        row['owner_ids'] = by_id.get(row['employee_id'], {}).get('owner_ids', [])
+        if row['enabled']:
+            name = row['name']
+            if name in names:
+                raise ValueError('启用的项目经理姓名不能重复，请核对配置')
+            names.add(name)
+    merged = {u['employee_id']: dict(u) for u in current}
+    for user in merged.values():
+        if user['role'] == 'manager':
+            user['enabled'] = False
+    for row in imported:
+        old = merged.get(row['employee_id'])
+        merged[row['employee_id']] = {**row, 'role': old['role'], 'enabled': old['enabled']} if old and old['role'] == 'admin' else row
+    return imported, validate({'version': 1, 'users': list(merged.values())})
 
 
 def content(users):

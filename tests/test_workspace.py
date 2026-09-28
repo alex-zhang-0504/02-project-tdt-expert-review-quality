@@ -64,6 +64,7 @@ class WorkspaceTests(unittest.TestCase):
         return jsonable_encoder(asdict(analysis))
 
     def request(self, path, data=None, method='GET', user='0001'):
+        self.workspace.sync_admin_sessions()
         self.workspace.sessions['unit-admin-session-' + user] = user
         async def run():
             url = urlsplit(path)
@@ -131,15 +132,15 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual('虚拟页面修改', WorkspaceStore(self.temp.name).user('0020')['name'])
         self.assertIn(updated, json.loads(self.store.accounts_path.read_text(encoding='utf-8'))['users'])
 
-    def test_fixed_owner_ids_match_without_name_inference_and_freeze(self):
+    def test_unknown_owner_name_manual_binding_and_freeze(self):
         with self.service.edit_analysis(self.id) as analysis:
             analysis.assessment = {}
             for report in [*analysis.reports, *analysis.sessions]:
-                report.manager_identity = dict(owner_id='ou_virtual', name='虚拟经理甲', status='resolved', source_token='virtual-token')
+                report.manager_identity = dict(owner_id='ou_virtual', name='虚拟未登记所有者', status='resolved', source_token='virtual-token')
         matches = self.request('/api/workspace/manager-matches?analysis_id='+self.id)[1]
         self.assertEqual(1, len(matches['errors']))
         self.assertEqual(2, len(matches['errors'][0]['reports']))
-        self.assertFalse(self.store.bindings())  # Same name never establishes a mapping.
+        self.assertFalse(self.store.bindings())
         self.assertEqual(403, self.request('/api/workspace/manager-matches?analysis_id='+self.id, user='a')[0])
         self.assertEqual(200, self.request('/api/workspace/bindings', dict(owner_id='ou_virtual', employee_id='a'), 'POST')[0])
         self.assertIn('ou_virtual', self.store.user('a')['owner_ids'])
@@ -172,6 +173,28 @@ class WorkspaceTests(unittest.TestCase):
                 report.manager_identity={}
         matches=self.workspace.manager_matches(self.analysis)
         self.assertTrue(all(not e['can_assign'] for e in matches['errors']))
+
+    def test_unique_owner_name_matches_employee_and_persists(self):
+        self.analysis.assessment = {}
+        for report in self.analysis.reports:
+            report.source_type = 'feishu_sheet'
+            report.manager_identity = dict(owner_id='ou_name_match', name='虚拟经理甲', status='resolved', source_token='virtual')
+        self.assertEqual([], self.workspace.manager_matches(self.analysis)['errors'])
+        self.assertEqual('a', WorkspaceStore(self.temp.name).bindings()['ou_name_match'])
+
+    def test_name_matching_rejects_ambiguity_disabled_and_outside_task(self):
+        self.analysis.assessment = {}
+        for report in self.analysis.reports:
+            report.source_type = 'feishu_sheet'
+            report.manager_identity = dict(owner_id='ou_name_match', name='虚拟经理甲', status='resolved', source_token='virtual')
+        self.store.add_user('c', '虚拟经理甲')
+        self.assertTrue(self.workspace.manager_matches(self.analysis)['errors'])
+        self.assertNotIn('ou_name_match', self.store.bindings())
+        self.analysis.assessment['task_users'] = [self.store.user('b')]
+        self.assertTrue(self.workspace.manager_matches(self.analysis)['errors'])
+        self.assertEqual(['b'], [u['employee_id'] for u in self.workspace.manager_matches(self.analysis)['users']])
+        self.analysis.assessment['task_users'] = [dict(self.store.user('a'), enabled=False)]
+        self.assertTrue(self.workspace.manager_matches(self.analysis)['errors'])
 
     def test_account_conflict_disabling_and_history_retention(self):
         self.save()
