@@ -190,7 +190,7 @@ def create_policy_admin_router():
             sessions.pop(request.headers.get('x-policy-session', ''), None)
         return {'locked': True}
 
-    objective_keys = {'stage_weights', 'components', 'opinion_threshold', 'participation', 'excess_opinion_points', 'solution_points'}
+    objective_keys = {'stage_percentages', 'components', 'opinion_threshold', 'participation', 'excess_opinion_points', 'solution_points'}
 
     @router.get('/policy/{scope}')
     def read_policy(scope: str, request: Request):

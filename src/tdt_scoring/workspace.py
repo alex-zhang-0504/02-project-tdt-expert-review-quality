@@ -20,6 +20,10 @@ COOKIE = 'tdt_workspace_user'
 AUTH_COOKIE = 'tdt_workspace_auth'
 
 
+def management_access(user):
+    return user['role'] == 'admin' and not user.get('personal_scope')
+
+
 class Workspace:
     def __init__(self, service, store):
         self.service, self.store = service, store
@@ -42,89 +46,102 @@ class Workspace:
             raise HTTPException(401, '请先选择姓名和工号登录')
         if user['role'] == 'admin' and self.sessions.get(request.cookies.get(AUTH_COOKIE, '')) != user['employee_id']:
             raise HTTPException(401, '请使用管理员密码登录')
-        if admin and user['role'] != 'admin':
+        user = {**user, 'personal_scope': request.headers.get('x-assessment-view') == 'personal'}
+        if admin and not management_access(user):
             raise HTTPException(403, '此操作仅限管理员')
         return user
 
-    def freeze_accounts(self, analysis):
+    def freeze_accounts(self, analysis, actor=None, previous=None):
         match = self.manager_matches(analysis)
         if match['errors']:
-            raise ValueError('项目经理匹配尚有异常，请先在文件扫描区域下方确认处理')
-        owners = tasks(analysis)['managers']
-        bindings = self.store.bindings()
-        mapping = {}
-        for manager in owners:
-            owner = manager['manager_id']
-            employee = owner[6:] if owner.startswith('local:') else bindings.get(owner)
-            if not employee or not self.store.user(employee):
-                raise ValueError('请先把每份报告的项目经理关联到姓名与工号：' + manager['name'])
-            mapping[owner] = employee
+            raise ValueError('技术项目经理匹配尚有异常，请先在文件扫描区域下方确认处理')
+        mapping = match['mapping']
+        analysis.assessment.setdefault('ownership_history', []).append({
+            'at': now(), 'actor': actor or {'employee_id': 'system'},
+            'action': '按原文件所有者姓名确认归属',
+            'before': deepcopy(previous if previous is not None else analysis.assessment.get('manager_accounts', {})),
+            'after': dict(mapping),
+            'sources': [{'report': r.source_name, 'identity': deepcopy(r.manager_identity)} for r in analysis.reports]})
         analysis.assessment['manager_accounts'] = mapping
-        analysis.assessment['manager_names'] = {eid: self.store.user(eid)['name'] for eid in mapping.values()}
+        analysis.assessment['manager_names'] = {u['employee_id']: u['name'] for u in match['users'] if u['employee_id'] in mapping.values()}
         analysis.assessment.setdefault('created_at', now())
 
     def manager_matches(self, analysis):
+        from .ownership import resolve_owners, snapshot_errors
         users = self.store.users(include_disabled=True)
-        by_id = {u['employee_id']: u for u in users}
-        by_owner = {owner: u for u in users for owner in u['owner_ids']}
         roster = analysis.assessment.get('task_users')
-        eligible = {u['employee_id'] for u in roster if u['enabled']} if roster is not None else set(by_id)
+        eligible = {u['employee_id'] for u in roster if u['enabled']} if roster is not None else {u['employee_id'] for u in users}
         candidates = [u for u in users if u['enabled'] and u['employee_id'] in eligible]
-        errors = {}
-        if not analysis.assessment.get('manager_accounts'):
-            for report in analysis.reports:
-                identity = report.manager_identity or {}
-                owner = identity.get('owner_id', '')
-                local = report.source_type == 'local_excel' and not identity.get('source_token')
-                user = by_id.get(owner[6:]) if local and owner.startswith('local:') else by_owner.get(owner)
-                if not user and not local and owner and identity.get('status') == 'resolved':
-                    matches = [u for u in candidates if u['name'] == identity.get('name', '').strip()]
-                    if len(matches) == 1:
-                        user = matches[0]
-                        self.store.bind(owner, user['employee_id'])
-                        by_owner[owner] = user
-                if user and user['enabled'] and user['employee_id'] in eligible and identity.get('status') == 'resolved':
-                    continue
-                key = owner if owner else report.source_name
-                reason = '账号已停用' if user and not user['enabled'] else '项目经理不在本任务启用名单中' if user and user['employee_id'] not in eligible else '原文件所有者姓名未唯一匹配启用的项目经理，请确认归属' if owner and not local else '本地报告尚未指定项目经理' if local else '未读取到有效的原文件所有者ID，请重新扫描'
-                entry = errors.setdefault(key, {'owner_id': owner, 'name': identity.get('name', ''),
-                    'reason': reason, 'local': local, 'can_assign': local or bool(owner), 'reports': []})
-                entry['reports'].append(report.source_name)
-        return {'errors': list(errors.values()), 'users': candidates}
+        if 'manager_accounts' in analysis.assessment:
+            errors = snapshot_errors(analysis)
+            return {'errors': [{'name': '', 'reason': '已保存任务的归属与报告所有者姓名冲突，已阻止问卷分配，请核对历史归属',
+                                'reports': errors, 'can_assign': False}] if errors else [],
+                    'users': candidates, 'mapping': dict(analysis.assessment['manager_accounts'])}
+        bindings = {owner: u['employee_id'] for u in users for owner in u['owner_ids']}
+        mapping, errors = resolve_owners(analysis, candidates, bindings)
+        return {'errors': errors, 'users': candidates, 'mapping': mapping}
 
     def task_list(self, analysis, user):
         data = tasks(analysis)
-        mids = {m['manager_id'] for m in data['managers'] if user['role'] == 'admin' or m['manager_id'] == user['employee_id']}
+        mids = {m['manager_id'] for m in data['managers'] if management_access(user) or m['manager_id'] == user['employee_id']}
         return {**data, 'managers': [m for m in data['managers'] if m['manager_id'] in mids],
                 'reviews': {mid: value for mid, value in analysis.manager_reviews.items() if mid in mids},
-                'exclusions': analysis.assessment.get('exclusions', {}) if user['role'] == 'admin' else {}}
+                'exclusions': analysis.assessment.get('exclusions', {}) if management_access(user) else {}}
 
     def visible(self, analysis, user):
-        if user['role'] == 'admin':
+        if management_access(user):
             return analysis
         require_selected(analysis)
-        manager = next((m for m in tasks(analysis)['managers'] if m['manager_id'] == user['employee_id']), None)
-        if not manager:
-            raise HTTPException(403, '此考核没有分配给你的问卷')
+        owned = self.owned_sessions(analysis, user)
+        if not owned:
+            raise HTTPException(403, '此考核没有分配给你的项目')
         result = deepcopy(analysis)
-        result.experts = [e for e in result.experts if e.expert_name in manager['experts']]
+        result.experts = [e for e in result.experts if e.expert_name in analysis.assessment['included']]
         for expert in result.experts:
-            expert.sessions = [s for s in expert.sessions if s.project_code in manager['experts'][expert.expert_name]]
+            expert.sessions = [s for s in expert.sessions if (s.source_name, s.sheet_name, s.review_id) in owned]
+        result.experts = [e for e in result.experts if e.sessions]
         refresh(result.experts)
         result.reports, result.sessions, result.issues, result.subjective_reviews = [], [], [], {}
         result.batch_summary = None
         result.assessment = {key: deepcopy(analysis.assessment[key]) for key in ('confirmed', 'included', 'policy', 'questionnaire', 'finalized') if key in analysis.assessment}
-        result.assessment['included'] = list(manager['experts'])
+        result.assessment['included'] = [e.expert_name for e in result.experts]
+        result.assessment['personal_scope'] = True
         result.manager_reviews = {user['employee_id']: deepcopy(analysis.manager_reviews.get(user['employee_id'], {}))}
         return result
+
+    def owned_sessions(self, analysis, user):
+        require_selected(analysis)
+        from .ownership import snapshot_errors
+        if snapshot_errors(analysis):
+            return set()
+        roster = analysis.assessment.get('task_users')
+        if roster is not None and not any(u['employee_id'] == user['employee_id'] and u['enabled'] for u in roster):
+            return set()
+        mapping = analysis.assessment.get('manager_accounts', {})
+        return {(s.source_name, s.sheet_name, s.review_id) for s in analysis.sessions
+                if mapping.get(s.manager_identity.get('owner_id')) == user['employee_id']}
+
+    def select_solution(self, analysis_id, opinion_id, included, user):
+        with self.service._fact_lock:
+            analysis = self.service.get_analysis(analysis_id)
+            require_selected(analysis)
+            owned = self.owned_sessions(analysis, user) if not management_access(user) else None
+            allowed = any(o.opinion_id == opinion_id for e in analysis.experts
+                          if e.expert_name in analysis.assessment['included'] for s in e.sessions
+                          if owned is None or (s.source_name, s.sheet_name, s.review_id) in owned
+                          for o in s.opinions)
+            if not allowed:
+                raise HTTPException(403, '只能修改本人项目且在考核范围内的对策判定')
+            updated = self.service.select_solution(analysis_id, opinion_id, included, actor=user)
+            return self.visible(updated, user)
 
     def review(self, payload, user):
         with self.service.edit_analysis(payload.analysis_id) as analysis:
             require_selected(analysis)
-            if user['role'] != 'admin' and payload.manager_id != user['employee_id']:
+            if not management_access(user) and payload.manager_id != user['employee_id']:
                 raise HTTPException(403, '只能填写分配给本人的问卷')
             previous = analysis.manager_reviews.get(payload.manager_id, {}).get(payload.expert_name, {})
-            if analysis.assessment.get('finalized') or (previous.get('locked_by_admin') and user['role'] != 'admin'):
+            if analysis.assessment.get('finalized') or (previous.get('locked_by_admin') and not management_access(user)):
                 raise HTTPException(409, '问卷已锁定，请联系管理员退回后再填写')
             if payload.expected_revision != previous.get('revision', 0):
                 raise HTTPException(409, '问卷已被其他页面更新，本次未保存。请先保留当前输入，再重新打开问卷核对')
@@ -143,6 +160,7 @@ class Workspace:
     def summary(self, analysis, user):
         from .questionnaire import snapshot as questionnaire_snapshot
         from .score_statistics import questionnaire_score
+        from .ownership import snapshot_errors
         confirmed = analysis.assessment.get('confirmed', False)
         managers = self.task_list(analysis, user)['managers'] if confirmed else []
         for manager in managers:
@@ -163,11 +181,16 @@ class Workspace:
                 manager['reviews'][name] = {'status': '已完成' if answered == 6 else '待补依据或原因' if selected > answered else '待评价',
                     'answered': answered, 'selected': selected}
             manager['completed'] = sum(r['answered'] == 6 for r in manager['reviews'].values())
+        owned = self.owned_sessions(analysis, user) if confirmed and not management_access(user) else None
+        personal_reports = {s[0] for s in self.owned_sessions(analysis, user)} if confirmed else set()
         return {'id': analysis.analysis_id, 'name': analysis.source_name, 'created_at': analysis.assessment.get('created_at', ''),
+                'personal_report_count': len(personal_reports),
                 'confirmed': confirmed, 'finalized': bool(analysis.assessment.get('finalized')), 'managers': managers,
-                'completed': bool(analysis.assessment.get('completed')), 'report_count': len(analysis.reports),
-                'expert_count': len(analysis.assessment.get('included', [])), 'can_complete': ready,
-                'objective_complete': bool(statistics and statistics['rows']) and all(r['objective_with_rewards'] is not None for r in statistics['rows'])}
+                'ownership_conflict': bool(snapshot_errors(analysis)),
+                'completed': bool(analysis.assessment.get('completed')), 'report_count': len(analysis.reports) if owned is None else len({s[0] for s in owned}),
+                'expert_count': len(analysis.assessment.get('included', [])) if owned is None else sum(any((s.source_name, s.sheet_name, s.review_id) in owned for s in e.sessions) for e in analysis.experts),
+                'can_complete': ready if owned is None else False,
+                'objective_complete': owned is None and bool(statistics and statistics['rows']) and all(r['objective_with_rewards'] is not None for r in statistics['rows'])}
 
 
 class WorkspaceGate:
@@ -185,16 +208,16 @@ class WorkspaceGate:
     async def handle(self, scope, receive, send):
         if scope['type'] == 'http':
             path, method = scope['path'], scope['method']
-            public = {('GET', '/api/health'), ('GET', '/api/workspace/session'), ('POST', '/api/workspace/bootstrap'), ('POST', '/api/workspace/login'), ('POST', '/api/workspace/password')}
+            public = {('GET', '/api/health'), ('GET', '/api/workspace/session'), ('POST', '/api/workspace/bootstrap'), ('POST', '/api/workspace/login'), ('POST', '/api/workspace/resolve-name'), ('POST', '/api/workspace/password')}
             if path.startswith('/api/') and (method, path) not in public:
                 request = Request(scope)
                 try:
                     user = self.workspace.authorize(request)
-                    if not path.startswith('/api/workspace/') and path not in ('/api/subjective/catalog', '/api/subjective/review', '/api/assessment/tasks') and user['role'] != 'admin':
+                    if not path.startswith('/api/workspace/') and path not in ('/api/subjective/catalog', '/api/subjective/review', '/api/assessment/tasks') and not management_access(user):
                         raise HTTPException(403, '此操作仅限管理员')
                     if path in ('/api/assessment/task-import', '/api/assessment/exclude-task'):
                         raise HTTPException(409, '本机多人版请直接编辑问卷，保留修改记录')
-                    if path == '/api/subjective/catalog' and user['role'] != 'admin':
+                    if path == '/api/subjective/catalog' and not management_access(user):
                         self.workspace.visible(self.workspace.service.get_analysis(request.query_params.get('analysis_id', '')), user)
                 except (HTTPException, ValueError, KeyError) as exc:
                     response = JSONResponse({'detail': exc.detail if isinstance(exc, HTTPException) else str(exc) if isinstance(exc, ValueError) else '考核不存在或没有可访问的问卷'}, status_code=exc.status_code if isinstance(exc, HTTPException) else 400 if isinstance(exc, ValueError) else 404)
@@ -223,8 +246,16 @@ def create_workspace_router(workspace, encode, busy):
         if user and user['role'] == 'admin' and workspace.sessions.get(request.cookies.get(AUTH_COOKIE, '')) != user['employee_id']:
             user = None
         from . import policy_admin
-        return {'user': user, 'users': users if user and user['role'] == 'admin' else [u for u in users if u['enabled']],
+        return {'user': user, 'users': users if user and user['role'] == 'admin' else [], 'has_accounts': bool(users),
                 'accounts_file': str(store.accounts_path), 'password_configured': policy_admin.ADMIN_PATH.exists()}
+
+    @router.post('/resolve-name')
+    async def resolve_name(request: Request):
+        data = await request.json()
+        matches = [u for u in store.users() if u['name'] == str(data.get('name', '')).strip()]
+        if len(matches) != 1:
+            raise HTTPException(400, '未找到唯一启用账号，请核对姓名或联系管理员')
+        return {'name': matches[0]['name'], 'role': matches[0]['role']}
 
     @router.post('/bootstrap')
     async def bootstrap(request: Request):
@@ -233,6 +264,7 @@ def create_workspace_router(workspace, encode, busy):
         if store.users(include_disabled=True):
             raise ValueError('已有账号，请登录')
         from .accounts import validate
+        data.setdefault('employee_id', 'local-' + secrets.token_hex(8))
         validate({'version': 1, 'users': [{'employee_id': data.get('employee_id'), 'name': data.get('name'),
             'role': 'admin', 'enabled': True, 'owner_ids': []}]})
         workspace_password(data)
@@ -241,9 +273,13 @@ def create_workspace_router(workspace, encode, busy):
     @router.post('/login')
     async def login(request: Request):
         data = await request.json()
-        user = store.user(data.get('employee_id'))
+        if 'name' in data:
+            matches = [u for u in store.users() if u['name'] == str(data['name']).strip()]
+            user = matches[0] if len(matches) == 1 else None
+        else:
+            user = store.user(data.get('employee_id'))
         if not user:
-            raise HTTPException(400, '请选择已登记的姓名与工号')
+            raise HTTPException(400, '请填写已登记且启用的姓名')
         if user['role'] == 'admin':
             from .policy_admin import workspace_password
             workspace_password(data)
@@ -311,9 +347,7 @@ def create_workspace_router(workspace, encode, busy):
     @router.post('/bindings')
     async def bind(request: Request):
         workspace.authorize(request, admin=True)
-        data = await request.json()
-        store.bind(data.get('owner_id'), data.get('employee_id'))
-        return {'ok': True}
+        raise ValueError('飞书报告仅按原文件所有者姓名唯一匹配，不支持手工绑定到其他账号；请核对名单及历史归属')
 
     @router.get('/analyses')
     def analyses(request: Request):
@@ -323,10 +357,10 @@ def create_workspace_router(workspace, encode, busy):
             for analysis in reversed(list(service._analyses.values())):
                 if analysis.assessment.get('deleted') or analysis.assessment.get('attached_to'):
                     continue
-                if not analysis.assessment.get('confirmed') and user['role'] != 'admin':
+                if not analysis.assessment.get('confirmed') and not management_access(user):
                     continue
                 row = workspace.summary(analysis, user)
-                if user['role'] == 'admin' or row['managers']:
+                if management_access(user) or row['managers'] or workspace.owned_sessions(analysis, user):
                     result.append(row)
             return sorted(result, key=lambda r: r['created_at'], reverse=True)
 
@@ -335,10 +369,18 @@ def create_workspace_router(workspace, encode, busy):
         with service._fact_lock:
             return encode(workspace.visible(service.get_analysis(analysis_id), workspace.authorize(request)))
 
+    @router.post('/solution-selection')
+    async def solution_selection(request: Request):
+        user = workspace.authorize(request)
+        data = await request.json()
+        if data.get('included') is not None and type(data['included']) is not bool:
+            raise ValueError('对策判定须为布尔值或null')
+        return encode(workspace.select_solution(data['analysis_id'], data['opinion_id'], data.get('included'), user))
+
     @router.get('/history')
     def history(analysis_id: str, manager_id: str, expert_name: str, request: Request):
         user = workspace.authorize(request)
-        if user['role'] != 'admin' and manager_id != user['employee_id']:
+        if not management_access(user) and manager_id != user['employee_id']:
             raise HTTPException(403, '只能查看本人问卷记录')
         with service._fact_lock:
             analysis = service.get_analysis(analysis_id)

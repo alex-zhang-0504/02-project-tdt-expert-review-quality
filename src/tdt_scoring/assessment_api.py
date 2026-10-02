@@ -37,9 +37,10 @@ def create_router(service, encode, workspace=None):
         def action():
             if data.get('confirm'):
                 with service.edit_analysis(data['analysis_id']) as analysis:
+                    previous = dict(analysis.assessment.get('manager_accounts', {}))
                     confirm_roster(analysis, data['names'], data.get('batch_id') or analysis.analysis_id, data.get('policy_hash'))
                     if workspace:
-                        workspace.freeze_accounts(analysis)
+                        workspace.freeze_accounts(analysis, workspace.authorize(request, admin=True), previous)
                     return encode(analysis)
             analysis = service.get_analysis(data['analysis_id'])
             return match_roster(analysis, data['names'])

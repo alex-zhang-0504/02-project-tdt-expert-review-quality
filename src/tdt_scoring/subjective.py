@@ -91,7 +91,7 @@ def save_review(analysis, payload: ReviewInput) -> dict:
             raise ValueError('该评价任务已排除，请先恢复任务')
         projects = set(manager['experts'][payload.expert_name])
         if payload.evaluator.strip() != manager['name']:
-            raise ValueError('评价人必须与项目经理身份一致')
+            raise ValueError('评价人必须与技术项目经理身份一致')
     ratings = {}
     for dimension_id, rating in payload.ratings.items():
         option = next((o for o in catalog[dimension_id]["options"] if o["id"] == rating.option), None)

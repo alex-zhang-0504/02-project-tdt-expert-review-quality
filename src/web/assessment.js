@@ -21,7 +21,7 @@ function canEnterAssessment() {
 
 function syncAssessmentActions() {
   elements.continueAnalysis.disabled = !canEnterAssessment();
-  elements.continueAnalysis.textContent = assessmentUI.busy ? '正在处理…' : assessmentUI.policy || state.analysis?.assessment?.confirmed ? '下一步' : '读取';
+  elements.continueAnalysis.textContent = assessmentUI.busy ? '正在处理…' : window.workspace?.taskId || assessmentUI.policy || state.analysis?.assessment?.confirmed ? '下一步' : '读取';
   const disabled = !state.analysis || state.importActive || assessmentUI.busy || !!state.analysis.assessment?.completed;
   ['assessment-preview','assessment-upload-roster','assessment-names','assessment-roster-file'].forEach(id => sq('#'+id).disabled = disabled);
   const original = assessmentUI.importedRoster;
@@ -74,7 +74,10 @@ async function readScoringPolicy() {
 
 async function enterAssessment() {
   if (!canEnterAssessment()) return;
-  if (!assessmentUI.policy && !state.analysis.assessment?.confirmed) { await readScoringPolicy(); return; }
+  if (!assessmentUI.policy && !state.analysis.assessment?.confirmed) {
+    await readScoringPolicy();
+    if (!window.workspace?.taskId || !assessmentUI.policy) return;
+  }
   if (state.analysis.assessment?.confirmed || await compareAssessment(true)) navigateStep(2);
 }
 
@@ -131,7 +134,7 @@ async function loadManagerTasks() {
   if (!data.managers.some(m=>m.manager_id===assessmentUI.managerId)) assessmentUI.managerId = data.managers[0]?.manager_id || '';
   sq('#assessment-manager').innerHTML = data.managers.map(m=>`<option value="${escapeHtml(m.manager_id)}">${escapeHtml(m.name)}（${Object.keys(m.experts).length}人）</option>`).join('');
   sq('#assessment-manager').value = assessmentUI.managerId;
-  sq('#subjective-assignment-message').textContent = data.unresolved_reports.length ? '待识别经理：'+data.unresolved_reports.join('、') : '';
+  sq('#subjective-assignment-message').textContent = data.unresolved_reports.length ? '报告归属未通过校验，已暂停问卷：'+data.unresolved_reports.join('、') : '';
 }
 function currentManager() {return assessmentUI.tasks.find(m=>m.manager_id===assessmentUI.managerId);}
 function managerExperts() {const names=currentManager()?.experts || {};return state.analysis.experts.filter(e=>Object.hasOwn(names,e.expert_name));}
@@ -139,10 +142,13 @@ function managerSaved(name) {return state.analysis.manager_reviews?.[assessmentU
 function managerDraftKey(name=subjective.expert) {return JSON.stringify([assessmentUI.managerId,name]);}
 
 async function showDimensionPage(kind,page) {
+  if(window.workspace?.mayLeave?.()===false)return;
+  if(page===2&&window.workspace?.personal())return;
   if (!await flushSubjectiveChanges()) return;
   sq(`#${kind}-page-one`).hidden=page!==1; sq(`#${kind}-page-two`).hidden=page!==2;
     if (kind==='subjective') {
-      sq('#workspace-history').hidden=page!==1||window.workspace?.user?.role!=='admin'||!sq('#subjective-form');
+      sq('#workspace-return').hidden=true;
+      sq('#workspace-history').hidden=page!==1||!window.workspace?.managing()||!sq('#subjective-form');
     const toggle=sq('#subjective-page-toggle');
     toggle.textContent=page===1?'查看主观打分 →':'← 返回主观问卷';
     toggle.dataset.dimensionPage=`subjective:${page===1?2:1}`;
@@ -164,12 +170,14 @@ async function renderDimensionScores(kind) {
   host.textContent='正在计算…';
   try {
     const data=await requestJson(`/api/statistics/scores?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}`);
+    const scoreKey=kind==='objective'?'objective_with_rewards':'subjective_total';
+    data.rows.sort((a,b)=>a[scoreKey]==null ? (b[scoreKey]==null?0:1) : b[scoreKey]==null?-1:b[scoreKey]-a[scoreKey]);
     const p=data.policy.parameters, base=Object.values(p.components).reduce((a,b)=>a+b,0), participation=p.participation.tier_scores[0];
     const subjectiveMax=Object.values(p.subjective).reduce((sum,d)=>sum+d.high,0);
     const headers=kind==='objective' ? ['评审人',`TDR1／${base}`,`TDR2／${base}`,`TDR3／${base}`,`阶段加权／${base}`,`参与度／${participation}`,'基础得分','评审意见超额得分','输出有效对策得分','客观总得分'] : ['评审人',...subjective.catalog.map(d=>d.title),`最终分／${subjectiveMax}`,'暂定平均','完成／应评价'];
     const rows=data.rows.map(r=>kind==='objective' ? [r.expert_name,...['TDR1','TDR2','TDR3'].map(s=>scoreText(r.stages[s].score)),scoreText(r.process_total),scoreText(r.participation_score),scoreText(r.objective_total),scoreText(r.opinion_bonus),scoreText(r.solution_bonus),scoreText(r.objective_with_rewards)] : [r.expert_name,...r.subjective_items.map(i=>`${scoreText(i.score)}（${i.valid_count ?? 0}人）`),scoreText(r.subjective_total),scoreText(r.subjective_progress.provisional),`${r.subjective_progress.completed}/${r.subjective_progress.expected}`]);
-    const scoreTools=kind==='subjective' ? `<div class="note-row">平均规则${importHint('前五题按各题有效评价等权平均，无法判断或无职责机会不计入分母；贡献取有效最高分。未全部回应或某题无有效评价时，最终分留空。')}</div>` : '';
-    host.innerHTML=`${scoreTools}<div class="score-statistics-table-wrap"><table class="score-table"><thead><tr>${headers.map((h,i)=>`<th>${kind==='objective' && i===0 ? objectiveReviewerHeader() : escapeHtml(h)}${h==='基础得分' ? importHint('阶段加权得分＋参与度得分。') : h==='客观总得分' ? importHint('基础得分＋评审意见超额得分＋输出有效对策得分。') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map(cells=>`<tr ${kind==='objective' ? `data-reviewer="${escapeHtml(cells[0])}" ${objectiveReviewerVisible(cells[0]) ? '' : 'hidden'}` : ''}>${cells.map(c=>`<td>${escapeHtml(String(c))}</td>`).join('')}</tr>`).join('')}${kind==='objective' ? `<tr data-reviewer-empty ${data.rows.some(r=>objectiveReviewerVisible(r.expert_name)) ? 'hidden' : ''}><td colspan="10">没有匹配的评审人，请修改筛选。</td></tr>` : ''}</tbody></table></div><div class="note-row">计分说明${importHint(kind==='objective'?'客观总得分包含全部奖励，可超过基础分；待识别项不按零处理。':'同一经理多个项目仍只计一票；任务排除记录随导出保留。')}</div>`;
+    const scoreTools='';
+    host.innerHTML=`${scoreTools}<div class="score-statistics-table-wrap"><table class="score-table"><thead><tr>${headers.map((h,i)=>`<th>${kind==='objective' && i===0 ? objectiveReviewerHeader() : escapeHtml(h)}${h==='基础得分' ? importHint('阶段加权得分＋参与度得分。') : h==='客观总得分' ? importHint('基础得分＋评审意见超额得分＋输出有效对策得分。') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map(cells=>`<tr ${kind==='objective' ? `data-reviewer="${escapeHtml(cells[0])}" ${objectiveReviewerVisible(cells[0]) ? '' : 'hidden'}` : ''}>${cells.map(c=>`<td>${escapeHtml(String(c))}</td>`).join('')}</tr>`).join('')}${kind==='objective' ? `<tr data-reviewer-empty ${data.rows.some(r=>objectiveReviewerVisible(r.expert_name)) ? 'hidden' : ''}><td colspan="10">没有匹配的评审人，请修改筛选。</td></tr>` : ''}</tbody></table></div>${kind==='objective'?`<div class="note-row">计分说明${importHint('客观总得分包含全部奖励，可超过基础分；待识别项不按零处理。')}</div>`:''}`;
     host.querySelectorAll('.score-statistics-table-wrap').forEach(makeTableScrollable);
   } catch(e) {host.textContent=e.message;}
 }
@@ -182,6 +190,6 @@ function initializeAssessmentUI() {
   sq('#assessment-roster-file').onchange=importAssessmentRoster;
   sq('#assessment-restore-roster').onclick=restoreAssessmentRoster;
   sq('#assessment-local-managers').onclick=async e=>{const b=e.target.closest('[data-local-manager]');if(!b)return;const row=b.parentElement;try{state.analysis=await assessmentPost('/api/assessment/local-manager',{analysis_id:state.analysis.analysis_id,source_name:b.dataset.localManager,manager_id:row.querySelector('[data-local-id]').value,name:row.querySelector('[data-local-name]').value});renderAssessmentSetup();}catch(err){sq('#assessment-result').textContent=err.message;}};
-  sq('#assessment-manager').onchange=async()=>{const next=sq('#assessment-manager').value;sq('#assessment-manager').value=assessmentUI.managerId;if(!await flushSubjectiveChanges())return;assessmentUI.managerId=next;sq('#assessment-manager').value=next;subjective.expert=managerExperts()[0]?.expert_name || '';sq('#subjective-message').textContent='';renderSubjectiveRail();renderSubjectiveEditor();};
+  sq('#assessment-manager').onchange=async()=>{const next=sq('#assessment-manager').value;sq('#assessment-manager').value=assessmentUI.managerId;if(window.workspace?.mayLeave?.()===false)return;if(!await flushSubjectiveChanges())return;assessmentUI.managerId=next;sq('#assessment-manager').value=next;subjective.expert=managerExperts()[0]?.expert_name || '';sq('#subjective-message').textContent='';renderSubjectiveRail();renderSubjectiveEditor();};
   document.addEventListener('click',async e=>{const b=e.target.closest('[data-dimension-page]');if(b){const [kind,page]=b.dataset.dimensionPage.split(':');await showDimensionPage(kind,Number(page));}const exp=e.target.closest('[data-export-dimension]');if(exp && await flushSubjectiveChanges())downloadAssessment(`/api/statistics/scores/export?analysis_id=${encodeURIComponent(state.analysis.analysis_id)}&dimension=${exp.dataset.exportDimension}`);});
 }

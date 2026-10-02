@@ -78,10 +78,10 @@ def build_dimension_one_workbook(
         raise ValueError("请填写年度批次编号")
     if package_kind == "manager_submission":
         if not manager_id or not manager_name:
-            raise ValueError("生成项目经理提交表需要填写项目经理编号和姓名")
+            raise ValueError("生成技术项目经理提交表需要填写技术项目经理编号和姓名")
         identities = [s.manager_identity for s in analysis.sessions if s.manager_identity]
         if any(i.get('status') != 'resolved' for i in identities):
-            raise ValueError('项目经理所有者身份待识别，请重扫后再生成个人提交表')
+            raise ValueError('技术项目经理所有者身份待识别，请重扫后再生成个人提交表')
         if len({i.get('owner_id') for i in identities}) > 1:
             raise ValueError('当前报告属于不同owner_id，不能生成单人提交表')
         source_managers = {
@@ -138,8 +138,8 @@ def build_dimension_one_workbook(
         analysis,
     )
     _write_project_list(workbook, analysis)
-    owners = workbook.create_sheet("项目经理身份")
-    owners.append(["报告", "项目编码", "阶段", "项目经理", "owner_id", "原文件标识", "状态", "说明", "规则版本", "配置指纹"])
+    owners = workbook.create_sheet("技术项目经理身份")
+    owners.append(["报告", "项目编码", "阶段", "技术项目经理", "owner_id", "原文件标识", "状态", "说明", "规则版本", "配置指纹"])
     for session in analysis.sessions:
         identity = session.manager_identity
         receipt = identity.get("policy") or {}
@@ -191,9 +191,9 @@ def load_dimension_one_workbook(content: bytes, filename: str) -> DimensionOnePa
     if payload.get("rule_version") != RULE_VERSION:
         raise ValueError(f"“{filename}”的维度1规则版本不一致")
     if payload.get("package_kind") != "manager_submission":
-        raise ValueError(f"“{filename}”不是项目经理提交表")
+        raise ValueError(f"“{filename}”不是技术项目经理提交表")
     if not payload.get("batch_id") or not payload.get("manager_id"):
-        raise ValueError(f"“{filename}”缺少年度批次或项目经理编号")
+        raise ValueError(f"“{filename}”缺少年度批次或技术项目经理编号")
 
     sessions = [_review_session_from_dict(item) for item in payload.get("sessions", [])]
     issues = [ValidationIssue(**item) for item in payload.get("issues", [])]
@@ -262,10 +262,10 @@ def _write_submission_info(
     sheet = workbook.create_sheet("00_提交信息")
     rows = [
         ("字段", "内容"),
-        ("文件用途", "项目经理维度1提交表" if payload["package_kind"] == "manager_submission" else "集中统计维度1年度结果"),
+        ("文件用途", "技术项目经理维度1提交表" if payload["package_kind"] == "manager_submission" else "集中统计维度1年度结果"),
         ("年度批次", payload["batch_id"]),
-        ("项目经理编号", payload["manager_id"]),
-        ("项目经理姓名", payload["manager_name"]),
+        ("技术项目经理编号", payload["manager_id"]),
+        ("技术项目经理姓名", payload["manager_name"]),
         ("修订号", payload["revision"]),
         ("规则版本", payload["rule_version"]),
         ("数据状态", "试算"),

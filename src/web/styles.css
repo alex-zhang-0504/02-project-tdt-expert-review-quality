@@ -327,6 +327,9 @@ button.report-progress-row { cursor: pointer; }
 .solution-actions [aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
 #formula-dialog { width: min(520px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
 #formula-dialog::backdrop { background: var(--backdrop); }
+#admin-edit-warning { width: min(520px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+#admin-edit-warning::backdrop { background: var(--backdrop); }
+#admin-edit-warning form { display: flex; justify-content: flex-end; margin-top: 24px; }
 .formula-heading { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
 .formula-heading h3 { margin: 0; font-size: 20px; }
 .formula-value { padding: 12px; background: var(--accent-soft); overflow-wrap: anywhere; }
@@ -543,6 +546,15 @@ button.report-progress-row { cursor: pointer; }
 .assessment-pager button:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
 #policy-settings-dialog { width: min(900px, calc(100% - 32px)); max-height: calc(100dvh - 48px); box-sizing: border-box; overflow: auto; }
 #policy-settings-dialog .formula-heading { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.policy-title { display: flex; align-items: center; gap: 6px; }
+.policy-formula-tip .info-tip-text { max-width: calc(100vw - 32px); max-height: calc(100dvh - 48px); box-sizing: border-box; overflow-y: auto; pointer-events: auto; white-space: normal; }
+.policy-formula-section { display: block; margin-bottom: 14px; }
+.policy-formula-section:last-child { margin-bottom: 0; }
+.policy-formula-line { display: block; margin-top: 8px; }
+.policy-equation { display: block; margin: 12px 0; line-height: 1.8; }
+.policy-fraction { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; line-height: 1.5; margin: 0 3px; }
+.policy-fraction > span { padding: 2px 6px; }
+.policy-fraction > span:first-child { border-bottom: 1px solid currentColor; }
 .policy-note { color: var(--ink); font-weight: var(--font-weight-body); font-size: var(--font-size-supporting); overflow-wrap: anywhere; }
 .policy-unlock { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 12px; background: var(--surface-soft); }
 .policy-unlock p { width: 100%; margin: 0; }
@@ -558,6 +570,10 @@ button.report-progress-row { cursor: pointer; }
 @media (max-width: 720px) { .policy-question-options { grid-template-columns: 1fr; } }
 .policy-group { padding: 12px 0; border-top: 1px solid var(--line); }
 .policy-group h4 { margin: 0 0 12px; }
+.policy-default-hint { color: var(--warning); font-size: 13px; margin: -4px 0 12px; font-weight: 400; }
+.policy-percentage-error { color: var(--danger); font-weight: 600; }
+.policy-group-invalid { border-left: 3px solid var(--danger); padding-left: 12px; }
+.policy-group-invalid input[aria-invalid="true"] { border-color: var(--danger); }
 .policy-field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .policy-field-grid .field { min-width: 0; margin: 0; }
 .policy-field-grid input { width: 100%; }
@@ -661,9 +677,9 @@ body[data-workspace-role="manager"] .policy-settings-button { display:none !impo
 #workspace-dialog-body { margin-top:24px; color:var(--ink); }
 #workspace-dialog .policy-editor-actions { justify-content:flex-end; }
 body[data-workspace-role="guest"] #project-summary { visibility:hidden; }
-body[data-workspace-role="manager"] .module-tab:not([data-step="3"]) { pointer-events:none; color:var(--muted); background:var(--surface-soft); }
-body[data-workspace-role="manager"] .module-tab:not([data-step="3"]) { opacity:1; color:#aaa; }
-body[data-workspace-role="manager"] .module-tab:not([data-step="3"])::before { content:'🔒'; display:inline-block; margin-right:8px; font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif; }
+body[data-workspace-role="manager"] .module-tab:not([data-step="3"]):not([data-step="2"]) { pointer-events:none; color:var(--muted); background:var(--surface-soft); }
+body[data-workspace-role="manager"] .module-tab:not([data-step="3"]):not([data-step="2"]) { opacity:1; color:#aaa; }
+body[data-workspace-role="manager"] .module-tab:not([data-step="3"]):not([data-step="2"])::before { content:'🔒'; display:inline-block; margin-right:8px; font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif; }
 body[data-workspace-role="manager"] .subjective-rail, body[data-workspace-role="manager"] #subjective-policy-footer { display:none; }
 body[data-workspace-role="manager"] .subjective-layout { grid-template-columns:1fr; }
 .workspace-task .task-meta, .workspace-task .task-progress, .workspace-task .task-badge { font-size:var(--font-size-body); }
@@ -703,3 +719,11 @@ body[data-workspace-role="manager"] .subjective-layout { grid-template-columns:1
 @media(max-width:1000px) { .workspace-questionnaires { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .workspace-questionnaires { grid-template-columns:1fr; } }
 @media(prefers-reduced-motion:reduce) { .workspace-questionnaire { transition:none; } .workspace-questionnaire:hover, .workspace-questionnaire:active, .workspace-task:active { transform:none; } }
+
+body[data-workspace-role="manager"] #objective-page-toggle,body[data-workspace-role="manager"] #export-dimension-one,body[data-workspace-role="manager"] #identify-solutions {display:none!important}
+#score-statistics-message:empty {display:none}
+.manual-decision {font-size:var(--font-size-supporting);color:var(--ink);margin-left:8px}
+#login-remembered {justify-content:space-between}
+.workspace-view-switch {display:flex;gap:4px}
+.workspace-view-switch[hidden] {display:none}
+.workspace-view-switch .is-active {background:var(--accent);color:#fff}

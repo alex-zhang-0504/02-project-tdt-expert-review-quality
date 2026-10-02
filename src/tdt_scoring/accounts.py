@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 def validate(data, *, require_admin=True):
     if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('users'), list):
         raise ValueError('账号配置须包含version为1及users数组')
-    users, seen, owners = [], set(), set()
+    users, seen, owners, names = [], set(), set(), set()
     for user in data['users']:
         required = {'employee_id', 'name', 'role', 'enabled'}
         if not isinstance(user, dict) or not required <= set(user) or set(user) - required - {'owner_ids'}:
@@ -23,6 +23,10 @@ def validate(data, *, require_admin=True):
             raise ValueError('请填写有效姓名和角色')
         if type(user['enabled']) is not bool:
             raise ValueError('enabled须为true或false')
+        if user['enabled']:
+            if name.strip() in names:
+                raise ValueError('启用账号的姓名不能重复，请核对配置')
+            names.add(name.strip())
         ids = user.get('owner_ids', [])
         if not isinstance(ids, list) or any(not isinstance(owner, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', owner) for owner in ids):
             raise ValueError('owner_ids须为ID字符串数组，仅允许字母、数字、下划线和短横线')
@@ -32,7 +36,7 @@ def validate(data, *, require_admin=True):
         seen.add(eid)
         users.append({**user, 'name': name.strip(), 'owner_ids': ids})
     if require_admin and users and not any(u['enabled'] and u['role'] == 'admin' for u in users):
-        raise ValueError('不能删除或停用最后一个管理员账号，也不能将其改为项目经理')
+        raise ValueError('不能删除或停用最后一个管理员账号，也不能将其改为技术项目经理')
     return users
 
 
@@ -46,14 +50,20 @@ def parse(raw):
 def import_directory(data, current):
     """Accept a three-field manager roster, preserving internal account metadata."""
     if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('users'), list):
-        raise ValueError('项目经理配置须包含version为1及users数组')
+        raise ValueError('技术项目经理配置须包含version为1及users数组')
     simple = all(isinstance(u, dict) and set(u) == {'name', 'employee_id', 'enabled'} for u in data['users'])
     if not simple:
         imported = validate(data)
         merged = {u['employee_id']: u for u in current}
+        for row in merged.values():
+            if row['role'] == 'manager':
+                row = dict(row)
+                row['enabled'] = False
+                merged[row['employee_id']] = row
         for user in imported:
-            if user['employee_id'] in merged and merged[user['employee_id']] != user:
-                raise ValueError('导入名单与已有账号配置不一致，请先核对账号配置文件')
+            old = merged.get(user['employee_id'])
+            if old:
+                user['owner_ids'] = list(dict.fromkeys(old.get('owner_ids', []) + user['owner_ids']))
             merged[user['employee_id']] = user
         return imported, validate({'version': 1, 'users': list(merged.values())})
     by_id = {u['employee_id']: u for u in current}
@@ -64,7 +74,7 @@ def import_directory(data, current):
         if row['enabled']:
             name = row['name']
             if name in names:
-                raise ValueError('启用的项目经理姓名不能重复，请核对配置')
+                raise ValueError('启用的技术项目经理姓名不能重复，请核对配置')
             names.add(name)
     merged = {u['employee_id']: dict(u) for u in current}
     for user in merged.values():
@@ -73,7 +83,7 @@ def import_directory(data, current):
     for row in imported:
         old = merged.get(row['employee_id'])
         merged[row['employee_id']] = {**row, 'role': old['role'], 'enabled': old['enabled']} if old and old['role'] == 'admin' else row
-    return imported, validate({'version': 1, 'users': list(merged.values())})
+    return [dict(row, role=merged[row['employee_id']]['role']) for row in imported], validate({'version': 1, 'users': list(merged.values())})
 
 
 def content(users):

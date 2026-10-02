@@ -35,6 +35,8 @@ def policy_receipt(analysis, scope):
                        (questionnaire.load() if scope == 'subjective' else scoring_policy.load_policy()))
     if scope == 'subjective':
         receipt['parameters']['evidence'] = questionnaire.evidence_rules(receipt['parameters'])
+    else:
+        receipt = scoring_policy.effective_policy(receipt)
     history = [{'at': h['at'], 'actor': h['actor']['name'], 'before': h['before']['sha256'], 'after': h['after']['sha256']}
                for h in analysis.assessment.get('parameter_history', []) if h['scope'] == scope]
     return {**receipt, 'history': history, 'file_hash': sha256(path.read_bytes()).hexdigest(),
@@ -59,9 +61,9 @@ def create_task_router(workspace, encode, busy):
             if any(a.assessment.get('year') == year and a.assessment.get('period') == period and not a.assessment.get('deleted') for a in service._analyses.values()):
                 raise ValueError('该年份与周期已有任务，请从任务卡片打开')
             current = store.users(include_disabled=True)
-            imported, users = accounts.import_directory(data.get('accounts'), current)
-            if not any(u['enabled'] and u['role'] == 'manager' for u in imported):
-                raise ValueError('配置至少需要一位启用的项目经理')
+            imported, users = accounts.import_directory(data.get('accounts') or {'version': 1, 'users': current}, current)
+            if not any(u['enabled'] for u in imported):
+                raise ValueError('配置至少需要一位启用的技术项目经理')
             definition = questionnaire.load()
             a = WorkbookAnalysis(uuid4().hex, 'workspace', year + period + '评审人考核', [], [], [])
             a.assessment = {'year': year, 'period': period, 'created_at': now(), 'created_by': user['employee_id'],
@@ -107,8 +109,8 @@ def create_task_router(workspace, encode, busy):
             if data.get('accounts_hash') != sha256(raw).hexdigest():
                 raise HTTPException(409, '账号配置已变化，请重新打开名单')
             imported, users = accounts.import_directory(data.get('accounts'), current)
-            if not any(u['enabled'] and u['role'] == 'manager' for u in imported):
-                raise ValueError('配置至少需要一位启用的项目经理')
+            if not any(u['enabled'] for u in imported):
+                raise ValueError('配置至少需要一位启用的技术项目经理')
             a.assessment.setdefault('manager_roster_history', []).append({
                 'at': now(), 'actor': user, 'before': deepcopy(a.assessment.get('task_users', [])), 'after': imported})
             a.assessment['task_users'] = imported
@@ -182,6 +184,9 @@ def create_task_router(workspace, encode, busy):
     def history(task_id: str, request: Request):
         admin(request)
         a = service.get_analysis(task_id)
+        from .ownership import snapshot_errors
+        if snapshot_errors(a):
+            raise ValueError('历史任务归属与报告所有者冲突，请先核对，不能展示为有效考核结果')
         if not a.assessment.get('completed'):
             raise ValueError('本期考评尚未完成')
         return {'name': a.source_name, **deepcopy(a.assessment['completion'])}
@@ -246,7 +251,7 @@ def create_task_router(workspace, encode, busy):
                             record['status'] = '已完成' if all(x['responded'] for x in checks) else '待评价'
                             record['revision'] = record.get('revision', 0) + 1
             elif scope == 'objective':
-                keys = {'stage_weights','components','participation','opinion_threshold','excess_opinion_points','solution_points'}
+                keys = {'stage_percentages','components','participation','opinion_threshold','excess_opinion_points','solution_points'}
                 if not isinstance(params, dict) or set(params) != keys:
                     raise ValueError('客观入口只能修改客观数值参数')
                 merged = deepcopy(old['parameters']); merged.update(params)

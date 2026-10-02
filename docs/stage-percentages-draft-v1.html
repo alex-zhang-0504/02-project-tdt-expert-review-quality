@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>阶段权重百分比 · Demo V1</title>
+<link rel="stylesheet" href="../src/web/styles.css">
+<style>
+body{background:var(--surface-soft);margin:0}.draft-bar{padding:14px 24px;background:var(--accent-soft);font-size:14px}.draft-bar strong{margin-right:16px}main{max-width:980px;margin:26px auto;padding:28px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}h1{font-size:24px;margin:0 0 24px}h2{font-size:18px;margin:0}.title-row{display:flex;align-items:center;gap:10px;margin-bottom:18px}.help{position:relative;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:1px solid var(--ink);border-radius:50%;background:white;font-weight:400}.help span{display:none;position:absolute;top:28px;left:0;width:350px;padding:12px;background:#fff;border:1px solid var(--line-strong);font-size:14px;font-weight:400;text-align:left;line-height:1.7;z-index:5}.help:hover span,.help:focus span{display:block}.weight-row{border-top:1px solid var(--line);padding:17px 0;display:grid;grid-template-columns:220px 1fr 110px;align-items:center;gap:18px}.combo{font-weight:600}.pending{display:block;font-size:13px;color:var(--warning);font-weight:400;margin-top:5px}.inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.percent-label{display:block;font-size:14px}.input-wrap{display:flex;align-items:center;border:1px solid var(--line-strong);margin-top:6px;background:#fff}.input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}.input-wrap input{width:100%;min-width:0;border:0;box-shadow:none!important;padding:10px;background:transparent;height:42px}.input-wrap span{padding-right:12px;color:var(--muted)}.sum{font-size:14px;text-align:right;color:var(--success)}.sum.invalid{color:var(--danger)}.fixed{color:var(--muted);font-size:14px}.fixed strong{color:var(--ink);font-size:18px;margin-right:10px}.preview{border-top:1px solid var(--line);padding-top:22px;margin-top:4px}.preview-head{display:flex;justify-content:space-between;align-items:center;gap:20px}.preview select{width:240px;padding:8px}.calculation{background:var(--accent-soft);padding:18px;margin-top:14px;line-height:1.9;font-size:17px}.caption{font-size:14px;color:var(--muted);margin:10px 0}.footer{display:flex;justify-content:flex-end;gap:12px;margin-top:20px}.footer button{padding:12px 20px;cursor:pointer;transition:filter 180ms ease,transform 180ms ease}.footer button:hover{filter:brightness(.95)}.footer button:active{transform:scale(.98)}.footer button:disabled{cursor:not-allowed;opacity:.5}.primary{color:white;background:var(--accent);border:1px solid var(--accent)}#status{min-height:24px;font-size:14px;color:var(--ink)}@media(max-width:700px){main{margin:12px;padding:18px}.weight-row{grid-template-columns:1fr;gap:12px}.sum{text-align:left}.preview-head{align-items:flex-start;flex-direction:column}.help span{left:-140px;width:280px}.inputs{gap:8px}}
+</style>
+</head>
+<body>
+<div class="draft-bar"><strong>交互 Demo · V1</strong>仅演示阶段权重，修改不会写入正式系统。</div>
+<main>
+<h1>客观评分参数</h1>
+<div class="title-row"><h2>阶段权重（百分比）</h2><button class="help" aria-label="查看阶段权重说明">!<span>系统按每位评审人有应参任务的阶段，选用下面对应的一组百分比。有任务但缺席的阶段仍然适用。各组单独设置，互不影响；每组须合计100％。阶段加权得分＝各适用阶段的「阶段得分 × 该阶段百分比」相加。</span></button></div>
+<div id="groups"></div>
+<div class="weight-row"><div class="combo">只有一个阶段</div><div class="fixed"><strong>100％</strong>仅TDR1、仅TDR2或仅TDR3，均固定为100％。</div><div class="sum">固定</div></div>
+<section class="preview">
+<div class="preview-head"><h2>计算示例</h2><select id="example" aria-label="计算示例的适用阶段"><option value="123">TDR1＋TDR2＋TDR3</option><option value="13">仅TDR1＋TDR3</option><option value="12">仅TDR1＋TDR2</option><option value="23">仅TDR2＋TDR3</option><option value="1">仅TDR1</option><option value="2">仅TDR2</option><option value="3">仅TDR3</option></select></div>
+<p class="caption">示例阶段得分：TDR1为25分，TDR2为15分，TDR3为20分。</p>
+<div id="calculation" class="calculation" aria-live="polite"></div>
+<p class="caption">此处仅演示阶段加权；参与度及两项奖励继续分别计算。</p>
+</section>
+<div class="footer"><button id="reset" class="secondary-button">恢复演示默认值</button><button id="save" class="primary">保存设置（演示）</button></div>
+<p id="status" role="status"></p>
+</main>
+<script>
+const defaults={'123':[40,20,40],'13':[50,50],'12':[60,40],'23':[40,60]};
+const stageMap={'123':[1,2,3],'13':[1,3],'12':[1,2],'23':[2,3]};
+const groupHost=document.querySelector('#groups');
+groupHost.innerHTML=Object.keys(stageMap).sort((a,b)=>['123','13','12','23'].indexOf(a)-['123','13','12','23'].indexOf(b)).map(key=>`<section class="weight-row" data-group="${key}"><div class="combo">${key==='123'?'三个阶段都有':'只有'+stageMap[key].map(n=>'TDR'+n).join('＋')}${key==='23'?'<span class="pending">默认40％／60％，待确认</span>':''}</div><div class="inputs">${stageMap[key].map((n,i)=>`<label class="percent-label">TDR${n}<span class="input-wrap"><input aria-label="${key}组合TDR${n}百分比" type="number" min="0" max="100" step="0.01" value="${defaults[key][i]}" required><span>％</span></span></label>`).join('')}</div><div class="sum" aria-live="polite"></div></section>`).join('');
+function values(key){return [...document.querySelectorAll(`[data-group="${key}"] input`)].map(i=>i.value===''?NaN:Number(i.value));}
+function valid(v){return v.every(n=>Number.isFinite(n)&&n>=0&&n<=100)&&Math.abs(v.reduce((a,b)=>a+b,0)-100)<0.000001;}
+function render(){
+ let allValid=true;
+ document.querySelectorAll('[data-group]').forEach(row=>{const v=values(row.dataset.group),ok=valid(v),total=v.reduce((a,b)=>a+b,0);allValid=allValid&&ok;const sum=row.querySelector('.sum');sum.classList.toggle('invalid',!ok);sum.textContent=v.some(n=>!Number.isFinite(n)||n<0||n>100)?'填写0—100％':`合计${Number(total.toFixed(2))}％${ok?' ✓':'，须为100％'}`;});
+ document.querySelector('#save').disabled=!allValid;
+ const key=document.querySelector('#example').value,stages=stageMap[key]||[Number(key)],v=stageMap[key]?values(key):[100],scores={1:25,2:15,3:20};
+ document.querySelector('#calculation').textContent=valid(v)?`阶段加权得分＝${stages.map((n,i)=>`（${scores[n]} × ${v[i]}％）`).join('＋')}＝${Number(stages.reduce((sum,n,i)=>sum+scores[n]*v[i]/100,0).toFixed(2))}分`:'请先将本组百分比填写完整，并使合计为100％。';
+}
+groupHost.addEventListener('input',()=>{document.querySelector('#status').textContent='';render();});
+document.querySelector('#example').addEventListener('change',render);
+document.querySelector('#reset').onclick=()=>{Object.keys(defaults).forEach(key=>document.querySelectorAll(`[data-group="${key}"] input`).forEach((input,i)=>input.value=defaults[key][i]));document.querySelector('#status').textContent='已恢复演示默认值。';render();};
+document.querySelector('#save').onclick=()=>{document.querySelector('#status').textContent='演示校验通过：各组合均为100％。正式系统与配置文件未修改。';};
+render();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const nodes={};
 const sq=id=>nodes[id] ||= {hidden:false,textContent:'',innerHTML:'',setAttribute(key,value){this[key]=value;}};
 const root={window:{},sq,URLSearchParams,escapeHtml:String,managerSaved:()=>null,
-  state:{analysis:{analysis_id:'virtual',assessment:{}}},subjective:{expert:'虚拟评审人',catalog:[]},
+  state:{analysis:{analysis_id:'virtual',assessment:{}}},managerDraftKey:()=> 'virtual-key',subjective:{drafts:new Map(),expert:'虚拟评审人',catalog:[]},
   assessmentUI:{managerId:'virtual-manager'},flushSubjectiveChanges:async()=>true};
 vm.createContext(root);vm.runInContext(fs.readFileSync('src/web/workspace.js','utf8'),root);
 async function main(){

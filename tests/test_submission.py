@@ -66,7 +66,7 @@ class DimensionOneSubmissionTests(unittest.TestCase):
             [
                 "00_提交信息",
                 "01_项目清单",
-                "项目经理身份",
+                "技术项目经理身份",
                 "02_场次事实",
                 "03_意见证据",
                 "04_分阶段统计",

@@ -19,8 +19,16 @@ dist/
 tmp-*
 output/
 *.log
-# 含真实评审人姓名和内部技术内容的本地样本池，不入库
+# 运行数据、凭据、原始学习样本、验收临时文件及备份不入库
 var/
+# 即使误放到其他目录，运行数据库及管理员凭据也不入库
+*.sqlite3
+*.sqlite3-*
+scoring-admin.json
+scoring-admin.lock
+config/*.lock
+*.xlsx.inspect.ndjson
+# 真实统一账号配置不入库；虚拟project-managers.example.json纳入Git
 config/project-managers.json
 # 含真实专家姓名与真实项目信息，不入库
 docs/*.xlsx

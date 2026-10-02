@@ -1,6 +1,6 @@
 const FACT_METRICS = [
   ["attendance_rate", "出勤率", "attended", "expected", "实参场次÷应参场次×100％", "实参包含按原规则归属的代理参评。"],
-  ["signoff_rate", "会签率", "signed", "expected", "已填会签场次÷应参场次×100％", "会签结果非空且不是横杠即计入，以项目经理填写为准。"],
+  ["signoff_rate", "会签率", "signed", "expected", "已填会签场次÷应参场次×100％", "会签结果非空且不是横杠即计入，以技术项目经理填写为准。"],
   ["opinion_average", "意见提出平均数", "opinions", "attended", "意见总条数÷实参场次", "同场多条意见逐条累计，每场可超过1条。"],
 ];
 const PROXY_METRIC = ["proxy_rate", "代理情况", "proxy", "expected", "代理场次÷应参场次×100％", "跨全部阶段统计，代理事实归原评审人。"];
@@ -36,6 +36,7 @@ function percent(value) {
 
 function renderAnalysis() {
   if (!state.analysis) return;
+  document.querySelector('#personal-scope').hidden=!state.analysis.assessment?.personal_scope;
   elements.exportDimensionOne.textContent = "导出评价结果";
   renderDimensionOneTable();
   syncServiceActions();
@@ -76,9 +77,10 @@ function renderDimensionOneTable() {
     const expert = experts[Number(button.dataset.participation)];
     document.querySelector("#formula-title").textContent = expert.expert_name + " · 评审参与度";
     document.querySelector("#formula-body").innerHTML = '<p>本批次全部阶段有效参评共' + expert.overall.attended
-      + '场，出勤待确认' + expert.overall.unknown + '场。按项目编码＋阶段去重，代理归原评审人，单阶段筛选不改变此范围。</p><p>达到3场后，按完整批次前两个不同数量档计5／3分，其余0分，并列同分；分数在第四模块计算。</p>'
+      + '场，出勤待确认' + expert.overall.unknown + '场。按项目编码＋阶段去重，代理归原评审人，单阶段筛选不改变此范围。</p><p>按本期完整名单实参场次降序，以人数的10％／30％向上取整为分界取高／中／低档分；并列占位、跨界取高档。未达任务最低场次取低档分，各档分值读取任务参数；页面筛选不改变计分范围。</p>'
       + '<ul>' + expert.sessions.filter(s => s.attended === true).map(s => '<li>'
         + escapeHtml(s.project_name + '／' + s.project_code + '／' + s.stage) + '</li>').join('') + '</ul>';
+    if(state.analysis.assessment?.personal_scope)document.querySelector('#formula-body').innerHTML='<p>本人项目范围内参评'+expert.overall.attended+'场。此视图仅呈现本人报告事实，全量参与度计分范围不变。</p><ul>'+expert.sessions.filter(s=>s.attended===true).map(s=>'<li>'+escapeHtml(s.project_name+'／'+s.stage)+'</li>').join('')+'</ul>';
     document.querySelector("#formula-dialog").showModal();
   }));
   elements.dimensionOneTableWrap.querySelectorAll("[data-details]").forEach(button => button.addEventListener("click", () => {
@@ -167,10 +169,12 @@ function renderOpinion(o, session, index) {
     + (excerpt ? '（' + escapeHtml(excerpt) + '）' : '')
     + (o.ai_status !== 'pending' ? ' · ' + (unresolved ? '待人工确认，暂未计入' : selection ? '计入统计' : '不计入统计') : '') + '</p>';
   if (o.reason) html += '<p>判定说明：' + escapeHtml(o.reason) + '</p>';
+  const changed=o.included!=null&&['yes','no'].includes(o.ai_status)&&o.included!==(o.ai_status==='yes');
+  const manualLabel=changed?'手动修改':o.included!=null&&o.ai_status==='suspected'?'人工确认':'';
   if (o.ai_status !== "pending") html += '<div class="solution-actions" aria-label="是否计入对策统计">'
     + [true, false].map(include => '<button type="button" class="secondary-button" data-opinion="' + o.opinion_id
       + '" data-include="' + include + '" aria-pressed="' + (selection === include)
-      + '">' + (include ? '计入统计' : '不计入统计') + '</button>').join("") + '</div>';
+      + '">' + (include ? '计入统计' : '不计入统计') + '</button>').join("") + (manualLabel?'<span class="manual-decision">'+manualLabel+'</span>':'') + '</div>';
   if (o.audit.length) {
     const latest = o.audit[o.audit.length - 1];
     const date = new Date(latest.at);
@@ -188,7 +192,7 @@ async function selectSolution(opinionId, included) {
   const horizontal = elements.dimensionOneTableWrap.scrollLeft;
   elements.evidenceDrawerContent.querySelectorAll("button").forEach(b => b.disabled = true);
   try {
-    state.analysis = await requestJson("/api/facts/solution-selection", {
+    state.analysis = await requestJson(window.workspace?"/api/workspace/solution-selection":"/api/facts/solution-selection", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({analysis_id: state.analysis.analysis_id, opinion_id: opinionId, included}),
     });

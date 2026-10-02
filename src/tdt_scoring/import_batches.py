@@ -154,6 +154,12 @@ class ImportBatches:
                 result = self.service._analyze_many([(None, e['name'], []) for e in entries],
                     source_type=batch['source'], source_name=f"{len(entries)}份评审报告",
                     parsed_reports=cached, batch_summary=deepcopy(batch.get('summary')))
+                progress = self.jobs.snapshot(job_id).reports
+                for report, tracked in zip(result.reports, progress):
+                    report.scan_progress = {'percent': tracked.progress_percent,
+                                            'checkpoint': tracked.current_checkpoint,
+                                            'label': tracked.current_checkpoint_label}
+                self.service.persist(result)
                 self.jobs.complete(job_id, result)
             except Exception as exc:
                 self.jobs.fail(job_id, str(exc))

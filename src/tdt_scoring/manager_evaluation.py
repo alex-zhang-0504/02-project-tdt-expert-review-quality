@@ -38,9 +38,9 @@ def export_task(analysis, manager_id):
     catalog = tasks(analysis)
     manager = next((m for m in catalog['managers'] if m['manager_id'] == manager_id), None)
     if not manager:
-        raise ValueError('没有此项目经理的评价任务')
+        raise ValueError('没有此技术项目经理的评价任务')
     if catalog['unresolved_reports']:
-        raise ValueError('仍有项目经理待识别，不能分发任务')
+        raise ValueError('仍有技术项目经理待识别，不能分发任务')
     wb = Workbook()
     sheet = wb.active
     sheet.title = '经理问卷'
@@ -65,7 +65,7 @@ def export_task(analysis, manager_id):
             sheet.add_data_validation(validation)
             validation.add(sheet.cell(sheet.max_row, 4))
     info = wb.create_sheet('填写说明')
-    for row in [['项目经理', manager['name']], ['经理身份', manager_id], ['批次', analysis.assessment['batch_id']],
+    for row in [['技术项目经理', manager['name']], ['经理身份', manager_id], ['批次', analysis.assessment['batch_id']],
                 ['操作', '选择中文行为选项，填写项目、事实或无法判断原因；更多证据填写补充依据。空白表示待评价。'],
                 ['回收', '前五题逐题有效等权平均，贡献取有效最高分；无判断状态不入分母。修改同一任务后可重新导入，不增加票数；旧任务不能覆盖更新后的评价。'],
                 ['配置指纹', analysis.assessment['policy']['sha256']]]:

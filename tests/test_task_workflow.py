@@ -32,13 +32,41 @@ class TaskWorkflowTests(unittest.TestCase):
         self.assertEqual(200, code)
         params = deepcopy(receipt['parameters'])
         if kind == 'objective':
-            params = {k:v for k,v in params.items() if k in {'stage_weights','components','participation','opinion_threshold','excess_opinion_points','solution_points'}}
+            params = {k:v for k,v in params.items() if k in {'stage_percentages','components','participation','opinion_threshold','excess_opinion_points','solution_points'}}
         change(params)
         return self.h.request(self.url + '/policy/' + kind, {**receipt, 'parameters': params}, 'PUT')
 
     def fill(self):
         for mid in ('a', 'b'):
             self.assertEqual(200, self.h.save(self.h.payload(mid), '0001')[0])
+
+    def test_percentage_save_validation_restart_and_new_task(self):
+        before = deepcopy(self.h.analysis.assessment)
+        raw = scoring_policy.POLICY_PATH.read_bytes()
+        code, _ = self.update('objective', lambda p: p['stage_percentages']['with_second'].update(TDR2=10))
+        self.assertEqual(400, code)
+        self.assertEqual(raw, scoring_policy.POLICY_PATH.read_bytes())
+        self.assertEqual(before, self.h.analysis.assessment)
+        code, receipt = self.update('objective', lambda p: p['stage_percentages']['with_second'].update(TDR1_or_TDR3=80, TDR2=20))
+        self.assertEqual(200, code, receipt)
+        restored = ScoringService(store=WorkspaceStore(self.h.temp.name)).get_analysis(self.h.id)
+        self.assertEqual({'TDR1_or_TDR3': 80, 'TDR2': 20}, restored.assessment['policy']['parameters']['stage_percentages']['with_second'])
+        self.assertEqual(before['policy']['parameters']['stage_percentages']['all'], restored.assessment['policy']['parameters']['stage_percentages']['all'])
+        self.assertEqual(before['policy']['parameters']['participation'], restored.assessment['policy']['parameters']['participation'])
+        config = {'version': 1, 'users': self.h.store.users(include_disabled=True)}
+        code, created = self.h.request('/api/workspace/tasks', {'year':'2028','period':'年度','accounts':config}, 'POST')
+        self.assertEqual(200, code, created)
+        self.assertEqual(restored.assessment['policy']['parameters'], created['assessment']['policy']['parameters'])
+
+    def test_legacy_task_can_confirm_roster_with_adapted_policy_receipt(self):
+        from tdt_scoring.assessment import confirm_roster
+        policy = self.h.analysis.assessment['policy']
+        del policy['parameters']['stage_percentages']
+        policy['parameters']['stage_weights'] = {'TDR1': 4, 'TDR2': 2, 'TDR3': 4}
+        self.h.analysis.assessment['confirmed'] = False
+        receipt = policy_receipt(self.h.analysis, 'objective')
+        confirm_roster(self.h.analysis, [self.h.name], '虚拟旧任务', receipt['sha256'])
+        self.assertIn('stage_percentages', self.h.analysis.assessment['policy']['parameters'])
 
     def test_task_manager_import_only_changes_subjective_tasks(self):
         self.fill()
@@ -155,7 +183,7 @@ class TaskWorkflowTests(unittest.TestCase):
     def test_simple_manager_config_updates_accounts_and_preserves_history(self):
         self.h.save(user='0001')
         before = deepcopy(self.h.analysis)
-        self.h.store.bind('ou_virtual', 'a')
+        self.h.store.bind('ou_virtual', 'a', owner_name='虚拟经理甲')
         rows = [{'name':'虚拟改名项目经理','employee_id':'a','enabled':True},
                 {'name':'虚拟停用项目经理','employee_id':'b','enabled':False},
                 {'name':'虚拟新增项目经理','employee_id':'0012','enabled':True}]

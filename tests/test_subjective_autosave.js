@@ -2,7 +2,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const nodes={};const node=s=>nodes[s]||=( {dataset:{},textContent:'',innerHTML:'',value:'',disabled:false,removeAttribute(){}});
 Object.defineProperty(node('#subjective-editor'),'innerHTML',{set(v){this.markup=v;node('.subjective-fields').disabled=/class="subjective-fields" disabled/.test(v)},get(){return this.markup}});
 let release,ready,locked=false,fail=false;
-const root={structuredClone,window:{workspace:{readonly:()=>locked,syncQuestionnaire(){}}},document:{querySelector:node,querySelectorAll:()=>[]},
+const root={structuredClone,window:{workspace:{personal(){return this.user?.role==='manager'},managing(){return this.user?.role==='admin'},readonly:()=>locked,syncQuestionnaire(){}}},document:{querySelector:node,querySelectorAll:()=>[]},
 state:{analysis:{analysis_id:'test',experts:[{expert_name:'虚拟评审人甲',sessions:[],overall:{}}],assessment:{},manager_reviews:{}}},escapeHtml:String,checkServiceHealth:async()=>true,
 requestJson:()=>{ready();return new Promise((resolve,reject)=>release=()=>fail?reject(Error('虚拟网络失败')):resolve({revision:1,rule_version:'v',ratings:{p:{option:'high'}}}))},
 reviewerMatchesSearch:()=>true,normalizedReviewerSearch:s=>s,showPanel(){},activateStep(){}};

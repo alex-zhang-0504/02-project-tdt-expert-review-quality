@@ -1,18 +1,19 @@
 """Module four: calculate scores from raw facts and saved questionnaires."""
 from io import BytesIO
+from copy import deepcopy
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from .scoring import aggregate
-from .scoring_policy import snapshot
+from .scoring_policy import snapshot, applicable_percentages
 from .assessment import selected_experts
 from .subjective import require_analysis
 from .questionnaire import dimensions, snapshot as questionnaire_snapshot, append_snapshot
 
 
 STAGE_WEIGHTS = {"TDR1": 4, "TDR2": 2, "TDR3": 4}
-RULE_VERSION = "scores-v0.9"
+RULE_VERSION = "scores-v0.11"
 COMPONENTS = (("attendance", "出勤", 5), ("signoff", "会签", 10),
               ("opinion", "意见", 10))
 
@@ -61,45 +62,50 @@ def questionnaire_score(review, policy=None, questionnaire=None):
 
 def build_statistics(analysis, scope_confirmed=False):
     require_analysis(analysis)
+    if analysis.assessment.get('completed'):
+        return deepcopy(analysis.assessment['completion']['statistics'])
     scope_confirmed = bool(analysis.assessment.get('confirmed')) or scope_confirmed
     receipt = snapshot(analysis)
     policy = receipt["parameters"]
-    weights = policy["stage_weights"]
     precision = policy["precision"]
     minimum = policy["participation"]["minimum_sessions"]
     cap = policy["total_cap"]
     facts_by_name = {e.expert_name: aggregate(e.sessions) for e in selected_experts(analysis)}
     participation_ready = scope_confirmed and not any(f["unknown"] for f in facts_by_name.values())
-    tiers = sorted({f["attended"] for f in facts_by_name.values() if f["attended"] >= minimum}, reverse=True)
+    counts = sorted((f["attended"] for f in facts_by_name.values()), reverse=True)
+    high_end, medium_end = (len(counts) + 9) // 10, (len(counts) * 3 + 9) // 10
     rows = []
     for expert in selected_experts(analysis):
-        stages = {stage: stage_score([s for s in expert.sessions if s.stage == stage], policy) for stage in weights}
-        denominator = sum(weights[stage] for stage, result in stages.items() if result["applicable"])
+        stages = {stage: stage_score([s for s in expert.sessions if s.stage == stage], policy) for stage in STAGE_WEIGHTS}
+        applicable = [stage for stage, result in stages.items() if result['applicable']]
+        weights = applicable_percentages(policy, applicable)
         facts = facts_by_name[expert.expert_name]
         participation = None
         tier = None
         if participation_ready:
-            tier = tiers.index(facts["attended"]) + 1 if facts["attended"] >= minimum else None
-            participation = policy["participation"]["tier_scores"][0 if tier == 1 else 1 if tier == 2 else 2]
+            if facts["attended"] >= minimum:
+                rank = counts.index(facts["attended"]) + 1
+                tier = 1 if rank <= high_end else 2 if rank <= medium_end else 3
+            participation = policy["participation"]["tier_scores"][tier - 1 if tier else 2]
         reasons, process, objective, bonus, solution_bonus = [], None, None, None, None
         if not scope_confirmed:
             reasons.append("待确认报告范围")
-        if not denominator:
+        if not applicable:
             reasons.append("没有适用评审阶段")
         if scope_confirmed and not participation_ready:
             reasons.append("批次存在未知出勤，评审参与度待统计")
-        ready = bool(denominator) and all(not r["applicable"] or r["raw_score"] is not None for r in stages.values())
+        ready = bool(applicable) and all(not r["applicable"] or r["raw_score"] is not None for r in stages.values())
         if ready and scope_confirmed:
-            process = sum(r["raw_score"] * weights[stage] / denominator
+            process = sum(r["raw_score"] * weights[stage] / 100
                             for stage, r in stages.items() if r["applicable"])
             if participation is not None:
                 objective = process + participation
-        if scope_confirmed and denominator and all(r["opinion_bonus"] is not None for r in stages.values()):
+        if scope_confirmed and applicable and all(r["opinion_bonus"] is not None for r in stages.values()):
             bonus = sum(r["opinion_bonus"] for r in stages.values())
-        if scope_confirmed and denominator and all(r["solution_bonus"] is not None for r in stages.values()):
+        if scope_confirmed and applicable and all(r["solution_bonus"] is not None for r in stages.values()):
             solution_bonus = sum(r["solution_bonus"] for r in stages.values())
         for stage, result in stages.items():
-            weight = weights[stage] / denominator if result["applicable"] else 0
+            weight = weights[stage] / 100
             reasons.extend(f"{stage}：{reason}" for reason in result["reasons"])
             raw_score = result.pop("raw_score")
             result.update(weight=round(weight * 100, precision), score=None if raw_score is None else round(raw_score, precision),
@@ -148,7 +154,7 @@ def build_statistics_workbook(analysis, scope_confirmed=False, dimension="all"):
     summary = wb.active
     summary.title = "分数统计（试算）"
     summary.append(["评审人", "项目数", "应参场次", f"TDR1（{base}）", f"TDR2（{base}）", f"TDR3（{base}）",
-                    f"阶段加权（{base}）", "总参与评审场次", "参与度数量档", f"评审参与度（{participation_max}）",
+                    f"阶段加权（{base}）", "总参与评审场次", "参与度档位", f"评审参与度（{participation_max}）",
                     f"评审过程表现（{base + participation_max}）", f"专业价值贡献（{subjective_max}）", "评审意见超额得分", "输出有效对策得分", "封顶前合计", f"总分（{p['total_cap']}）", "状态与说明"])
     stage_sheet = wb.create_sheet("阶段计分依据")
     stage_sheet.append(["评审人", "阶段", "适用", "应参", "实参", "意见条数", "出勤分", "会签分", "意见基础分", "阶段分", "权重％", "加权贡献", "评审意见超额得分（不加权）", "含对策意见条数", "输出有效对策得分（不加权）", "说明"])
@@ -169,7 +175,7 @@ def build_statistics_workbook(analysis, scope_confirmed=False, dimension="all"):
             questionnaire.append([row["expert_name"], row["evaluator"], item["dimension"], item["option"],
                                   item["score"], "待补依据" if item["evidence_missing"] else ""])
     info = wb.create_sheet("使用说明")
-    info.append(["规则", RULE_VERSION])
+    info.append(["规则", data['rule_version']])
     info.append(["配置版本", data['policy']['version']])
     info.append(["配置指纹", data['policy']['sha256']])
     info.append(["实际参数", __import__('json').dumps(data['policy']['parameters'], ensure_ascii=False)])
@@ -178,9 +184,9 @@ def build_statistics_workbook(analysis, scope_confirmed=False, dimension="all"):
     for report in analysis.reports:
         info.append(["纳入报告", report.source_name])
     info.append(["范围确认", "已确认本次导入范围" if data["scope_confirmed"] else "未确认，客观总得分与总分留空"])
-    info.append(["计分", f"阶段基础{base}分，按配置权重归一加权，再加参与度；前五题逐题有效等权平均，贡献取有效最高分。"])
+    info.append(["计分", f"阶段基础{base}分，按适用阶段组合的百分比加权，再加参与度；前五题逐题有效等权平均，贡献取有效最高分。"])
     info.append(["奖励", f"意见平均数达{p['opinion_threshold']}后，超额每条{p['excess_opinion_points']}分；含对策每条{p['solution_points']}分；总分最高{p['total_cap']}分。"])
-    info.append(["参与度", f"至少{p['participation']['minimum_sessions']}场；前两档及其他档分数为{p['participation']['tier_scores']}，并列同分。"])
+    info.append(["参与度", f"最低{p['participation']['minimum_sessions']}场，高／中／低档分数为{p['participation']['tier_scores']}。完整名单按实参场次降序，分界为人数×10%及人数×30%向上取整，并列占位、跨界取高档，未达最低场次取低档。" if data['rule_version'] == RULE_VERSION else '按本任务归档时的计分规则与结果。'])
     info.append(["用途", "结果留档；经理问卷通过独立任务文件回收，不通过评分表回载。"])
     for sheet in wb:
         sheet.freeze_panes = "A2"

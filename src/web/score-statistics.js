@@ -8,6 +8,7 @@ function hasUnsavedQuestionnaires() {
 }
 
 async function openScoreStatistics() {
+  if(window.workspace?.mayLeave?.()===false)return;
   if (!qualityGatePassed()) return;
   if (!await flushSubjectiveChanges()) return;
   if (scoreStatistics.analysisId !== state.analysis.analysis_id) {
@@ -48,8 +49,8 @@ async function refreshScoreStatistics() {
 
 function renderScoreStatistics() {
   const data = scoreStatistics.data, p=data.policy.parameters;
-  sq("#score-statistics-message").textContent = `${data.rows.length}位评审人 · ${data.rows.filter(r=>r.total!==null).length}人具备总分 · 配置V${data.policy.version} · SHA256 ${data.policy.sha256}`;
-  sq("#score-method-note").innerHTML = importHint(`客观总得分（含奖励）＋主观最终分，最高${p.total_cap}分；两维分数分别在对应模块第二页查看。`);
+  sq("#score-statistics-message").textContent = "";
+  sq("#score-method-note").innerHTML = importHint(`客观总得分（含奖励）＋主观最终分，最高${p.total_cap}分；两维分数分别在对应模块第二页查看。尚待验证专业差异、对策识别与样本量，当前结果仅供试算。`);
   sq("#score-statistics-table").innerHTML = statisticsTable(data.rows,p.total_cap);
   sq("#score-statistics-details").innerHTML=data.rows.map((r,index)=>`<details class="score-detail" id="score-detail-${index}"><summary>${escapeHtml(r.expert_name)} · 计分依据</summary><p>${escapeHtml(r.reasons.join('；') || '已具备试算条件')}</p><p>过程基础${scoreText(r.objective_total)}＋评审意见超额得分${scoreText(r.opinion_bonus)}＋输出有效对策得分${scoreText(r.solution_bonus)}＝客观总得分${scoreText(r.objective_with_rewards)}。</p><p>客观总得分＋主观最终分${scoreText(r.subjective_total)}＝${scoreText(r.uncapped_total)}；最终${scoreText(r.total)}。</p><button class="secondary-button" data-score-evidence="${index}">查看评审过程详情</button></details>`).join('');
   sq('#score-statistics-table').querySelectorAll('table').forEach(()=>makeTableScrollable(sq('#score-statistics-table')));

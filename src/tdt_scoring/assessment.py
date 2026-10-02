@@ -59,8 +59,10 @@ def confirm_roster(analysis, names, batch_id, policy_hash=None):
         raise ValueError('名单与报告没有交集，不能开始考核')
     from .questionnaire import load as load_questionnaire
     questionnaire = analysis.assessment.get('questionnaire') or load_questionnaire()
-    policy = analysis.assessment.get('policy') or load_policy(questionnaire)
-    if policy_hash is not None and policy_hash != policy['sha256']:
+    from .scoring_policy import effective_policy
+    original_policy = analysis.assessment.get('policy') or load_policy(questionnaire)
+    policy = effective_policy(original_policy)
+    if policy_hash is not None and policy_hash not in (policy['sha256'], original_policy['sha256']):
         raise ValueError('评分参数已变化，请重新读取评分参数后再进入')
     result.update(confirmed=True, batch_id=batch_id.strip(), policy=policy, questionnaire=questionnaire,
                   exclusions=deepcopy(analysis.assessment.get('exclusions', {})))
@@ -72,7 +74,7 @@ def confirm_roster(analysis, names, batch_id, policy_hash=None):
     unresolved = tasks(analysis)['unresolved_reports']
     if unresolved:
         analysis.assessment = previous
-        raise ValueError('请先识别或明确指定这些报告的项目经理：' + '；'.join(unresolved))
+        raise ValueError('请先识别或明确指定这些报告的技术项目经理：' + '；'.join(unresolved))
     return result
 
 
@@ -98,6 +100,10 @@ def assign_local_manager(analysis, source_name, manager_id, name):
 
 def tasks(analysis):
     require_selected(analysis)
+    from .ownership import snapshot_errors
+    conflicts = snapshot_errors(analysis)
+    if conflicts:
+        return {'managers': [], 'unresolved_reports': conflicts}
     result = {}
     unresolved = set()
     roster = analysis.assessment.get('task_users')
@@ -113,6 +119,9 @@ def tasks(analysis):
                 unresolved.add(report.source_name)
                 continue
             mid = analysis.assessment.get('manager_accounts', {}).get(identity['owner_id'], identity['owner_id'])
+            if 'manager_accounts' in analysis.assessment and identity['owner_id'] not in analysis.assessment['manager_accounts']:
+                unresolved.add(report.source_name)
+                continue
             if eligible is not None and 'manager_accounts' in analysis.assessment and mid not in eligible:
                 continue
             name = analysis.assessment.get('manager_names', {}).get(mid, identity['name'])
@@ -126,7 +135,7 @@ def tasks(analysis):
 def manager_task(analysis, manager_id, expert_name):
     catalog = tasks(analysis)
     if catalog['unresolved_reports']:
-        raise ValueError('仍有报告的项目经理待识别，请在名单确认前完成经理指定或重新导入')
+        raise ValueError('仍有报告的技术项目经理待识别，请在名单确认前完成经理指定或重新导入')
     manager = next((m for m in catalog['managers'] if m['manager_id'] == manager_id), None)
     if not manager or expert_name not in manager['experts']:
         raise ValueError('该经理与评审人没有实际项目交集，不能评价')

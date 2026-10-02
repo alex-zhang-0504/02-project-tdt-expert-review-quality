@@ -37,7 +37,7 @@ def load_policy():
                 'file': 'config/' + POLICY_PATH.name,
                 'loaded_at': datetime.now(timezone.utc).isoformat()}
     except (OSError, ValueError, TypeError):
-        raise ValueError('项目经理识别配置未读取或内容无效，未识别项目经理') from None
+        raise ValueError('技术项目经理识别配置未读取或内容无效，未识别技术项目经理') from None
 
 
 def read_owners(tokens):
@@ -95,12 +95,12 @@ def read_owner_url(url):
             token = data.get('token', '')
     if not token:
         return {'source_token': '', 'owner_id': '', 'name': '', 'status': 'unresolved',
-                'error': '未能解析原始电子表格身份，未识别项目经理', 'policy': None}
+                'error': '未能解析原始电子表格身份，未识别技术项目经理', 'policy': None}
     try:
         return read_owners([token])[token]
     except (RuntimeError, OSError, TimeoutExpired) as exc:
         return {'source_token': token, 'owner_id': '', 'name': '', 'status': 'unresolved',
-                'error': '项目经理读取失败：' + str(exc), 'policy': None}
+                'error': '技术项目经理读取失败：' + str(exc), 'policy': None}
 
 
 def apply_owner(sessions, identity):

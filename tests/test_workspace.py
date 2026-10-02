@@ -63,7 +63,7 @@ class WorkspaceTests(unittest.TestCase):
     def encode(analysis):
         return jsonable_encoder(asdict(analysis))
 
-    def request(self, path, data=None, method='GET', user='0001'):
+    def request(self, path, data=None, method='GET', user='0001', personal=False):
         self.workspace.sync_admin_sessions()
         self.workspace.sessions['unit-admin-session-' + user] = user
         async def run():
@@ -75,6 +75,8 @@ class WorkspaceTests(unittest.TestCase):
                      (b'cookie', f'{COOKIE}={user}; {AUTH_COOKIE}=unit-admin-session-{user}'.encode()), (b'content-type', b'application/json')],
                      'client': ('127.0.0.1', 12345), 'server': ('127.0.0.1', 8872), 'root_path': ''}
             messages = []
+            if personal:
+                scope['headers'].append((b'x-assessment-view', b'personal'))
             async def receive():
                 return {'type': 'http.request', 'body': body, 'more_body': False}
             async def send(message):
@@ -132,7 +134,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual('虚拟页面修改', WorkspaceStore(self.temp.name).user('0020')['name'])
         self.assertIn(updated, json.loads(self.store.accounts_path.read_text(encoding='utf-8'))['users'])
 
-    def test_unknown_owner_name_manual_binding_and_freeze(self):
+    def test_unknown_owner_cannot_be_manually_assigned_to_another_name(self):
         with self.service.edit_analysis(self.id) as analysis:
             analysis.assessment = {}
             for report in [*analysis.reports, *analysis.sessions]:
@@ -142,25 +144,24 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(2, len(matches['errors'][0]['reports']))
         self.assertFalse(self.store.bindings())
         self.assertEqual(403, self.request('/api/workspace/manager-matches?analysis_id='+self.id, user='a')[0])
-        self.assertEqual(200, self.request('/api/workspace/bindings', dict(owner_id='ou_virtual', employee_id='a'), 'POST')[0])
-        self.assertIn('ou_virtual', self.store.user('a')['owner_ids'])
+        self.assertEqual(400, self.request('/api/workspace/bindings', dict(owner_id='ou_virtual', employee_id='a'), 'POST')[0])
+        self.assertFalse(self.store.bindings())
+        self.store.add_user('c', '虚拟未登记所有者')
         self.assertFalse(self.request('/api/workspace/manager-matches?analysis_id='+self.id)[1]['errors'])
-        self.assertEqual({'ou_virtual': 'a'}, WorkspaceStore(self.temp.name).bindings())
         self.assertEqual(200, self.request('/api/assessment/roster', {'analysis_id':self.id, 'names':[self.name], 'confirm':True}, 'POST')[0])
-        frozen = deepcopy(self.analysis.assessment['manager_accounts'])
-        self.store.bind('ou_virtual', 'b')
-        self.assertEqual(frozen, self.analysis.assessment['manager_accounts'])
+        self.assertEqual({'ou_virtual': 'c'}, self.analysis.assessment['manager_accounts'])
+        self.assertTrue(self.analysis.assessment['ownership_history'])
 
     def test_owner_disabled_or_missing_blocks_confirmation_and_ids_are_unique(self):
         with self.service.edit_analysis(self.id) as analysis:
             analysis.assessment = {}
             for report in [*analysis.reports, *analysis.sessions]:
                 report.manager_identity = dict(owner_id='ou_virtual', name='虚拟经理甲', status='resolved', source_token='virtual-token')
-        self.store.bind('ou_virtual','a')
+        self.store.bind('ou_virtual','a', owner_name='虚拟经理甲')
         user = self.store.user('a')
         self.store.update_user('a', {**user, 'enabled':False}, user)
         matches = self.workspace.manager_matches(self.analysis)
-        self.assertEqual('账号已停用', matches['errors'][0]['reason'])
+        self.assertIn('启用名单', matches['errors'][0]['reason'])
         self.assertEqual(400, self.request('/api/assessment/roster', {'analysis_id':self.id,'names':[self.name],'confirm':True},'POST')[0])
         user = self.store.user('b')
         with self.assertRaisesRegex(ValueError,'只能归属一个'):
@@ -176,19 +177,25 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_unique_owner_name_matches_employee_and_persists(self):
         self.analysis.assessment = {}
-        for report in self.analysis.reports:
-            report.source_type = 'feishu_sheet'
+        for report in [*self.analysis.reports, *self.analysis.sessions]:
             report.manager_identity = dict(owner_id='ou_name_match', name='虚拟经理甲', status='resolved', source_token='virtual')
         self.assertEqual([], self.workspace.manager_matches(self.analysis)['errors'])
-        self.assertEqual('a', WorkspaceStore(self.temp.name).bindings()['ou_name_match'])
+        self.assertFalse(WorkspaceStore(self.temp.name).bindings())
+        confirm_roster(self.analysis, [self.name], '虚拟考核')
+        self.workspace.freeze_accounts(self.analysis)
+        self.service.persist(self.analysis)
+        restored = WorkspaceStore(self.temp.name).load_all()[0][0]
+        self.assertEqual('a', restored.assessment['manager_accounts']['ou_name_match'])
 
     def test_name_matching_rejects_ambiguity_disabled_and_outside_task(self):
         self.analysis.assessment = {}
-        for report in self.analysis.reports:
-            report.source_type = 'feishu_sheet'
+        for report in [*self.analysis.reports, *self.analysis.sessions]:
             report.manager_identity = dict(owner_id='ou_name_match', name='虚拟经理甲', status='resolved', source_token='virtual')
-        self.store.add_user('c', '虚拟经理甲')
-        self.assertTrue(self.workspace.manager_matches(self.analysis)['errors'])
+        with self.assertRaisesRegex(ValueError, '姓名不能重复'):
+            self.store.add_user('c', '虚拟经理甲')
+        duplicate_users = self.store.users() + [dict(self.manager, employee_id='c')]
+        with patch.object(self.store, 'users', return_value=duplicate_users):
+            self.assertTrue(self.workspace.manager_matches(self.analysis)['errors'])
         self.assertNotIn('ou_name_match', self.store.bindings())
         self.analysis.assessment['task_users'] = [self.store.user('b')]
         self.assertTrue(self.workspace.manager_matches(self.analysis)['errors'])
@@ -258,9 +265,11 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn('考核或问卷历史', self.request('/api/workspace/users/a', method='DELETE')[1]['detail'])
         self.assertEqual(before, self.store.load_all())
         self.store.add_user('unused', '虚拟绑定经理')
-        self.store.bind('owner-unused', 'unused')
+        self.store.bind('owner-unused', 'unused', owner_name='虚拟绑定经理')
         self.assertIn('飞书报告', self.request('/api/workspace/users/unused', method='DELETE')[1]['detail'])
-        self.store.bind('owner-unused', 'b')
+        with self.assertRaisesRegex(ValueError, '历史归属冲突'):
+            self.store.bind('owner-unused', 'b', owner_name='虚拟经理乙')
+        self.edit_accounts_file(lambda users: next(u for u in users if u['employee_id']=='unused').update(owner_ids=[]))
         self.assertEqual(200, self.request('/api/workspace/users/unused', method='DELETE')[0])
         # Draft local report references also prevent dangling manager identities.
         with self.service.edit_analysis(self.id) as analysis:
@@ -382,8 +391,8 @@ class WorkspaceTests(unittest.TestCase):
         payload = {'analysis_id': a.analysis_id, 'names': [self.name], 'confirm': True}
         self.assertEqual(400, self.request('/api/assessment/roster', payload, 'POST')[0])
         self.assertFalse(a.assessment)
-        for session in a.sessions:
-            self.store.bind(session.manager_identity['owner_id'], 'a')
+        for row in [*a.reports, *a.sessions]:
+            row.manager_identity = dict(owner_id='owner-'+row.source_name.replace('.', '_'), name='虚拟经理甲', status='resolved', source_token='virtual')
         self.assertEqual(200, self.request('/api/assessment/roster', payload, 'POST')[0])
         self.assertEqual(1, len(tasks(a)['managers']))
         self.assertEqual('a', tasks(a)['managers'][0]['manager_id'])

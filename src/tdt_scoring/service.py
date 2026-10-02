@@ -32,6 +32,7 @@ class ScoringService:
         self._revisions = {}
         if store:
             for analysis, revision in store.load_all():
+                self.restore_report_progress(analysis)
                 self._analyses[analysis.analysis_id] = analysis
                 self._revisions[analysis.analysis_id] = revision
         self.classifier = classifier
@@ -39,8 +40,35 @@ class ScoringService:
         self._fact_lock = RLock()
 
     def persist(self, analysis):
+        self.restore_report_progress(analysis)
         if self.store:
             self._revisions[analysis.analysis_id] = self.store.save(analysis, self._revisions.get(analysis.analysis_id, 0))
+
+    @classmethod
+    def restore_report_progress(cls, analysis):
+        from .progress import CHECKPOINTS
+        confirmed = {i.confirmation_key: i for i in analysis.issues
+                     if i.code == 'reviewer_name_similarity' and i.confirmation_key
+                     and i.requires_confirmation and i.confirmed_by_user and i.severity == 'info'}
+        for report in analysis.reports:
+            # JSON roundtrips split shared issue objects; restore the saved user decision on each report.
+            for issue in report.issues:
+                decision = confirmed.get(issue.confirmation_key)
+                if issue.code == 'reviewer_name_similarity' and decision:
+                    issue.severity = decision.severity
+                    issue.confirmed_by_user = True
+                    issue.confirmed_at = decision.confirmed_at
+            if report.scan_progress:
+                continue
+            errors = [i for i in report.issues if i.severity == 'error']
+            if not errors:
+                report.scan_progress = {'percent': 100, 'label': '检查完成'}
+            elif report.session_count and not any(i.code in ('report_not_scanned', 'report_read_failed', 'workbook_parse_failed') for i in errors):
+                # Older tasks lack timing receipts: only reconstruct the lower bound from the first failed checkpoint.
+                index = min(next(n for n, (key, _) in enumerate(CHECKPOINTS) if key == cls._issue_checkpoint(i.code)) for i in errors)
+                report.scan_progress = {'percent': index * 10, 'label': CHECKPOINTS[index][1], 'recovered': True}
+            else:
+                report.scan_progress = {'percent': None, 'label': '读取失败，未记录进度'}
 
     @contextmanager
     def edit_analysis(self, analysis_id, persist=True):
@@ -295,9 +323,9 @@ class ScoringService:
         expected_project_count: int | None = None,
     ) -> WorkbookAnalysis:
         if not uploads:
-            raise ValueError("请至少选择一份项目经理维度1提交表")
+            raise ValueError("请至少选择一份技术项目经理维度1提交表")
         if expected_manager_count < 1:
-            raise ValueError("预计项目经理人数必须大于等于1")
+            raise ValueError("预计技术项目经理人数必须大于等于1")
         if expected_project_count is not None and expected_project_count < 1:
             raise ValueError("预计项目数必须大于等于1")
 
@@ -360,7 +388,7 @@ class ScoringService:
             issues.append(
                 ValidationIssue(
                     "submission_manager_duplicate",
-                    f"项目经理编号{manager_id}存在多份提交：{'、'.join(filenames)}",
+                    f"技术项目经理编号{manager_id}存在多份提交：{'、'.join(filenames)}",
                     "error",
                     source_name="维度1提交表汇总",
                 )
@@ -370,7 +398,7 @@ class ScoringService:
             issues.append(
                 ValidationIssue(
                     "submission_manager_count_mismatch",
-                    f"预计{expected_manager_count}位项目经理，实际识别{len(manager_packages)}位",
+                    f"预计{expected_manager_count}位技术项目经理，实际识别{len(manager_packages)}位",
                     "error",
                     source_name="维度1提交表汇总",
                 )
@@ -382,7 +410,7 @@ class ScoringService:
                 issues.append(
                     ValidationIssue(
                         "submission_project_owner_conflict",
-                        f"项目{project_code}同时出现在项目经理编号{'、'.join(unique_manager_ids)}的提交中",
+                        f"项目{project_code}同时出现在技术项目经理编号{'、'.join(unique_manager_ids)}的提交中",
                         "error",
                         source_name="维度1提交表汇总",
                     )
@@ -417,7 +445,7 @@ class ScoringService:
         analysis = WorkbookAnalysis(
             analysis_id=uuid4().hex,
             source_type="dimension_one_merge",
-            source_name=f"{batch_id} · {len(packages)}份项目经理提交表",
+            source_name=f"{batch_id} · {len(packages)}份技术项目经理提交表",
             sessions=sessions,
             experts=experts,
             issues=issues,
@@ -427,7 +455,7 @@ class ScoringService:
         self._analyses[analysis.analysis_id] = analysis
         return analysis
 
-    def select_solution(self, analysis_id: str, opinion_id: str, included: bool | None) -> WorkbookAnalysis:
+    def select_solution(self, analysis_id: str, opinion_id: str, included: bool | None, actor=None) -> WorkbookAnalysis:
         with self.edit_analysis(analysis_id) as analysis:
             if any(i.severity == "error" for i in analysis.issues):
                 raise ValueError("请先处理报告中的阻断问题")
@@ -437,7 +465,9 @@ class ScoringService:
             if opinion.ai_status == "pending":
                 raise ValueError("请先完成该条AI识别，再选择计入与否")
             if opinion.included is not included:
-                opinion.audit.append({"at": datetime.now(timezone.utc).isoformat(), "from": opinion.included, "to": included})
+                opinion.audit.append({"at": datetime.now(timezone.utc).isoformat(), "from": opinion.included, "to": included,
+                                      "actor": deepcopy(actor), "automatic_status": opinion.ai_status,
+                                      "automatic_reason": opinion.reason, "rule_version": opinion.rule_version})
                 opinion.included = included
             refresh(analysis.experts)
             return analysis

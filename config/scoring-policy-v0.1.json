@@ -1,11 +1,26 @@
 {
-  "version": "0.1",
-  "stage_weights": {"TDR1": 4, "TDR2": 2, "TDR3": 4},
-  "components": {"attendance": 5, "signoff": 10, "opinion": 10},
-  "opinion_threshold": 1,
-  "participation": {"minimum_sessions": 3, "tier_scores": [5, 3, 0]},
+  "components": {
+    "attendance": 5,
+    "opinion": 10,
+    "signoff": 10
+  },
   "excess_opinion_points": 1,
+  "opinion_threshold": 1,
+  "participation": {
+    "minimum_sessions": 3,
+    "tier_scores": [
+      5,
+      3,
+      0
+    ]
+  },
+  "precision": 2,
   "solution_points": 2,
+  "stage_percentages": {
+    "all": {"TDR1": 40, "TDR2": 20, "TDR3": 40},
+    "first_third": {"TDR1": 50, "TDR3": 50},
+    "with_second": {"TDR1_or_TDR3": 65, "TDR2": 35}
+  },
   "total_cap": 100,
-  "precision": 2
+  "version": "0.1"
 }

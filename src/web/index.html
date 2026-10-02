@@ -50,7 +50,7 @@
               </article>
               <article class="mode-card is-available">
                 <div class="mode-card-meta"><span>方案 2</span><span>分散提交／统一汇总</span></div>
-                <div class="heading-with-note"><h3>多位项目经理分别处理</h3><button class="info-tip" type="button" aria-label="每位项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">每位项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。</span></button></div>
+                <div class="heading-with-note"><h3>多位技术项目经理分别处理</h3><button class="info-tip" type="button" aria-label="每位技术项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">每位技术项目经理导出一份系统提交表，汇总人批量导入后统一重算维度一。</span></button></div>
                 <ul><li>维度一提交与汇总已开放</li><li>主观评价独立填写与导出</li></ul>
                 <div class="mode-actions">
                   <button class="primary-button" id="choose-manager" type="button">生成个人提交表</button>
@@ -64,7 +64,7 @@
             <div class="panel-heading">
               <div>
                 <p class="section-index">方案 2 · 年度汇总人</p>
-                <div class="heading-with-note"><h2>汇总项目经理维度一提交表</h2><button class="info-tip" type="button" aria-label="选择全部系统导出的提交表；系统先校验批次、项目经理、项目归属和重复阶段，再统一重算年度结果。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">选择全部系统导出的提交表；系统先校验批次、项目经理、项目归属和重复阶段，再统一重算年度结果。</span></button></div>
+                <div class="heading-with-note"><h2>汇总技术项目经理维度一提交表</h2><button class="info-tip" type="button" aria-label="选择全部系统导出的提交表；系统先校验批次、技术项目经理、项目归属和重复阶段，再统一重算年度结果。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">选择全部系统导出的提交表；系统先校验批次、技术项目经理、项目归属和重复阶段，再统一重算年度结果。</span></button></div>
               </div>
               <button class="ghost-button back-to-mode" type="button">返回方案选择</button>
             </div>
@@ -72,11 +72,11 @@
               <label class="upload-box" id="submission-upload-box" for="submission-files">
                 <input id="submission-files" type="file" multiple accept=".xlsx" />
                 <span class="upload-icon">↑</span>
-                <strong>选择或拖入全部项目经理提交表</strong>
+                <strong>选择或拖入全部技术项目经理提交表</strong>
                 <small id="submission-file-name">尚未选择文件</small>
               </label>
               <div class="identity-grid merge-counts">
-                <label class="field"><span>预计项目经理人数</span><input id="expected-manager-count" type="number" min="1" value="16" /></label>
+                <label class="field"><span>预计技术项目经理人数</span><input id="expected-manager-count" type="number" min="1" value="16" /></label>
                 <label class="field"><span>预计项目数（选填）</span><input id="expected-project-count" type="number" min="1" placeholder="用于检查项目遗漏" /></label>
               </div>
               <div class="notice is-hidden" id="merge-notice" role="status"></div>
@@ -93,8 +93,8 @@
             </div>
 
             <div class="manager-meta is-hidden" id="manager-meta">
-              <label class="field"><span>项目经理编号</span><input id="manager-id" type="text" placeholder="使用年度内唯一编号" /></label>
-              <label class="field"><span>项目经理姓名</span><input id="manager-name" type="text" placeholder="须与TDRX中的技术项目经理一致" /></label>
+              <label class="field"><span>技术项目经理编号</span><input id="manager-id" type="text" placeholder="使用年度内唯一编号" /></label>
+              <label class="field"><span>技术项目经理姓名</span><input id="manager-name" type="text" placeholder="须与TDRX中的技术项目经理一致" /></label>
               <label class="field"><span>修订号</span><input id="manager-revision" type="number" min="1" value="1" /></label>
             </div>
 
@@ -161,7 +161,7 @@
               <div class="heading-actions"><button class="primary-button" id="export-dimension-one" data-service-action="true" type="button" disabled hidden>导出评价结果</button></div>
             </div>
             <div id="objective-page-one">
-            <div class="dimension-one-controls">
+            <div id="personal-scope" hidden class="note-row">本人项目数据</div><div class="dimension-one-controls">
               <label class="field control-stage"><span>统计视图</span><select id="dimension-one-stage"><option value="">分阶段</option><option value="overall" selected>全部阶段汇总</option><option value="TDR1">仅TDR1</option><option value="TDR2">仅TDR2</option><option value="TDR3">仅TDR3</option></select></label>
               <div class="dimension-one-export">
                 <button class="secondary-button solution-identify-button" id="identify-solutions" data-service-action="true" type="button" aria-live="polite">对策有效性识别</button>
@@ -178,13 +178,13 @@
 
           <section class="panel is-hidden" id="subjective-panel">
             <div class="panel-heading">
-              <div><p class="section-index">步骤 3 · 维度二</p><h2>主观评价</h2></div>
-              <button type="button" class="ghost-button" id="workspace-history" hidden>查看修改记录</button>
+              <div><p class="section-index">步骤 3 · 维度二</p><div class="heading-with-note"><h2>主观评价</h2><button type="button" class="info-tip" aria-label="平均计分规则"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">平均计分规则：同一技术项目经理评价同一评审人，多个项目仍只计一票。前五题分别按有效评价等权平均，暂无法判断等无有效分值的回答不计入分母；突出贡献取有效最高分。应评价问卷尚未全部回应，或某题没有有效评价时，最终分暂不生成。</span></button></div></div>
+              <div class="heading-actions"><button type="button" class="ghost-button" id="workspace-return" hidden>退出管理员修改</button><button type="button" class="ghost-button" id="workspace-history" hidden>查看修改记录</button></div>
             </div>
             <div id="subjective-page-one">
             <div class="subjective-layout">
               <aside class="subjective-rail" aria-label="选择评审人">
-                <label class="field subjective-manager-field"><span>评价项目经理</span><select id="assessment-manager"></select></label>
+                <label class="field subjective-manager-field"><span>评价技术项目经理</span><select id="assessment-manager"></select></label>
                 <p id="subjective-assignment-message" role="status"></p>
                 <p id="subjective-progress" class="muted"></p>
                 <div id="subjective-experts"></div>
@@ -198,7 +198,6 @@
 
             </div>
             <div id="subjective-page-two" hidden></div>
-            <div id="subjective-policy-footer" class="subjective-archive objective-table-footer"><div class="note-row">数据留存<button class="info-tip" type="button" aria-label="显示已保存后，问卷已写入本机；刷新和重启仍可读取，工作区自动每日备份。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">显示已保存后，问卷已写入本机；刷新和重启仍可读取，工作区自动每日备份。</span></button></div></div>
             <div class="subjective-page-footer"><button class="primary-button" id="subjective-page-toggle" type="button" data-dimension-page="subjective:2">查看主观打分 →</button></div>
             <div class="subjective-page-footer" id="workspace-my-return" hidden><button class="primary-button" type="button" onclick="workspace.home()">← 返回我的问卷</button></div>
           </section>
@@ -206,7 +205,6 @@
             <div class="panel-heading"><div><p class="section-index">步骤 4 · 试算</p><div class="heading-with-note"><h2>总分统计</h2><span id="score-method-note"></span></div></div>
               <div class="heading-actions"><button class="secondary-button" id="refresh-score-statistics" type="button">刷新统计</button>
                 <button class="primary-button" id="export-score-statistics" type="button" disabled>导出总分统计</button></div></div>
-            <div class="note-row">试算说明<button class="info-tip" type="button" aria-label="尚待验证专业差异、对策识别与样本量；当前结果仅供试算。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">尚待验证专业差异、对策识别与样本量；当前结果仅供试算。</span></button></div>
             <div id="score-statistics-message" role="status"></div>
             <div class="score-statistics-table-wrap" id="score-statistics-table"></div>
             <div id="score-statistics-details"></div>
@@ -215,6 +213,7 @@
         </div>
       </main>
     </div>
+    <dialog id="admin-edit-warning" class="draft-dialog"><p>请先退出右上角管理员修改状态，以便技术项目经理继续操作</p><form method="dialog"><button class="primary-button">了解</button></form></dialog>
     <dialog id="workspace-dialog" aria-labelledby="workspace-dialog-title"><h3 id="workspace-dialog-title"></h3><div id="workspace-dialog-body"></div><p id="workspace-dialog-error" role="status"></p><div class="policy-editor-actions"><button class="secondary-button" type="button" onclick="document.querySelector('#workspace-dialog').close()">关闭</button><button class="primary-button" id="workspace-dialog-confirm" type="button">确认</button></div></dialog>
     <dialog class="evidence-drawer" id="evidence-drawer" aria-labelledby="evidence-drawer-title">
       <div class="evidence-drawer-heading"><div><p class="section-index">参评意见明细</p><h3 id="evidence-drawer-title">四维统计详情</h3></div><button class="ghost-button" id="close-evidence" type="button">关闭</button></div>
@@ -250,7 +249,7 @@
     </dialog>
     <div class="copyright-mark" aria-hidden="true">Designed by Siyuan for TRD</div>
     <dialog id="policy-settings-dialog" aria-labelledby="policy-settings-title">
-      <div class="formula-heading"><h3 id="policy-settings-title">评分参数</h3><button class="ghost-button" id="close-policy-settings" type="button">关闭</button></div>
+      <div class="formula-heading"><div class="policy-title"><h3 id="policy-settings-title">评分参数</h3><span id="policy-formula-note"></span></div><button class="ghost-button" id="close-policy-settings" type="button" autofocus>关闭</button></div>
       <div class="note-row">生效范围<button class="info-tip" type="button" aria-label="修改后用于新的考核，已经开始的考核仍使用原配置。"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">修改后用于新的考核，已经开始的考核仍使用原配置。</span></button></div>
       <form id="policy-unlock-form" class="policy-unlock">
         <p id="policy-auth-hint" class="policy-note"></p>

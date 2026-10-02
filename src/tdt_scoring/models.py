@@ -170,3 +170,4 @@ class ReportAnalysis:
     expert_count: int
     issues: list[ValidationIssue]
     manager_identity: dict = field(default_factory=dict)
+    scan_progress: dict = field(default_factory=dict)

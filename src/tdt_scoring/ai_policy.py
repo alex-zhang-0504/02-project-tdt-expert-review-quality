@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from contextvars import ContextVar
 from contextlib import contextmanager
 
-POLICY_PATH = Path(__file__).resolve().parents[2] / "docs/countermeasure-policy-v0.1.json"
+POLICY_PATH = Path(__file__).resolve().parents[2] / "config/countermeasure-policy-v0.1.json"
 active_policy = ContextVar("ai_policy", default=None)
 
 
@@ -45,7 +45,7 @@ def load_policy():
         raise ValueError("未读取判定配置：文件无法访问，分析已阻止。") from None
     except (ValueError, KeyError, TypeError):
         raise ValueError("判定配置校验失败：JSON格式或必填字段无效，分析已阻止。") from None
-    receipt = dict(loaded=True, file="docs/" + POLICY_PATH.name, version=data["version"],
+    receipt = dict(loaded=True, file="config/" + POLICY_PATH.name, version=data["version"],
                    sha256=hashlib.sha256(raw).hexdigest(), loaded_at=datetime.now(timezone.utc).isoformat(),
                    confirmed_examples=sum(c["confirmed"] for c in data["examples"]))
     return dict(data=data, receipt=receipt)

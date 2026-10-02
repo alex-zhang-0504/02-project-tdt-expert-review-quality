@@ -1,6 +1,6 @@
 # AI对策判定配置V0.1使用说明
 
-生效文件：`docs/countermeasure-policy-v0.1.json`。JSON使用UTF-8编码，不支持注释或末尾多余逗号。修改规则时同时更新version（例如0.2）和updated_at；文件名暂不改，程序固定读取此路径。
+生效文件：[config/countermeasure-policy-v0.1.json](../config/countermeasure-policy-v0.1.json) 。2026-09-29从docs迁入config，规则内容未改，不再从旧路径读取。JSON使用UTF-8编码，不支持注释或末尾多余逗号。修改规则时同时更新version（例如0.2）和updated_at；文件名暂不改，程序固定读取此路径。
 
 ## 如何确认实际读取
 
@@ -9,6 +9,8 @@
 开始分析前再次显示配置状态；实际启动时重新读取核对指纹，不一致要求重新打开确认窗口。每批任务固定该次读取的内容，文件后续修改只影响下一批，不改变正在执行的任务。分析结果保存完整内容指纹、配置版本及模型标识，导出后保留。页面「已读取」证明后台读取并校验成功，不代表模型理解正确、案例质量已验证或问题已经闭环。
 
 ## 如何补案例
+
+原始人工纠正记录位于本机`var/multi-user/countermeasure-corrections.jsonl`，不进入Git。先人工复核、脱敏，再将可复用案例写入配置并验证后提交。更新配置为后续分析提供规则和案例，不会自动训练模型权重，也不会自动同步其他电脑；跨电脑通过Git提交、推送和拉取同步通用配置。
 
 在examples数组中增加对象：id为唯一编号，text为意见原文，context为必要上下文，expected为yes、no或suspected，reason说明人工判断依据，confirmed为true或false。
 

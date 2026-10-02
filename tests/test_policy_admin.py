@@ -84,7 +84,7 @@ class PolicyAdminTests(unittest.TestCase):
     def test_parameter_validation_conflict_and_write_failure(self):
         self.setup_admin()
         original=scoring_policy.load_policy()
-        invalid=deepcopy(original['parameters']);invalid['stage_weights']['TDR1']=0
+        invalid=deepcopy(original['parameters']);invalid['stage_percentages']['all']['TDR1']=0
         self.assertEqual(self.update(invalid)[0],400)
         self.assertEqual(self.update(previous='stale')[0],409)
         self.assertEqual(scoring_policy.load_policy()['sha256'],original['sha256'])

@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from functools import lru_cache
 import json
 import os
+import re
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
@@ -66,6 +67,9 @@ class WorkspaceStore:
         self.directory = Path(directory)
         self.path = self.directory / 'assessment.sqlite3'
         self.accounts_path = self.directory / 'accounts.json'
+        root = Path(__file__).resolve().parents[2]
+        if self.directory.resolve() == (root / 'var' / 'multi-user').resolve():
+            self.accounts_path = root / 'config' / 'project-managers.json'
         self._ready = False
         self._lock = RLock()
 
@@ -96,8 +100,19 @@ class WorkspaceStore:
         backup = self.directory / 'backups' / ('daily-' + date.today().isoformat() + '.sqlite3')
         if not backup.exists():
             backup.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(self.path, factory=Connection) as source, sqlite3.connect(backup, factory=Connection) as target:
-                source.backup(target)
+            with TemporaryDirectory(prefix='daily-', dir=backup.parent) as staged:
+                candidate = Path(staged) / backup.name
+                with sqlite3.connect(self.path, factory=Connection) as source, sqlite3.connect(candidate, factory=Connection) as target:
+                    source.backup(target)
+                    if target.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                        raise ValueError('自动备份校验失败，保留上一份备份')
+                os.replace(candidate, backup)
+        with sqlite3.connect(f'{backup.as_uri()}?mode=ro', uri=True, factory=Connection) as checked:
+            valid = checked.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+        if valid:
+            for old in backup.parent.iterdir():
+                if old != backup and re.fullmatch(r'daily-\d{4}-\d{2}-\d{2}\.sqlite3', old.name) and old.is_file() and not old.is_symlink():
+                    old.unlink()
         db = sqlite3.connect(self.path, timeout=15, factory=Connection)
         db.row_factory = sqlite3.Row
         return db
@@ -116,11 +131,22 @@ class WorkspaceStore:
             {**dict(row), 'enabled': True} for row in db.execute('SELECT * FROM users ORDER BY employee_id')]
         if not self.accounts_path.exists():
             if snapshot:
-                raise ValueError('accounts.json缺失，请恢复账号配置文件；不会自动恢复旧账号')
+                raise ValueError(f'{self.accounts_path.name}缺失，请恢复账号配置文件；不会自动恢复旧账号')
             accounts.replace(self.accounts_path, accounts.content(previous), None)
         raw = self.accounts_path.read_bytes()
+        try:
+            document = json.loads(raw.decode('utf-8-sig'))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError('账号配置格式错误，请修正JSON后刷新；未覆盖文件') from exc
+        if document.get('users') and all('role' not in u for u in document['users']):
+            # One-time conversion of the old import-only roster, retaining stable bindings.
+            legacy = self.directory / 'accounts.json'
+            current = accounts.parse(legacy.read_bytes()) if legacy != self.accounts_path and legacy.exists() else previous
+            _, users = accounts.import_directory(document, current)
+            accounts.replace(self.accounts_path, accounts.content(users), raw)
+            raw = self.accounts_path.read_bytes()
+            document = json.loads(raw)
         users = accounts.parse(raw)
-        document = json.loads(raw.decode('utf-8-sig'))
         migrate = {u['employee_id'] for u in document['users'] if 'owner_ids' not in u}
         if migrate:
             for user in users:
@@ -218,12 +244,17 @@ class WorkspaceStore:
                     or employee_id in actors or 'local:' + employee_id in owners):
                 raise ValueError('账号已关联报告、考核或问卷历史，不能删除；已有数据保持不变')
 
-    def bind(self, owner_id, employee_id):
+    def bind(self, owner_id, employee_id, *, owner_name):
         with self._lock, self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             users, raw = self._accounts(db)
             if not any(u['employee_id'] == employee_id and u['enabled'] for u in users) or not owner_id:
                 raise ValueError('请选择已启用的经理账号及有效报告身份')
+            matches = [u for u in users if u['enabled'] and u['name'] == owner_name.strip()]
+            if len(matches) != 1 or matches[0]['employee_id'] != employee_id:
+                raise ValueError('报告所有者姓名与账号不一致，禁止绑定')
+            if any(owner_id in u['owner_ids'] and u['employee_id'] != employee_id for u in users):
+                raise ValueError('历史归属冲突，禁止直接覆盖')
             for user in users:
                 user['owner_ids'] = [owner for owner in user['owner_ids'] if owner != owner_id]
                 if user['employee_id'] == employee_id:
@@ -239,15 +270,37 @@ class WorkspaceStore:
         if not self.path.exists():
             return []
         with self.connect() as db:
+            self.write_corrections(db)
             return [(decode(WorkbookAnalysis, json.loads(r['payload'])), r['revision']) for r in db.execute('SELECT * FROM analyses ORDER BY updated_at ASC')]
 
     def save(self, analysis, revision, connection=None):
         payload = serialize(analysis)
         if connection is not None:
             return self._save(connection, analysis.analysis_id, payload, revision)
-        with self.connect() as db:
-            db.execute('BEGIN IMMEDIATE')
-            return self._save(db, analysis.analysis_id, payload, revision)
+        path = self.directory / 'countermeasure-corrections.jsonl'
+        with self._lock:
+            before = path.read_bytes() if path.exists() else None
+            try:
+                with self.connect() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    updated = self._save(db, analysis.analysis_id, payload, revision)
+                    self.write_corrections(db)
+                return updated
+            except Exception:
+                if before is not None and path.exists() and path.read_bytes() != before:
+                    accounts.replace(path, before, path.read_bytes())
+                elif before is None and path.exists():
+                    accounts.replace(path, b'', path.read_bytes())
+                raise
+
+    def write_corrections(self, db):
+        from .corrections import learning_records
+        path = self.directory / 'countermeasure-corrections.jsonl'
+        rows = learning_records(r[0] for r in db.execute('SELECT payload FROM analyses ORDER BY id'))
+        raw = ''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in rows).encode('utf-8')
+        before = path.read_bytes() if path.exists() else None
+        if raw != before:
+            accounts.replace(path, raw, before)
 
     @staticmethod
     def _save(db, analysis_id, payload, revision):

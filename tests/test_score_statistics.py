@@ -49,7 +49,7 @@ class ScoreStatisticsTests(unittest.TestCase):
         value = analysis([session(project=str(i), statuses=("yes", "yes", "no", "no", "no", "no") if i == 0 else ()) for i in range(4)])
         value.experts.append(ExpertFacts("虚拟甲", [session(project=f"other{i}") for i in range(6)], {}, {}))
         row = build_statistics(value, True)["rows"][0]
-        self.assertEqual((28, 60, 2, 4, 94), (row["objective_total"], row["subjective_total"], row["opinion_bonus"], row["solution_bonus"], row["total"]))
+        self.assertEqual((25, 60, 2, 4, 91), (row["objective_total"], row["subjective_total"], row["opinion_bonus"], row["solution_bonus"], row["total"]))
 
     def test_bonus_below_at_and_above_target(self):
         for count, base, bonus in [(2, 5, 0), (4, 10, 0), (5, 10, 1), (6, 10, 2), (8, 10, 4)]:
@@ -77,9 +77,48 @@ class ScoreStatisticsTests(unittest.TestCase):
         value.experts = [ExpertFacts(f"虚拟{i}", [session(project=str(j)) for j in range(count)], {}, {})
                          for i, count in enumerate([6, 6, 4, 3, 2])]
         rows = build_statistics(value, True)["rows"]
-        self.assertEqual([5, 5, 3, 0, 0], [r["participation_score"] for r in rows])
+        self.assertEqual([5, 5, 0, 0, 0], [r["participation_score"] for r in rows])
         value.experts[-1].sessions[0].attended = None
         self.assertTrue(all(r["participation_score"] is None for r in build_statistics(value, True)["rows"]))
+
+    def test_participation_percentile_boundaries_and_ties(self):
+        for counts, expected in [
+            ([10, 10, 9, 8, 7, 6, 5, 4, 3, 2], [5, 5, 3, 0, 0, 0, 0, 0, 0, 0]),
+            (list(range(16, 2, -1)), [5, 5, 3, 3, 3] + [0] * 9),
+            ([10, 9, 8, 8, 7, 6, 5, 4, 3, 2], [5, 3, 3, 3, 0, 0, 0, 0, 0, 0]),
+            ([3] * 10, [5] * 10),
+            ([2] * 10, [0] * 10),
+            ([3], [5]),
+            ([4, 3], [5, 0]),
+            ([], []),
+        ]:
+            with self.subTest(counts=counts):
+                value = analysis([])
+                value.experts = [ExpertFacts(f'虚拟{i}', [session(project=str(j)) for j in range(count)], {}, {})
+                                 for i, count in enumerate(counts)]
+                rows = build_statistics(value, True)['rows']
+                self.assertEqual(expected, [r['participation_score'] for r in rows])
+
+    def test_participation_keeps_task_parameters_and_counts_ineligible_people(self):
+        from copy import deepcopy
+        from tdt_scoring.scoring_policy import snapshot
+        value = analysis([])
+        counts = [9, 8, 7] + [1] * 7
+        value.experts = [ExpertFacts(f'虚拟{i}', [session(project=str(j)) for j in range(count)], {}, {})
+                         for i, count in enumerate(counts)]
+        value.assessment = {'confirmed': True, 'included': [e.expert_name for e in value.experts], 'policy': deepcopy(snapshot())}
+        value.assessment['policy']['parameters']['participation'] = {'minimum_sessions': 8, 'tier_scores': [4, 2, 1]}
+        self.assertEqual([4, 2] + [1] * 8, [r['participation_score'] for r in build_statistics(value)['rows']])
+
+    def test_completed_task_keeps_frozen_statistics(self):
+        from copy import deepcopy
+        value = analysis([session()])
+        saved = {'rule_version': 'scores-v0.9', 'rows': [{'expert_name': '虚拟评审人', 'participation_score': 3}]}
+        value.assessment.update(completed=True, completion={'statistics': deepcopy(saved)})
+        result = build_statistics(value)
+        self.assertEqual(saved, result)
+        result['rows'][0]['participation_score'] = 0
+        self.assertEqual(3, value.assessment['completion']['statistics']['rows'][0]['participation_score'])
 
     def test_zero_attendance_bonus_is_pending_and_scope_keeps_bonus_blank(self):
         row = self.row([session(attended=False, signed=False)])
@@ -100,8 +139,8 @@ class ScoreStatisticsTests(unittest.TestCase):
         self.assertEqual([40, 20, 40], [s["weight"] for s in row["stages"].values()])
         self.assertEqual((28, 60, 91), (row["objective_total"], row["subjective_total"], row["total"]))
 
-    def test_missing_stages_renormalize_but_absence_remains_applicable(self):
-        for stages, weights in [(('TDR1', 'TDR2'), (66.67, 33.33, 0)),
+    def test_missing_stages_select_group_but_absence_remains_applicable(self):
+        for stages, weights in [(('TDR1', 'TDR2'), (65, 35, 0)),
                                (('TDR1', 'TDR3'), (50, 0, 50)), (('TDR2',), (0, 100, 0))]:
             row = self.row([session(s, attended=False, signed=False) for s in stages])
             self.assertEqual(weights, tuple(s["weight"] for s in row["stages"].values()))

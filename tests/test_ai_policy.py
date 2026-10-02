@@ -12,6 +12,12 @@ from tests.test_experiment import LocalClient
 
 
 class PolicyTests(unittest.TestCase):
+    def test_runtime_policy_and_receipt_use_config_directory(self):
+        from tdt_scoring.ai_policy import POLICY_PATH
+        expected = Path(__file__).resolve().parents[1] / 'config/countermeasure-policy-v0.1.json'
+        self.assertEqual(expected, POLICY_PATH)
+        self.assertEqual('config/countermeasure-policy-v0.1.json', load_policy()['receipt']['file'])
+
     def test_snapshot_and_confirmed_cases_only(self):
         policy=load_policy()
         policy['data']['examples'].append(dict(id='draft',text='UNCONFIRMED_CASE',context='待讨论',expected='yes',reason='待讨论',confirmed=False))

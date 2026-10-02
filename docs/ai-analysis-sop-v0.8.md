@@ -4,7 +4,7 @@
 
 ## 使用步骤
 
-2026-09-15新增：先查看「AI设置」中的判定配置读取状态。生效文件为`docs/countermeasure-policy-v0.1.json`，规则、角色关键词与已确认案例自动随每次分析请求发送。加载失败阻止分析；每批固定版本与内容指纹。维护方法见[countermeasure-policy-v0.1-guide.md](countermeasure-policy-v0.1-guide.md) 。
+先查看「AI设置」中的判定配置读取状态。生效文件为`config/countermeasure-policy-v0.1.json`（2026-09-29从docs迁入config），规则、角色关键词与已确认案例自动随每次分析请求发送。加载失败阻止分析；每批固定版本与内容指纹。维护方法见[countermeasure-policy-v0.1-guide.md](countermeasure-policy-v0.1-guide.md) 。
 
 1. 打开「AI设置」，填写DeepSeek官方API Key，点击「保存并验证连接」；只有虚拟文本调用及结果校验通过，才提示「配置成功」。
 2. 读取评审表，点击「识别待处理对策」，核对数量并确认向DeepSeek发送意见文本。

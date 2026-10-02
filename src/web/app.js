@@ -191,6 +191,13 @@ async function checkServiceHealth() {
 }
 
 async function requestJson(url, options = {}) {
+  const workspace=window.workspace;
+  const tracked=workspace&&url.startsWith('/api/')&&url!=='/api/health';
+  if(tracked){
+    workspace.pendingRequests++;
+    options={...options,headers:{...options.headers,'X-Assessment-View':workspace.personal()?'personal':'management'}};
+  }
+  try {
   let response;
   try {
     response = await fetch(url, options);
@@ -206,6 +213,7 @@ async function requestJson(url, options = {}) {
     throw new Error(payload.detail || `请求失败（${response.status}）`);
   }
   return payload;
+  } finally {if(tracked)workspace.pendingRequests--;}
 }
 
 function activateStep(step) {
@@ -235,7 +243,7 @@ function qualityGatePassed() {
 }
 
 function canNavigate(step) {
-  if (window.workspace?.user?.role === 'manager') return step === 3;
+  if (window.workspace?.personal()) return step === 3 || step === 2;
   if (step === 1 && window.workspace?.user?.role === 'admin') return true;
   if (!state.workflowMode) return false;
   if (step === 1) return state.workflowMode !== "merge" || !!state.analysis;
@@ -261,7 +269,7 @@ function selectWorkflow(mode) {
     return;
   }
   elements.importModeLabel.textContent = mode === "manager"
-    ? "方案 2 · 项目经理提交 · 步骤 1"
+    ? "方案 2 · 技术项目经理提交 · 步骤 1"
     : "方案 1 · 集中统计 · 步骤 1";
   elements.managerMeta.classList.toggle("is-hidden", mode !== "manager");
   showPanel(elements.importPanel);
@@ -287,7 +295,7 @@ function managerMetadata() {
     revision: Number(elements.managerRevision.value),
   };
   if (!metadata.batch_id || !metadata.manager_id || !metadata.manager_name) {
-    throw new Error("请先填写项目经理编号和项目经理姓名");
+    throw new Error("请先填写技术项目经理编号和技术项目经理姓名");
   }
   if (!Number.isInteger(metadata.revision) || metadata.revision < 1) {
     throw new Error("修订号必须是大于等于1的整数");
@@ -580,10 +588,10 @@ function renderReportList() {
         source_name: report.source_name,
         manager_identity: report.manager_identity,
         status: errors ? "error" : warnings ? "warning" : "completed",
-        display_percent: live?.display_percent ?? (errors ? 0 : 100),
-        target_percent: live?.target_percent ?? (errors ? 0 : 100),
+        display_percent: live?.display_percent ?? report.scan_progress?.percent ?? (errors ? null : 100),
+        target_percent: live?.target_percent ?? report.scan_progress?.percent ?? (errors ? null : 100),
         display_checkpoint_label: live?.display_checkpoint_label
-          || IMPORT_CHECKPOINTS.at(-1)[1],
+          || report.scan_progress?.label || (errors ? "进度未记录" : IMPORT_CHECKPOINTS.at(-1)[1]),
         message: errors ? `${errors}项错误` : warnings ? `${warnings}项提醒` : "检查通过",
       };
     })
@@ -629,11 +637,11 @@ function renderReportList() {
     }).join("");
     const tag = "button";
     return `<div class="report-scan-item"><${tag} class="report-progress-row ${statusClass} ${index === state.selectedReportIndex ? "is-active" : ""}" type="button" data-index="${index}">
-      <span class="report-progress-name"><strong class="inline-name-expand">${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small>${report.manager_identity?.status ? `<small title="${escapeHtml(report.manager_identity.error || (report.manager_identity.source === 'explicit_assignment' ? '来源：明确指定的本地报告项目经理' : '来源：原文件owner_id；规则V' + (report.manager_identity.policy?.version || '未读取')))}">项目经理：${escapeHtml(report.manager_identity.status === 'resolved' ? report.manager_identity.name : '待识别')}${report.manager_identity.source === 'explicit_assignment' ? ' · 已明确指定' : report.manager_identity.policy ? ' · 所有者规则已读取' : ' · 未取得识别凭据'}</small>` : ''}</span>
+      <span class="report-progress-name"><strong class="inline-name-expand">${escapeHtml(report.source_name)}</strong><small class="report-progress-status">${escapeHtml(summaryText)}</small>${report.manager_identity?.status ? `<small title="${escapeHtml(report.manager_identity.error || (report.manager_identity.source === 'explicit_assignment' ? '来源：明确指定的本地报告技术项目经理' : '来源：原文件owner_id；规则V' + (report.manager_identity.policy?.version || '未读取')))}">技术项目经理：${escapeHtml(report.manager_identity.status === 'resolved' ? report.manager_identity.name : '待识别')}${report.manager_identity.source === 'explicit_assignment' ? ' · 已明确指定' : report.manager_identity.policy ? ' · 所有者规则已读取' : ' · 未取得识别凭据'}</small>` : ''}</span>
       <span class="report-progress-reader ${activeCheckpointIndex >= 0 ? "is-reading" : ""}"><small>当前检查</small><strong>${escapeHtml(checkpointLabel)}</strong></span>
       <span class="report-progress-meter">
         <span class="report-progress-segments" role="progressbar" aria-label="${escapeHtml(report.source_name)}检查进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">${segments}</span>
-        <span class="report-progress-value">${percent}%</span>
+        <span class="report-progress-value">${report.display_percent == null ? "—" : percent+"%"}</span>
       </span>
     </${tag}>${(!state.importActive || report.ready) && (["error", "warning"].includes(report.status) || (report.manager_identity?.status && report.manager_identity.status !== 'resolved')) && state.importJobId ? `<button type="button" class="secondary-button retry-report" data-retry="${index}">重扫</button>` : ""}</div>`;
   });
@@ -705,7 +713,7 @@ function positionInfoTip(event) {
   if (!button) return;
   const tip = button.querySelector('.info-tip-text');
   const anchor = button.getBoundingClientRect();
-  const width = Math.min(290, window.innerWidth - 32);
+  const width = Math.min(button.classList?.contains('policy-formula-tip') ? 640 : 290, window.innerWidth - 32);
   tip.style.width = `${width}px`;
   tip.style.left = `${Math.max(16, Math.min(anchor.left, window.innerWidth - width - 16))}px`;
   const top = anchor.bottom + 6;
@@ -865,7 +873,7 @@ async function mergeDimensionOneSubmissions() {
   const projectText = elements.expectedProjectCount.value.trim();
   const expectedProjects = projectText ? Number(projectText) : null;
   if (!Number.isInteger(expectedManagers) || expectedManagers < 1) {
-    setMergeNotice("预计项目经理人数必须是大于等于1的整数", "error");
+    setMergeNotice("预计技术项目经理人数必须是大于等于1的整数", "error");
     return;
   }
   if (expectedProjects !== null && (!Number.isInteger(expectedProjects) || expectedProjects < 1)) {
@@ -921,7 +929,10 @@ function clearAnalysisState() {
 }
 
 async function navigateStep(step) {
-  if (window.workspace?.user?.role === 'manager' && step !== 3) return;
+  if(window.workspace?.mayLeave?.()===false)return;
+  if (window.workspace?.personal() && ![2,3].includes(step)) return;
+  if(step===2&&window.workspace?.personal()&&(!state.analysis||!document.querySelector('#workspace-panel').classList.contains('is-hidden')))return window.workspace.personalFacts();
+  if(step===3&&window.workspace?.personal()&&!state.analysis)return window.workspace.home();
   if (!canNavigate(step)) return;
   if (!await flushSubjectiveChanges()) return;
   if (step === 1) {

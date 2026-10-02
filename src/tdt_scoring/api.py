@@ -479,7 +479,7 @@ async def import_dimension_one_submissions(
     expected_project_count: int | None = Form(default=None, ge=1),
 ) -> object:
     if not files:
-        raise HTTPException(status_code=400, detail="请至少选择一份项目经理维度1提交表")
+        raise HTTPException(status_code=400, detail="请至少选择一份技术项目经理维度1提交表")
     uploads: list[tuple[bytes, str]] = []
     for upload in files:
         filename = upload.filename or ""
@@ -513,13 +513,13 @@ class IdentifySolutionsRequest(BaseModel):
 
 
 @app.post("/api/facts/solution-selection")
-def select_solution(payload: SolutionSelectionRequest) -> object:
+def select_solution(payload: SolutionSelectionRequest, request: Request) -> object:
     try:
         analysis = service.get_analysis(payload.analysis_id)
         require_selected(analysis)
         if not any(o.opinion_id == payload.opinion_id for e in selected_experts(analysis) for s in e.sessions for o in s.opinions):
             raise ValueError('该意见不在已确认考核名单内')
-        return _encoded(service.select_solution(payload.analysis_id, payload.opinion_id, payload.included))
+        return _encoded(workspace.select_solution(payload.analysis_id, payload.opinion_id, payload.included, workspace.authorize(request)))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     except ValueError as exc:

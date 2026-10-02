@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "users": [
+    {"name": "虚拟管理员", "employee_id": "001000", "role": "admin", "enabled": true, "owner_ids": []},
+    {"name": "虚拟技术项目经理甲", "employee_id": "001001", "role": "manager", "enabled": true, "owner_ids": []},
+    {"name": "虚拟技术项目经理乙", "employee_id": "001002", "role": "manager", "enabled": false, "owner_ids": []}
+  ]
+}
