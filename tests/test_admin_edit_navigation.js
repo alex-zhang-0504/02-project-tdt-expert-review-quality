@@ -10,8 +10,11 @@ async function main(){
  const analysis=root.state.analysis;root.state.analysis=null;assert.equal(w.mayLeave(),true,'首次登录尚无任务时必须能进入首页');root.state.analysis=analysis;
  assert.equal(w.mayLeave(),true);
  root.subjective.drafts.set('draft',{dirty:true});assert.equal(w.mayLeave(),false,'未自动保存的管理员修改也必须拦截');
- vm.runInContext("assessmentUI.managerId='admin'",root);assert.equal(w.mayLeave(),true,'管理员本人问卷不进入代填锁定');
- vm.runInContext("assessmentUI.managerId='other'",root);
+ vm.runInContext("assessmentUI.managerId='admin'",root);root.subjective.drafts.clear();
+ assert.equal(w.readonly(),true,'考核管理中本人问卷只读');assert.match(w.readonlyNotice(),/我的考评/);assert.equal(w.mayLeave(),true);
+ w.view='personal';assert.equal(w.readonly(),false,'我的考评中本人问卷可填写');assert.equal(w.readonlyNotice(),'');w.view='management';
+ vm.runInContext("assessmentUI.managerId='other'",root);assert.equal(w.readonly(),false,'代填他人问卷可编辑');assert.equal(w.readonlyNotice(),'');
+ root.subjective.drafts.set('draft',{dirty:true});assert.equal(w.mayLeave(),false);
  assert.equal(sq('#admin-edit-warning').open,true);sq('#admin-edit-warning').open=false;
  root.subjective.drafts.clear();locked=true;
  assert.equal(w.mayLeave(),false);sq('#admin-edit-warning').open=false;assert.equal(w.mayLeave(),false,'了解不能解除修改状态');

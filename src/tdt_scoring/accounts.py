@@ -47,8 +47,25 @@ def parse(raw):
         raise ValueError('accounts.json格式错误，请修正JSON后刷新；未覆盖文件') from exc
 
 
-def import_directory(data, current):
-    """Accept a three-field manager roster, preserving internal account metadata."""
+def import_directory(data, current, *, task=False):
+    """Accept a three-field manager roster, preserving internal account metadata.
+
+    task=True imports one task's roster: people absent or disabled there keep their
+    account state, so other tasks' rosters and logins are unaffected; only people
+    enabled in this roster are enabled for login. Account deactivation stays in the
+    account directory itself.
+    """
+    imported, merged = _merge_directory(data, current)
+    if task:
+        previous = {u['employee_id']: u['enabled'] for u in current}
+        wanted = {u['employee_id'] for u in imported if u['enabled']}
+        merged = validate({'version': 1, 'users': [
+            dict(u, enabled=previous[u['employee_id']] or u['employee_id'] in wanted) if u['employee_id'] in previous else u
+            for u in merged]})
+    return imported, merged
+
+
+def _merge_directory(data, current):
     if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('users'), list):
         raise ValueError('技术项目经理配置须包含version为1及users数组')
     simple = all(isinstance(u, dict) and set(u) == {'name', 'employee_id', 'enabled'} for u in data['users'])

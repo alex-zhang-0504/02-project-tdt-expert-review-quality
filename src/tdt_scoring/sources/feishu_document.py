@@ -17,6 +17,7 @@ from ..progress import ProgressEvent
 SUPPORTED_HOSTS = ("feishu.cn", "larksuite.com", "doubao.com")
 SUPPORTED_PATH_PARTS = ("/sheets/", "/spreadsheets/", "/wiki/")
 FOLDER_PATH_PART = "/drive/folder/"
+CMD_METACHARACTERS = "&|<>^%\r\n"
 READ_SCOPES = (
     "sheets:spreadsheet:read",
     "docs:document:export",
@@ -62,8 +63,14 @@ class FeishuDocumentSource:
     def _run_cli(
         arguments: list[str], *, cwd: str | Path | None = None, timeout: int = 180
     ) -> subprocess.CompletedProcess[str]:
+        cli = FeishuDocumentSource._cli_path()
+        # npm installs lark-cli as a .cmd shim; cmd.exe would execute text after these characters.
+        if cli.casefold().endswith((".cmd", ".bat")) and any(
+            character in str(argument) for argument in arguments for character in CMD_METACHARACTERS
+        ):
+            raise RuntimeError("飞书命令参数含特殊字符，已拒绝执行；请复制不带额外参数的飞书链接后重试")
         return subprocess.run(
-            [FeishuDocumentSource._cli_path(), *arguments],
+            [cli, *arguments],
             cwd=cwd,
             env=FeishuDocumentSource._environment(),
             capture_output=True,
@@ -158,6 +165,12 @@ class FeishuDocumentSource:
         if not FeishuDocumentSource._folder_token(value):
             raise ValueError("飞书归档文件夹URL缺少folder token")
         return value
+
+    @staticmethod
+    def cli_url(url: str) -> str:
+        """Only scheme, host and path identify the document; share-link query text is dropped."""
+        parsed = urlparse(url.strip())
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
     @staticmethod
     def is_folder_url(url: str) -> bool:
@@ -439,7 +452,7 @@ class FeishuDocumentSource:
     ) -> bytes:
         if bool(url) == bool(spreadsheet_token):
             raise ValueError("飞书表格导出必须且只能指定URL或spreadsheet token之一")
-        locator = ["--url", url] if url else ["--spreadsheet-token", spreadsheet_token]
+        locator = ["--url", FeishuDocumentSource.cli_url(url)] if url else ["--spreadsheet-token", spreadsheet_token]
         result = FeishuDocumentSource._run_cli(
             [
                 "sheets",

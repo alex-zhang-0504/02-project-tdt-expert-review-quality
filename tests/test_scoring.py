@@ -1,3 +1,4 @@
+import tests  # noqa: F401  须先于业务模块导入，隔离真实运行数据
 from dataclasses import asdict
 from io import BytesIO
 import json

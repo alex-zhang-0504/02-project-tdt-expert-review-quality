@@ -28,9 +28,11 @@ class ImportBatches:
             batch['workers'] = 1
             if target is not None:
                 batch['entries'][target]['busy'] = True
-            job = self.jobs.create(batch['source'])
+            job = self.jobs.create(batch['source'], keep=previous_id)
             if previous_id is not None:
                 self.jobs.seed_retry(job.job_id, previous_id, target)
+            for job_id in [key for key, item in self.batches.items() if not item['active'] and not self.jobs.exists(key)]:
+                del self.batches[job_id]
             self.batches[job.job_id] = batch
             batch['job_id'] = job.job_id
         self.executor.submit(self.run, job.job_id, batch, target)
@@ -126,6 +128,9 @@ class ImportBatches:
             self.jobs.record(job_id, ProgressEvent(entry['name'], 'workbook_parse', 'error', message=str(exc)))
         with self.lock:
             entry['parsed'] = parsed
+            if not entry['url']:
+                # Local rescans always require a newly selected file, so the bytes are not needed again.
+                entry['content'] = None
             self.jobs.report_result(job_id, index, parsed[1])
             entry['busy'] = False
 

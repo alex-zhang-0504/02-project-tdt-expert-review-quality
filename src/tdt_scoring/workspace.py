@@ -138,6 +138,9 @@ class Workspace:
     def review(self, payload, user):
         with self.service.edit_analysis(payload.analysis_id) as analysis:
             require_selected(analysis)
+            # One rule per entry: 我的考评 fills one's own questionnaire; 考核管理 only fills for others.
+            if management_access(user) and payload.manager_id == user['employee_id']:
+                raise HTTPException(403, '本人问卷请在「我的考评」中填写，考核管理中仅可查看')
             if not management_access(user) and payload.manager_id != user['employee_id']:
                 raise HTTPException(403, '只能填写分配给本人的问卷')
             previous = analysis.manager_reviews.get(payload.manager_id, {}).get(payload.expert_name, {})
@@ -148,8 +151,8 @@ class Workspace:
             record = save_review(analysis, payload)
             if record.get('ratings'):
                 analysis.assessment.setdefault('started', {}).setdefault(payload.manager_id, now())
-            record['locked_by_admin'] = bool(previous.get('locked_by_admin') or (user['role'] == 'admin' and payload.manager_id != user['employee_id']))
-            self.audit(analysis, payload.manager_id, payload.expert_name, user, '管理员调整' if payload.manager_id != user['employee_id'] else '填写问卷', previous, record)
+            record['locked_by_admin'] = bool(previous.get('locked_by_admin') or management_access(user))
+            self.audit(analysis, payload.manager_id, payload.expert_name, user, '管理员调整' if management_access(user) else '填写问卷', previous, record)
             return record
 
     @staticmethod
@@ -195,12 +198,19 @@ class Workspace:
 
 class WorkspaceGate:
     """All existing business routes are administrator-only unless explicitly scoped."""
+    # Waits on Feishu or DeepSeek (up to minutes) and keeps its own locks; holding the
+    # shared write lock here would freeze autosave, login and logout meanwhile.
+    UNSERIALIZED = frozenset({'/api/feishu/auth/start', '/api/feishu/auth/complete',
+                              '/api/experiment/test', '/api/experiment/preview',
+                              '/api/import/feishu', '/api/import/local', '/api/import/local-batch'})
+
     def __init__(self, app, workspace):
         self.app, self.workspace = app, workspace
         self.write_lock = asyncio.Lock()
 
     async def __call__(self, scope, receive, send):
-        if scope['type'] == 'http' and scope['method'] not in ('GET', 'HEAD', 'OPTIONS'):
+        if (scope['type'] == 'http' and scope['method'] not in ('GET', 'HEAD', 'OPTIONS')
+                and scope['path'] not in self.UNSERIALIZED):
             async with self.write_lock:
                 return await self.handle(scope, receive, send)
         return await self.handle(scope, receive, send)
@@ -356,6 +366,9 @@ def create_workspace_router(workspace, encode, busy):
             result = []
             for analysis in reversed(list(service._analyses.values())):
                 if analysis.assessment.get('deleted') or analysis.assessment.get('attached_to'):
+                    continue
+                # A report import not yet attached to a task (closed page, rescan) is not a task card.
+                if not analysis.assessment.get('year') and not analysis.assessment.get('confirmed'):
                     continue
                 if not analysis.assessment.get('confirmed') and not management_access(user):
                     continue

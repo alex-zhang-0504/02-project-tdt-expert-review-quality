@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import unittest
 import json
+from pathlib import Path
 from subprocess import CompletedProcess
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from tdt_scoring.report_owner import read_owner_url
 from tdt_scoring.sources.feishu_document import FeishuDocumentSource
 from tdt_scoring.sources.local_excel import LocalExcelSource
 
@@ -169,6 +172,31 @@ class SourceTests(unittest.TestCase):
 
         self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
         self.assertEqual(run.call_args.kwargs["errors"], "replace")
+
+    @patch("tdt_scoring.sources.feishu_document.subprocess.run")
+    @patch("tdt_scoring.sources.feishu_document.shutil.which", return_value=r"C:\npm\lark-cli.CMD")
+    def test_cmd_shim_rejects_shell_metacharacters_before_running(self, _which, run) -> None:
+        for value in ("https://example.feishu.cn/sheets/abc?x=1&calc", "a|b", "a>b", "a<b", "a^b", "%PATH%", "a\nb"):
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "特殊字符"):
+                FeishuDocumentSource._run_cli(["sheets", "+workbook-export", "--url", value])
+        run.assert_not_called()
+
+    @patch.object(FeishuDocumentSource, "_run_cli")
+    def test_spreadsheet_export_passes_only_scheme_host_and_path(self, run_cli) -> None:
+        run_cli.return_value = CompletedProcess([], 0, stdout="", stderr="")
+        with TemporaryDirectory() as folder:
+            Path(folder, "r.xlsx").write_bytes(b"xlsx")
+            FeishuDocumentSource._export_spreadsheet(
+                output_name="r.xlsx", cwd=folder,
+                url="https://example.feishu.cn/wiki/abc123?from=copylink&sheet=s1#top")
+        arguments = run_cli.call_args.args[0]
+        self.assertEqual("https://example.feishu.cn/wiki/abc123", arguments[arguments.index("--url") + 1])
+
+    def test_owner_lookup_passes_only_scheme_host_and_path(self) -> None:
+        with patch("tdt_scoring.report_owner.request", return_value=({}, "")) as request:
+            read_owner_url("https://example.feishu.cn/wiki/abc123?from=copylink&sheet=s1")
+        arguments = request.call_args.args[0]
+        self.assertEqual("https://example.feishu.cn/wiki/abc123", arguments[arguments.index("--url") + 1])
 
     def test_local_source_rejects_non_xlsx_content(self) -> None:
         with self.assertRaisesRegex(ValueError, "有效"):

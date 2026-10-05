@@ -284,6 +284,13 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIsNotNone(self.store.user('0002'))
         self.assertEqual('0002', self.analysis.assessment['review_history']['a'][self.name][0]['actor']['employee_id'])
 
+    def test_unadopted_report_import_is_not_listed_as_task(self):
+        from tests.workbook_factory import build_v04_workbook
+        orphan = self.service.import_local_bytes(build_v04_workbook([{'stage': 'TDR1'}]), 'virtual-orphan.xlsx')
+        ids = [row['id'] for row in self.request('/api/workspace/analyses')[1]]
+        self.assertIn(self.id, ids)
+        self.assertNotIn(orphan.analysis_id, ids)
+
     def test_identity_gate_and_scoped_reads_and_writes(self):
         self.assertEqual(401, self.request('/api/workspace/analyses', user='')[0])
         self.assertEqual(403, self.request('/api/statistics/scores', user='a')[0])

@@ -61,7 +61,7 @@ def create_task_router(workspace, encode, busy):
             if any(a.assessment.get('year') == year and a.assessment.get('period') == period and not a.assessment.get('deleted') for a in service._analyses.values()):
                 raise ValueError('该年份与周期已有任务，请从任务卡片打开')
             current = store.users(include_disabled=True)
-            imported, users = accounts.import_directory(data.get('accounts') or {'version': 1, 'users': current}, current)
+            imported, users = accounts.import_directory(data.get('accounts') or {'version': 1, 'users': current}, current, task=True)
             if not any(u['enabled'] for u in imported):
                 raise ValueError('配置至少需要一位启用的技术项目经理')
             definition = questionnaire.load()
@@ -108,7 +108,7 @@ def create_task_router(workspace, encode, busy):
             raw = store.accounts_path.read_bytes()
             if data.get('accounts_hash') != sha256(raw).hexdigest():
                 raise HTTPException(409, '账号配置已变化，请重新打开名单')
-            imported, users = accounts.import_directory(data.get('accounts'), current)
+            imported, users = accounts.import_directory(data.get('accounts'), current, task=True)
             if not any(u['enabled'] for u in imported):
                 raise ValueError('配置至少需要一位启用的技术项目经理')
             a.assessment.setdefault('manager_roster_history', []).append({

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tests  # noqa: F401  须先于业务模块导入，隔离真实运行数据
 import asyncio
 import unittest
 from io import BytesIO

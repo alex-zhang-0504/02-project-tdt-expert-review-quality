@@ -50,6 +50,26 @@ class ImportBatchTests(unittest.TestCase):
             duplicate=self.finish(self.runner.retry(retry.job_id,1,(report(),'b.xlsx')))
             self.assertTrue(any(i.code=='cross_report_stage_duplicate' for i in duplicate.result.issues))
 
+    def test_local_upload_bytes_are_released_after_reading(self):
+        job=self.runner.local([(report(),'a.xlsx'),(report('B260002'),'b.xlsx')])
+        self.finish(job)
+        self.assertEqual([None,None],[e['content'] for e in self.runner.batches[job.job_id]['entries']])
+        fixed=self.finish(self.runner.retry(job.job_id,1,(report('B260003'),'b.xlsx')))
+        self.assertEqual(2,len(fixed.result.sessions))
+        self.assertIsNone(self.runner.batches[fixed.job_id]['entries'][1]['content'])
+
+    def test_finished_jobs_and_batches_are_pruned(self):
+        from tdt_scoring.progress import MAX_FINISHED_JOBS
+        first=self.finish(self.runner.local([(report(),'a.xlsx')]))
+        running=self.jobs.create('local_excel')
+        for _ in range(MAX_FINISHED_JOBS):
+            self.finish(self.runner.local([(report(),'a.xlsx')]))
+        with self.assertRaises(KeyError):
+            self.jobs.snapshot(first.job_id)
+        self.assertNotIn(first.job_id,self.runner.batches)
+        self.assertEqual('queued',self.jobs.snapshot(running.job_id).status)
+        self.assertLessEqual(len(self.runner.batches),MAX_FINISHED_JOBS)
+
     def test_stop_keeps_finished_and_retry_unscanned(self):
         entered,release=Event(),Event()
         original=self.service.import_local_bytes

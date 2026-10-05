@@ -127,7 +127,7 @@ window.workspace = {
       const receipt=await requestJson('/api/workspace/tasks/'+id+'/managers');
       const dialog=sq('#workspace-dialog'),body=sq('#workspace-dialog-body'),button=sq('#workspace-dialog-confirm');
       sq('#workspace-dialog-title').textContent='修改技术项目经理名单';
-      body.innerHTML=`<p>重新导入统一账号JSON配置，更新本任务的技术项目经理名单。移出或停用的人员不再参与本期主观汇总，原答案保留历史；客观考评及评分参数不变。</p><p>账号启用状态和角色对所有任务的登录生效，不能通过此次导入修改其他任务的历史名单。</p><p>当前名单：${receipt.users.filter(u=>u.enabled).length}位人员启用（含管理员）。</p><label class="field"><span>选择技术项目经理配置文件</span><button type="button" class="secondary-button file-picker-button" id="task-manager-file-button">选择文件</button><input id="task-manager-file" type="file" accept=".json" hidden /></label><div id="task-manager-preview"></div>`;
+      body.innerHTML=`<p>重新导入统一账号JSON配置，更新本任务的技术项目经理名单。移出或停用的人员不再参与本期主观汇总，原答案保留历史；客观考评及评分参数不变。</p><p>此次导入只修改本任务名单：移出或停用不影响其他任务的名单和账号登录。人员离任须停用账号时，请修改统一账号配置。</p><p>当前名单：${receipt.users.filter(u=>u.enabled).length}位人员启用（含管理员）。</p><label class="field"><span>选择技术项目经理配置文件</span><button type="button" class="secondary-button file-picker-button" id="task-manager-file-button">选择文件</button><input id="task-manager-file" type="file" accept=".json" hidden /></label><div id="task-manager-preview"></div>`;
       sq('#workspace-dialog-error').textContent='';button.hidden=false;button.disabled=true;button.textContent='确认更新名单';let config=null;
       this.bindFilePicker('task-manager-file','task-manager-file-button');
       sq('#task-manager-file').onchange=async e=>{button.disabled=true;config=null;sq('#task-manager-preview').textContent='';try{const file=e.target.files[0];if(!file)return;if(!file.name.toLowerCase().endsWith('.json'))throw Error('请选择JSON配置文件');const parsed=JSON.parse((await file.text()).replace(/^\uFEFF/,''));if(!Array.isArray(parsed.users))throw Error('请选择有效的技术项目经理配置');config=parsed;sq('#task-manager-preview').textContent=parsed.users.map(u=>`${u.name} · ${u.enabled?'启用':'停用'}`).join('；');sq('#workspace-dialog-error').textContent='';button.disabled=false;}catch(error){sq('#workspace-dialog-error').textContent=error.message;}};
@@ -203,7 +203,9 @@ window.workspace = {
   },
   editing(){return this.managing()&&!!state.analysis&&!state.analysis.assessment?.finalized&&!!(managerSaved(subjective.expert)?.locked_by_admin||(assessmentUI.managerId!==this.user.employee_id&&subjective.drafts.get(managerDraftKey())?.dirty));},
   mayLeave(){if(!this.editing())return true;const dialog=sq('#admin-edit-warning');if(!dialog.open)dialog.showModal();return false;},
-  readonly() {return !!state.analysis?.assessment?.finalized || (this.personal() && !!managerSaved(subjective.expert)?.locked_by_admin);},
+  ownInManagement(){return this.managing()&&assessmentUI.managerId===this.user?.employee_id;},
+  readonly() {return !!state.analysis?.assessment?.finalized || this.ownInManagement() || (this.personal() && !!managerSaved(subjective.expert)?.locked_by_admin);},
+  readonlyNotice(){return this.ownInManagement()?'本人问卷请在「我的考评」中填写，考核管理中仅可查看。':'';},
   scheduleSave() {
     clearTimeout(this.saveTimer);
     this.saveTimer=setTimeout(async()=>{

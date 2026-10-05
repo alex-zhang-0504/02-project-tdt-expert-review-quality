@@ -88,7 +88,7 @@ class TaskWorkflowTests(unittest.TestCase):
         self.assertEqual(before, self.h.analysis.manager_reviews)
         self.assertEqual(policy, self.h.analysis.assessment['policy'])
         self.assertIn('manager_accounts', self.h.analysis.assessment)
-        self.assertIsNone(self.h.store.user('b'))
+        self.assertIsNotNone(self.h.store.user('b'), '本任务停用不影响账号登录及其他任务')
         self.assertEqual(['a'], [m['manager_id'] for m in tasks(self.h.analysis)['managers']])
         updated = build_statistics(self.h.analysis)['rows'][0]
         for key in ('stages', 'objective_total', 'objective_with_rewards', 'participation_score', 'sessions'):
@@ -98,6 +98,26 @@ class TaskWorkflowTests(unittest.TestCase):
         restored = ScoringService(store=WorkspaceStore(self.h.temp.name)).get_analysis(self.h.id)
         self.assertEqual(before, restored.manager_reviews)
         self.assertEqual(3, len(restored.assessment['task_users']))
+
+    def test_roster_change_in_one_task_does_not_affect_other_tasks(self):
+        config = {'version': 1, 'users': self.h.store.users(include_disabled=True)}
+        code, other = self.h.request('/api/workspace/tasks', {'year': '2028', 'period': '下半年', 'accounts': config}, 'POST')
+        self.assertEqual(200, code, other)
+        url = '/api/workspace/tasks/' + other['analysis_id'] + '/managers'
+        receipt = self.h.request(url)[1]
+        roster = {'version': 1, 'users': [
+            {'name': '虚拟经理乙', 'employee_id': 'b', 'enabled': False},
+            {'name': '虚拟经理丙', 'employee_id': 'c', 'enabled': True}]}
+        self.assertEqual(200, self.h.request(url, {**receipt, 'accounts': roster, 'confirmed': True}, 'PUT')[0])
+        task_users = {u['employee_id']: u['enabled'] for u in self.h.service.get_analysis(other['analysis_id']).assessment['task_users']}
+        self.assertEqual({'b': False, 'c': True}, task_users)
+        for employee_id in ('a', 'b'):
+            with self.subTest(employee_id=employee_id):
+                self.assertIsNotNone(self.h.store.user(employee_id))
+                code, rows = self.h.request('/api/workspace/analyses', user=employee_id)
+                self.assertEqual(200, code, rows)
+                self.assertIn(self.h.id, [row['id'] for row in rows])
+        self.assertIsNotNone(self.h.store.user('c'))
 
     def test_task_manager_import_failure_and_archive_keep_data(self):
         receipt = self.h.request(self.url + '/managers')[1]
@@ -192,7 +212,8 @@ class TaskWorkflowTests(unittest.TestCase):
         self.assertEqual(200, code, task)
         self.assertEqual('虚拟改名项目经理', self.h.store.user('a')['name'])
         self.assertEqual('a', self.h.store.bindings()['ou_virtual'])
-        self.assertIsNone(self.h.store.user('b'))
+        self.assertIsNotNone(self.h.store.user('b'), '本任务停用不影响账号登录及其他任务')
+        self.assertFalse(next(u for u in task['assessment']['task_users'] if u['employee_id'] == 'b')['enabled'])
         self.assertEqual('admin', self.h.store.user('0001')['role'])
         self.assertEqual(before, self.h.analysis)
         self.assertIsNotNone(WorkspaceStore(self.folder).user('0012'))

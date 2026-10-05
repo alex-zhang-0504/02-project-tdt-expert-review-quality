@@ -95,6 +95,7 @@ function renderSubjectiveEditor() {
     `<option value="${escapeHtml(code)}" ${code === selected ? "selected" : ""}>${escapeHtml(name)}（${escapeHtml(code)}）</option>`).join("");
   sq("#subjective-editor").innerHTML = `<form id="subjective-form">
       <div class="subjective-heading"><h3>${escapeHtml(expert.expert_name)}</h3>${window.workspace?.personal()?`<button class="info-tip" type="button" aria-label="查看共同项目"><span class="info-tip-icon" aria-hidden="true">!</span><span class="info-tip-text" role="tooltip">共同项目${projects.map(([code,name])=>`<span class="shared-project">${escapeHtml(name)}（${escapeHtml(code)}）</span>`).join('')}</span></button>`:''}<button class="secondary-button" type="button" id="subjective-facts">查看评审过程详情</button></div>
+    ${window.workspace?.readonlyNotice?.() ? `<p class="subjective-boundary">${escapeHtml(window.workspace.readonlyNotice())}</p>` : ''}
     <fieldset class="subjective-fields" ${(subjective.busy && !subjective.backgroundSaving) || window.workspace?.readonly() ? "disabled" : ""}>
       ${managerSaved(expert.expert_name) && managerSaved(expert.expert_name).rule_version !== subjective.catalog?.[0]?.rule_version ? '<p class="subjective-boundary">旧版问卷已保留，请按本版题目重新确认；旧答案不自动参与新规则计分。</p>' : ''}
       ${subjectiveExclusion() ? `<p class="subjective-boundary">此任务已有排除记录：${escapeHtml(subjectiveExclusion())}。原记录保留。</p>` : ''}

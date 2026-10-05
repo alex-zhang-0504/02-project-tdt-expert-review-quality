@@ -22,6 +22,9 @@ CHECKPOINTS: tuple[tuple[str, str], ...] = (
     ("fact_bounds", "检查统计事实"),
 )
 CHECKPOINT_LABELS = dict(CHECKPOINTS)
+# Finished jobs keep a full analysis in memory; older ones are dropped on the next import.
+MAX_FINISHED_JOBS = 20
+FINISHED_STATUSES = frozenset({"completed", "stopped", "error"})
 
 
 @dataclass(slots=True)
@@ -67,11 +70,18 @@ class ImportJobStore:
         self._jobs: dict[str, ImportJob] = {}
         self._lock = Lock()
 
-    def create(self, source_type: str) -> ImportJob:
+    def create(self, source_type: str, keep: str | None = None) -> ImportJob:
         job = ImportJob(job_id=uuid4().hex, source_type=source_type)
         with self._lock:
+            finished = [key for key, item in self._jobs.items() if item.status in FINISHED_STATUSES and key != keep]
+            for key in finished[:max(0, len(finished) - MAX_FINISHED_JOBS + 1)]:
+                del self._jobs[key]
             self._jobs[job.job_id] = job
         return job
+
+    def exists(self, job_id: str) -> bool:
+        with self._lock:
+            return job_id in self._jobs
 
     def start(self, job_id: str) -> None:
         with self._lock:

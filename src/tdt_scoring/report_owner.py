@@ -90,7 +90,7 @@ def read_owner_url(url):
     from .sources.feishu_document import FeishuDocumentSource as Source
     token = Source._spreadsheet_token_from_url(url)
     if not token:
-        data, _ = request(['drive', '+inspect', '--as', 'user', '--url', url])
+        data, _ = request(['drive', '+inspect', '--as', 'user', '--url', Source.cli_url(url)])
         if data.get('type') == 'sheet':
             token = data.get('token', '')
     if not token:
