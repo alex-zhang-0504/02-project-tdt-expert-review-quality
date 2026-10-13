@@ -144,12 +144,12 @@ class TaskWorkflowTests(unittest.TestCase):
             self.assertEqual(before[mid][self.h.name]['ratings'], self.h.analysis.manager_reviews[mid][self.h.name]['ratings'])
             self.assertEqual(receipt['sha256'], self.h.analysis.manager_reviews[mid][self.h.name]['questionnaire_hash'])
         from tdt_scoring.score_statistics import build_statistics
-        self.assertEqual(59, build_statistics(self.h.analysis)['rows'][0]['subjective_total'])
+        self.assertEqual(37, build_statistics(self.h.analysis)['rows'][0]['subjective_total'])
         from io import BytesIO
         from openpyxl import load_workbook
         from tdt_scoring.score_statistics import build_statistics_workbook
         wb = load_workbook(BytesIO(build_statistics_workbook(self.h.analysis, dimension='subjective')), data_only=True)
-        self.assertEqual(59, wb['主观打分']['H2'].value)
+        self.assertEqual(37, wb['主观打分']['H2'].value)
         q = questionnaire.POLICY_PATH.read_bytes()
         self.assertEqual(200, self.update('objective', lambda p: p.update(solution_points=3))[0])
         self.assertEqual(q, questionnaire.POLICY_PATH.read_bytes())
@@ -166,6 +166,58 @@ class TaskWorkflowTests(unittest.TestCase):
         self.assertTrue(started(self.h.analysis))
         self.assertEqual(400, self.update('subjective', lambda p: p['dimensions'][0].update(title='变更题意'))[0])
         self.assertEqual(400, self.update('subjective', lambda p: p['evidence'].update(preparation=['high']))[0])
+
+    def test_integer_6040_defaults_and_selected_task_update_preserve_other_snapshot(self):
+        from tdt_scoring.score_statistics import build_statistics
+        from tdt_scoring.storage import serialize
+        defaults = scoring_policy.load_policy()['parameters']
+        scores = {
+            'preparation': {'high': 6, 'medium': 3, 'low': 1},
+            'judgment': {'high': 8, 'medium': 4, 'low': 0},
+            'guidance': {'high': 8, 'medium': 4, 'low': 0},
+            'verification': {'high': 6, 'medium': 3, 'low': 0},
+            'collaboration': {'high': 6, 'medium': 3, 'low': 0},
+            'contribution': {'high': 6, 'low': 0},
+        }
+        self.assertEqual({'attendance': 10, 'signoff': 20, 'opinion': 20}, defaults['components'])
+        self.assertEqual({'minimum_sessions': 3, 'tier_scores': [10, 6, 0]}, defaults['participation'])
+        self.assertEqual(scores, defaults['subjective'])
+        self.assertEqual((1, 2, 100), (defaults['excess_opinion_points'], defaults['solution_points'], defaults['total_cap']))
+        old_scores = {key: {'high': 15 if key in ('judgment', 'guidance') else 10,
+                            **({'medium': 10 if key in ('judgment', 'guidance') else 7} if key != 'contribution' else {}),
+                            'low': 2 if key == 'preparation' else 0} for key in scores}
+        self.assertEqual(200, self.update('objective', lambda p: p.update(
+            components={'attendance': 5, 'signoff': 10, 'opinion': 10},
+            participation={'minimum_sessions': 3, 'tier_scores': [5, 3, 0]}))[0])
+        self.assertEqual(200, self.update('subjective', lambda p: p.update(scores=old_scores))[0])
+        self.fill()
+        before = deepcopy(self.h.analysis)
+        other = deepcopy(before)
+        other.analysis_id = 'virtual-other-legacy-task'
+        self.h.service._analyses[other.analysis_id] = other
+        self.h.service.persist(other)
+        other_raw = serialize(other)
+        original = build_statistics(before)['rows'][0]
+        self.assertEqual(60, original['subjective_total'])
+        self.assertEqual(200, self.update('objective', lambda p: p.update(
+            components=defaults['components'], participation=defaults['participation']))[0])
+        self.assertEqual(200, self.update('subjective', lambda p: p.update(scores=scores))[0])
+        restarted = ScoringService(store=WorkspaceStore(self.folder))
+        updated = restarted.get_analysis(self.h.id)
+        self.assertEqual(other_raw, serialize(restarted.get_analysis(other.analysis_id)))
+        self.assertEqual(before.experts, updated.experts)
+        self.assertEqual(before.sessions, updated.sessions)
+        for mid, reviews in before.manager_reviews.items():
+            for expert, record in reviews.items():
+                self.assertEqual(record['ratings'], updated.manager_reviews[mid][expert]['ratings'])
+                self.assertEqual(updated.assessment['questionnaire']['sha256'], updated.manager_reviews[mid][expert]['questionnaire_hash'])
+        row = build_statistics(updated)['rows'][0]
+        self.assertEqual(34, row['subjective_total'])
+        self.assertEqual(original['objective_total'] * 2, row['objective_total'])
+        self.assertEqual(original['opinion_bonus'], row['opinion_bonus'])
+        self.assertEqual(original['solution_bonus'], row['solution_bonus'])
+        self.assertEqual(defaults, updated.assessment['policy']['parameters'])
+        self.assertEqual(defaults, scoring_policy.load_policy()['parameters'])
 
     def test_completion_gate_snapshot_and_backend_readonly(self):
         self.assertEqual(400, self.h.request(self.url+'/complete', {'confirmed':True}, 'POST')[0])

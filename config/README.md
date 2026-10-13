@@ -6,6 +6,7 @@
 - `scoring-policy-v0.1.json`：客观评分参数，包含阶段权重、过程分值、参与度及奖励规则。
   阶段权重使用`stage_percentages`：`all`默认40／20／40，`first_third`默认50／50，`with_second`中的`TDR1_or_TDR3`／`TDR2`默认65／35；单位均为百分比，每组须合计100。共用组同时用于TDR1和TDR2、TDR3和TDR2；单阶段100固定，不设置字段。旧任务权重在读取时兼容，保存后写入新格式；已归档结果不重算。
 - `subjective-policy-v0.1.json`：主观问卷文案、选项、依据要求及分值。
+  2026-10-13确认默认客观基础60分（10／20／20＋参与度10／6／0），主观40分（高档6／8／8／6／6／6，中档3／4／4／3／3，低档1／0／0／0／0／0，突出贡献无中档）。超额意见1分／条、有效对策2分／条不变，总分100分封顶；规则与算例见[考核办法](../docs/tdr-expert-review-assessment-v0.8.md) 。
 - `countermeasure-policy-v0.1.json`：AI对策判定规则、角色关键词及脱敏确认案例，唯一生效文件。使用与更新方式见[维护说明](../docs/countermeasure-policy-v0.1-guide.md) 。
 - `project-managers.example.json`：只含虚拟人员的统一账号示例，纳入Git；不是自动启用的账号，也不含密码。
 - `project-managers.json`：本机实际统一账号配置，包含管理员与技术项目经理，排除Git。首次启动由初始化流程建立；参照示例维护真实人员时保留已登记管理员的后台编号及已有owner_ids。详见[名单维护](../docs/project-manager-config.md) 。

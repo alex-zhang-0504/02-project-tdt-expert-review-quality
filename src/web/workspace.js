@@ -21,6 +21,7 @@ window.workspace = {
   },
   async initialize() {
     this.releaseLoginReveal?.();
+    scoreStatistics.sortKey='total';scoreStatistics.sortDirection='desc';
     const session=await requestJson('/api/workspace/session');
     this.user=session.user;this.users=session.users;this.accountsFile=session.accounts_file;this.view='management';
     document.body.dataset.workspaceRole=this.user?.role||'guest';

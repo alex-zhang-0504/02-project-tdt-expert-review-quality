@@ -5,6 +5,8 @@ for(const match of html.matchAll(/id="([^"]+)"/g))nodes['#'+match[1]]={innerHTML
 const root={state:{analysis:{}},sq:s=>{assert.ok(nodes[s],`Missing DOM target ${s}`);return nodes[s];},
  escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),makeTableScrollable(){}};
 vm.createContext(root);
+root.document={addEventListener(){}};
+vm.runInContext(fs.readFileSync('src/web/reviewer-filter.js','utf8'),root);
 vm.runInContext(app.slice(app.indexOf('function importHint('),app.indexOf('function renderIssues(')),root);
 assert.ok(root.importHint('虚拟<说明>"').includes('&lt;说明>&quot;'));
 vm.runInContext(fs.readFileSync('src/web/score-statistics.js','utf8'),root);

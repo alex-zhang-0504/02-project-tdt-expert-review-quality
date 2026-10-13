@@ -1,5 +1,5 @@
 {
-  "version": "4",
+  "version": "5",
   "instructions": "请回顾本考核周期内，你与该评审人共同参与的项目评审。前五题看他平时的表现，不只看最近一次或印象最深的一次；第六题看有没有具体的突出贡献。不了解或没有足够依据时，选择暂无法判断，不要把不了解当作表现不好。",
   "unable": {
     "title": "暂无法判断",
@@ -144,33 +144,51 @@
   ],
   "scores": {
     "preparation": {
-      "high": 10,
-      "medium": 7,
-      "low": 2
+      "high": 6,
+      "medium": 3,
+      "low": 1
     },
     "judgment": {
-      "high": 15,
-      "medium": 10,
+      "high": 8,
+      "medium": 4,
       "low": 0
     },
     "guidance": {
-      "high": 15,
-      "medium": 10,
+      "high": 8,
+      "medium": 4,
       "low": 0
     },
     "verification": {
-      "high": 10,
-      "medium": 7,
+      "high": 6,
+      "medium": 3,
       "low": 0
     },
     "collaboration": {
-      "high": 10,
-      "medium": 7,
+      "high": 6,
+      "medium": 3,
       "low": 0
     },
     "contribution": {
-      "high": 10,
+      "high": 6,
       "low": 0
     }
+  },
+  "evidence": {
+    "preparation": [],
+    "judgment": [
+      "low"
+    ],
+    "guidance": [
+      "low"
+    ],
+    "verification": [
+      "low"
+    ],
+    "collaboration": [
+      "low"
+    ],
+    "contribution": [
+      "high"
+    ]
   }
 }

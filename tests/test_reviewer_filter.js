@@ -43,3 +43,19 @@ root.updateReviewerSelectAll();
 assert.equal(elements['#reviewer-filter-all'].disabled,true);
 assert.equal(elements['#reviewer-filter-all'].indeterminate,false);
 console.log('姓名／全拼多关键词任一匹配、半选及空结果禁用通过');
+root.objectiveReviewers('subjective');
+root.objectiveReviewers('total');
+vm.runInContext("reviewerFilters.subjective.names=new Set(['虚拟甲']);reviewerFilters.total.names=new Set(['Virtual Beta']);reviewerFilterScope='subjective';",root);
+assert.equal(root.objectiveReviewerVisible('虚拟甲','subjective'),true);
+assert.equal(root.objectiveReviewerVisible('Virtual Beta','subjective'),false);
+assert.equal(root.objectiveReviewerVisible('虚拟甲','total'),false);
+assert.equal(root.objectiveReviewerVisible('Virtual Beta'),true);
+elements['#reviewer-filter-search'].value='虚拟甲';
+root.updateReviewerSelectAll();
+assert.equal(elements['#reviewer-filter-all'].checked,true);
+root.state.analysis.analysis_id='third';
+for(const scope of ['objective','subjective','total']){
+  assert.match(root.objectiveReviewerHeader(scope),/全部/);
+  assert.equal(root.objectiveReviewerVisible('虚拟甲',scope),true);
+}
+console.log('客观、主观及总分筛选互相独立，搜索按当前表匹配，切换任务分别重置通过');

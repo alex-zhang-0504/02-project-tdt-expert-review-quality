@@ -30,7 +30,7 @@ def analysis(sessions):
 class ScoreStatisticsTests(unittest.TestCase):
     def test_pending_solution_does_not_block_basic_score(self):
         row = self.row([session(statuses=("pending", "no"))])
-        self.assertEqual(25, row["objective_total"])
+        self.assertEqual(50, row["objective_total"])
         self.assertEqual(1, row["opinion_bonus"])
         self.assertIsNone(row["solution_bonus"])
         self.assertIsNone(row["total"])
@@ -50,10 +50,10 @@ class ScoreStatisticsTests(unittest.TestCase):
         value = analysis([session(project=str(i), statuses=("yes", "yes", "no", "no", "no", "no") if i == 0 else ()) for i in range(4)])
         value.experts.append(ExpertFacts("虚拟甲", [session(project=f"other{i}") for i in range(6)], {}, {}))
         row = build_statistics(value, True)["rows"][0]
-        self.assertEqual((25, 60, 2, 4, 91), (row["objective_total"], row["subjective_total"], row["opinion_bonus"], row["solution_bonus"], row["total"]))
+        self.assertEqual((50, 34, 2, 4, 90), (row["objective_total"], row["subjective_total"], row["opinion_bonus"], row["solution_bonus"], row["total"]))
 
     def test_bonus_below_at_and_above_target(self):
-        for count, base, bonus in [(2, 5, 0), (4, 10, 0), (5, 10, 1), (6, 10, 2), (8, 10, 4)]:
+        for count, base, bonus in [(2, 10, 0), (4, 20, 0), (5, 20, 1), (6, 20, 2), (8, 20, 4)]:
             sessions = [session(project=str(i), statuses=("yes",) * count if i == 0 else ()) for i in range(4)]
             result = stage_score(sessions)
             self.assertEqual(base, result["components"]["opinion"])
@@ -62,14 +62,14 @@ class ScoreStatisticsTests(unittest.TestCase):
     def test_bonus_is_not_weighted_or_offset_by_other_stage(self):
         row = self.row([session(statuses=("yes",) * 5), session("TDR2"), session("TDR3")])
         self.assertEqual(4, row["opinion_bonus"])
-        self.assertEqual(19, row["process_total"])
+        self.assertEqual(38, row["process_total"])
         self.assertEqual(10, row["solution_bonus"])
-        self.assertEqual(98, row["total"])
+        self.assertEqual(96, row["total"])
 
     def test_bonus_caps_total_and_cannot_bypass_missing_questionnaire(self):
         value = analysis([session(statuses=("yes",) * 30)])
         row = build_statistics(value, True)["rows"][0]
-        self.assertEqual((29, 174, 100), (row["opinion_bonus"], row["uncapped_total"], row["total"]))
+        self.assertEqual((29, 173, 100), (row["opinion_bonus"], row["uncapped_total"], row["total"]))
         value.subjective_reviews.clear()
         self.assertIsNone(build_statistics(value, True)["rows"][0]["total"])
 
@@ -78,19 +78,19 @@ class ScoreStatisticsTests(unittest.TestCase):
         value.experts = [ExpertFacts(f"虚拟{i}", [session(project=str(j)) for j in range(count)], {}, {})
                          for i, count in enumerate([6, 6, 4, 3, 2])]
         rows = build_statistics(value, True)["rows"]
-        self.assertEqual([5, 5, 0, 0, 0], [r["participation_score"] for r in rows])
+        self.assertEqual([10, 10, 0, 0, 0], [r["participation_score"] for r in rows])
         value.experts[-1].sessions[0].attended = None
         self.assertTrue(all(r["participation_score"] is None for r in build_statistics(value, True)["rows"]))
 
     def test_participation_percentile_boundaries_and_ties(self):
         for counts, expected in [
-            ([10, 10, 9, 8, 7, 6, 5, 4, 3, 2], [5, 5, 3, 0, 0, 0, 0, 0, 0, 0]),
-            (list(range(16, 2, -1)), [5, 5, 3, 3, 3] + [0] * 9),
-            ([10, 9, 8, 8, 7, 6, 5, 4, 3, 2], [5, 3, 3, 3, 0, 0, 0, 0, 0, 0]),
-            ([3] * 10, [5] * 10),
+            ([10, 10, 9, 8, 7, 6, 5, 4, 3, 2], [10, 10, 6, 0, 0, 0, 0, 0, 0, 0]),
+            (list(range(16, 2, -1)), [10, 10, 6, 6, 6] + [0] * 9),
+            ([10, 9, 8, 8, 7, 6, 5, 4, 3, 2], [10, 6, 6, 6, 0, 0, 0, 0, 0, 0]),
+            ([3] * 10, [10] * 10),
             ([2] * 10, [0] * 10),
-            ([3], [5]),
-            ([4, 3], [5, 0]),
+            ([3], [10]),
+            ([4, 3], [10, 0]),
             ([], []),
         ]:
             with self.subTest(counts=counts):
@@ -136,9 +136,9 @@ class ScoreStatisticsTests(unittest.TestCase):
         sessions = [session(statuses=("yes", "no")),
                     session("TDR2", ("no",), signed=False), session("TDR3", ("no",))]
         row = self.row(sessions)
-        self.assertEqual([25, 15, 25], [s["score"] for s in row["stages"].values()])
+        self.assertEqual([50, 30, 50], [s["score"] for s in row["stages"].values()])
         self.assertEqual([40, 20, 40], [s["weight"] for s in row["stages"].values()])
-        self.assertEqual((28, 60, 91), (row["objective_total"], row["subjective_total"], row["total"]))
+        self.assertEqual((56, 34, 93), (row["objective_total"], row["subjective_total"], row["total"]))
 
     def test_missing_stages_select_group_but_absence_remains_applicable(self):
         for stages, weights in [(('TDR1', 'TDR2'), (65, 35, 0)),
@@ -149,7 +149,7 @@ class ScoreStatisticsTests(unittest.TestCase):
 
     def test_scope_unconfirmed_retains_subscores_but_no_total(self):
         row = self.row([session()], False)
-        self.assertEqual(15, row["stages"]["TDR1"]["score"])
+        self.assertEqual(30, row["stages"]["TDR1"]["score"])
         self.assertIsNone(row["objective_total"])
         self.assertIsNone(row["total"])
 
@@ -166,13 +166,13 @@ class ScoreStatisticsTests(unittest.TestCase):
         sessions = [session(statuses=("no",))]
         self.assertIsNone(aggregate(sessions)["solution_rate"])
         self.assertEqual(0, stage_score(sessions)["solution_bonus"])
-        self.assertEqual(25, self.row(sessions)["objective_total"])
-        self.assertEqual(15, self.row([session()])["objective_total"])
+        self.assertEqual(50, self.row(sessions)["objective_total"])
+        self.assertEqual(30, self.row([session()])["objective_total"])
 
     def test_counts_aggregate_before_ratio_and_cap_does_not_change_facts(self):
         sessions = [session(statuses=("yes", "yes", "yes")), session(project="SECOND")]
         self.assertEqual(150, aggregate(sessions)["opinion_rate"])
-        self.assertEqual(25, self.row(sessions)["objective_total"])
+        self.assertEqual(50, self.row(sessions)["objective_total"])
         self.assertEqual(150, aggregate(sessions)["opinion_rate"])
 
     def test_suspected_requires_explicit_inclusion(self):
@@ -198,7 +198,7 @@ class ScoreStatisticsTests(unittest.TestCase):
         self.assertIsNone(wb["分数统计（试算）"]["K2"].value)
         self.assertIsNone(wb["分数统计（试算）"]["P2"].value)
         wb = load_workbook(BytesIO(build_statistics_workbook(value, True)))
-        self.assertEqual(75, wb["分数统计（试算）"]["P2"].value)
+        self.assertEqual(64, wb["分数统计（试算）"]["P2"].value)
         self.assertEqual("已确认本次导入范围", dict(wb["使用说明"].values)["范围确认"])
 
     def test_questionnaire_catalog_exposes_no_numeric_scores(self):
@@ -211,7 +211,7 @@ class ScoreStatisticsTests(unittest.TestCase):
         wb = load_workbook(BytesIO(build_statistics_workbook(value, True)))
         sheet = wb["分数统计（试算）"]
         exported = dict(zip(next(sheet.values), list(sheet.values)[1]))
-        for label, key in [("评审过程表现（30）", "objective_total"), ("专业价值贡献（70）", "subjective_total"),
+        for label, key in [("评审过程表现（60）", "objective_total"), ("专业价值贡献（40）", "subjective_total"),
                            ("评审意见超额得分", "opinion_bonus"), ("输出有效对策得分", "solution_bonus"), ("封顶前合计", "uncapped_total"), ("总分（100）", "total")]:
             self.assertEqual(row[key], exported[label])
         self.assertEqual(29, wb["阶段计分依据"]["M2"].value)
@@ -219,7 +219,7 @@ class ScoreStatisticsTests(unittest.TestCase):
     def test_bonus_counts_opinions_with_or_without_solutions(self):
         row = self.row([session(statuses=("no", "yes", "no"))])
         self.assertEqual(2, row["opinion_bonus"])
-        self.assertEqual(10, row["stages"]["TDR1"]["components"]["opinion"])
+        self.assertEqual(20, row["stages"]["TDR1"]["components"]["opinion"])
 
     def test_more_opinions_do_not_compare_against_other_experts(self):
         value = analysis([session(statuses=("yes",) * 5)])

@@ -26,8 +26,8 @@ class SubjectiveV09Tests(unittest.TestCase):
         from tdt_scoring.manager_evaluation import average_review
         from tdt_scoring.scoring_policy import load_policy
         from tdt_scoring.subjective import DIMENSIONS
-        for dimension, options, expected in [('judgment', ['high', 'medium', 'unable'], 12.5),
-                                              ('preparation', ['high', 'high', 'high', 'low'], 7.5)]:
+        for dimension, options, expected in [('judgment', ['high', 'medium', 'unable'], 6),
+                                              ('preparation', ['high', 'high', 'high', 'low'], 4.5)]:
             managers = []
             self.a.manager_reviews = {}
             for index, option in enumerate(options):
@@ -71,10 +71,10 @@ class SubjectiveV09Tests(unittest.TestCase):
         p.ratings['judgment'].reason = '未直接观察相关判断'
         save_review(self.a, p)
         row = self.row()
-        self.assertEqual(15, row['subjective_items'][1]['score'])
+        self.assertEqual(8, row['subjective_items'][1]['score'])
         self.assertEqual(1, row['subjective_items'][1]['valid_count'])
-        self.assertEqual(8.5, row['subjective_items'][0]['score'])
-        self.assertEqual(53, row['subjective_total'])
+        self.assertEqual(4.5, row['subjective_items'][0]['score'])
+        self.assertEqual(27.5, row['subjective_total'])
         self.assertEqual(2, row['subjective_progress']['completed'])
 
     def test_contribution_maximum_and_incomplete_contribution(self):
@@ -85,12 +85,12 @@ class SubjectiveV09Tests(unittest.TestCase):
         self.assertIsNone(self.row()['subjective_total'])
         p.ratings['contribution'].evidence = [EvidenceInput(project_code='B260001', note='虚拟技术贡献及验证记录')]
         save_review(self.a, p)
-        self.assertEqual(70, self.row()['subjective_total'])
+        self.assertEqual(40, self.row()['subjective_total'])
         q = payload(self.a, 'b', self.name)
         q.ratings['contribution'].option = 'high'
         q.ratings['contribution'].evidence = [EvidenceInput(project_code='B260002', note='另一条有效贡献')]
         save_review(self.a, q)
-        self.assertEqual(70, self.row()['subjective_total'])
+        self.assertEqual(40, self.row()['subjective_total'])
 
     def test_true_zero_is_not_excluded_and_no_valid_answer_has_no_total(self):
         self.save('a')
@@ -98,7 +98,7 @@ class SubjectiveV09Tests(unittest.TestCase):
         p.ratings['preparation'].option = 'low'
         p.ratings['preparation'].evidence = [EvidenceInput(project_code='B260002', note='多次明显准备不足的具体事实')]
         save_review(self.a, p)
-        self.assertEqual(5, self.row()['subjective_items'][0]['score'])
+        self.assertEqual(3, self.row()['subjective_items'][0]['score'])
         for mid in ('a', 'b'):
             q = payload(self.a, mid, self.name)
             q.ratings['preparation'].option = 'no_opportunity'

@@ -132,8 +132,8 @@ class AssessmentTests(unittest.TestCase):
         p = self.a.assessment['policy']['parameters']
         p['components']['attendance'] = 9
         row = build_statistics(self.a, True)['rows'][0]
-        self.assertEqual(before['process_total'] + 4, row['process_total'])
-        self.assertEqual(before['objective_with_rewards'] + 4, row['objective_with_rewards'])
+        self.assertEqual(before['process_total'] - 1, row['process_total'])
+        self.assertEqual(before['objective_with_rewards'] - 1, row['objective_with_rewards'])
 
     def test_two_managers_one_vote_each_despite_three_sessions(self):
         self.confirm()
@@ -142,14 +142,14 @@ class AssessmentTests(unittest.TestCase):
         save_review(self.a, payload(self.a, 'a', self.name))
         row = build_statistics(self.a, True)['rows'][0]
         self.assertIsNone(row['subjective_total'])
-        self.assertEqual(60, row['subjective_progress']['provisional'])
+        self.assertEqual(34, row['subjective_progress']['provisional'])
         self.assertEqual(1, row['subjective_progress']['completed'])
         save_review(self.a, payload(self.a, 'b', self.name, False))
         row = build_statistics(self.a, True)['rows'][0]
-        self.assertEqual(50.5, row['subjective_total'])
+        self.assertEqual(25.5, row['subjective_total'])
         self.assertEqual(2, row['subjective_progress']['expected'])
         save_review(self.a, payload(self.a, 'a', self.name, False))
-        self.assertEqual(41, build_statistics(self.a, True)['rows'][0]['subjective_total'])
+        self.assertEqual(17, build_statistics(self.a, True)['rows'][0]['subjective_total'])
 
     def test_unrelated_manager_or_evidence_rejected(self):
         self.confirm()
@@ -167,7 +167,7 @@ class AssessmentTests(unittest.TestCase):
         save_review(self.a, p)
         self.assertIsNone(build_statistics(self.a, True)['rows'][0]['subjective_total'])
         exclude_task(self.a, 'local:b', self.name, '无足够评价依据')
-        self.assertEqual(60, build_statistics(self.a, True)['rows'][0]['subjective_total'])
+        self.assertEqual(34, build_statistics(self.a, True)['rows'][0]['subjective_total'])
         with self.assertRaises(ValueError): save_review(self.a, p)
         exclude_task(self.a, 'local:b', self.name, '')
         self.assertIsNone(build_statistics(self.a, True)['rows'][0]['subjective_total'])

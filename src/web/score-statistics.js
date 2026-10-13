@@ -1,6 +1,22 @@
-function statisticsTable(rows,cap,history=false) {return `<table class="score-table"><thead><tr><th>评审人</th><th>客观总得分（含奖励）</th><th>主观最终分</th><th>总分／${cap}</th><th>状态</th>${history?'':'<th>依据</th>'}</tr></thead><tbody>${rows.map((r,index)=>`<tr><th>${escapeHtml(r.expert_name)}</th><td>${scoreText(r.objective_with_rewards)}</td><td>${scoreText(r.subjective_total)}</td><td>${scoreText(r.total)}</td><td>${history?'已完成':r.total===null?'待统计':r.suspected?'试算 · 含待确认':'试算'}</td>${history?'':`<td><button class="secondary-button" data-score-detail="${index}">查看明细</button></td>`}</tr>`).join('')}</tbody></table>`;}
+function statisticsTable(rows,cap,history=false) {
+  const columns=[['objective_with_rewards','客观总得分'],['subjective_total','主观总得分'],['total',`总分／${cap}`]];
+  const reviewerHeader=history?'评审人':objectiveReviewerHeader('total');
+  const displayed=rows.map((r,index)=>({r,index})).filter(({r})=>history||objectiveReviewerVisible(r.expert_name,'total'));
+  if(!history) displayed.sort((a,b)=>{
+    const left=a.r[scoreStatistics.sortKey],right=b.r[scoreStatistics.sortKey];
+    if(left==null)return right==null?a.index-b.index:1;
+    if(right==null)return -1;
+    return (Number(left)-Number(right))*(scoreStatistics.sortDirection==='asc'?1:-1)||a.index-b.index;
+  });
+  const headers=columns.map(([key,label])=>{
+    if(history)return `<th>${label}</th>`;
+    const active=scoreStatistics.sortKey===key,ascending=scoreStatistics.sortDirection==='asc';
+    return `<th aria-sort="${active?(ascending?'ascending':'descending'):'none'}"><button type="button" class="score-sort-button" data-score-sort="${key}" aria-label="${label}，点击按${active&&!ascending?'升':'降'}序排列">${label} <span aria-hidden="true">${active?(ascending?'↑':'↓'):'↕'}</span></button></th>`;
+  }).join('');
+  return `<table class="score-table"><thead><tr><th>${reviewerHeader}</th>${headers}<th>状态</th>${history?'':'<th>依据</th>'}</tr></thead><tbody>${displayed.map(({r,index})=>`<tr><th>${escapeHtml(r.expert_name)}</th><td>${scoreText(r.objective_with_rewards)}</td><td>${scoreText(r.subjective_total)}</td><td>${scoreText(r.total)}</td><td>${history?'已完成':r.total===null?'待统计':r.suspected?'试算 · 含待确认':'试算'}</td>${history?'':`<td><button class="secondary-button" data-score-detail="${index}">查看明细</button></td>`}</tr>`).join('')}${!history&&!displayed.length?'<tr><td colspan="6">没有匹配的评审人，请修改筛选。</td></tr>':''}</tbody></table>`;
+}
 
-const scoreStatistics = {analysisId: null, data: null, requestId: 0};
+const scoreStatistics = {analysisId: null, data: null, requestId: 0, sortKey: 'total', sortDirection: 'desc'};
 const scoreText = value => value == null ? "—" : Number(value).toFixed(state.analysis?.assessment?.policy?.parameters?.precision ?? 2).replace(/\.0+$/, "");
 
 function hasUnsavedQuestionnaires() {
@@ -50,9 +66,9 @@ async function refreshScoreStatistics() {
 function renderScoreStatistics() {
   const data = scoreStatistics.data, p=data.policy.parameters;
   sq("#score-statistics-message").textContent = "";
-  sq("#score-method-note").innerHTML = importHint(`客观总得分（含奖励）＋主观最终分，最高${p.total_cap}分；两维分数分别在对应模块第二页查看。尚待验证专业差异、对策识别与样本量，当前结果仅供试算。`);
+  sq("#score-method-note").innerHTML = importHint(`客观总得分＋主观总得分，最高${p.total_cap}分；客观总得分已包含奖励，两维分数分别在对应模块第二页查看。尚待验证专业差异、对策识别与样本量，当前结果仅供试算。`);
   sq("#score-statistics-table").innerHTML = statisticsTable(data.rows,p.total_cap);
-  sq("#score-statistics-details").innerHTML=data.rows.map((r,index)=>`<details class="score-detail" id="score-detail-${index}"><summary>${escapeHtml(r.expert_name)} · 计分依据</summary><p>${escapeHtml(r.reasons.join('；') || '已具备试算条件')}</p><p>过程基础${scoreText(r.objective_total)}＋评审意见超额得分${scoreText(r.opinion_bonus)}＋输出有效对策得分${scoreText(r.solution_bonus)}＝客观总得分${scoreText(r.objective_with_rewards)}。</p><p>客观总得分＋主观最终分${scoreText(r.subjective_total)}＝${scoreText(r.uncapped_total)}；最终${scoreText(r.total)}。</p><button class="secondary-button" data-score-evidence="${index}">查看评审过程详情</button></details>`).join('');
+  sq("#score-statistics-details").innerHTML=data.rows.map((r,index)=>`<details class="score-detail" id="score-detail-${index}" ${objectiveReviewerVisible(r.expert_name,'total')?'':'hidden'}><summary>${escapeHtml(r.expert_name)} · 计分依据</summary><p>${escapeHtml(r.reasons.join('；') || '已具备试算条件')}</p><p>过程基础${scoreText(r.objective_total)}＋评审意见超额得分${scoreText(r.opinion_bonus)}＋输出有效对策得分${scoreText(r.solution_bonus)}＝客观总得分${scoreText(r.objective_with_rewards)}。</p><p>客观总得分＋主观总得分${scoreText(r.subjective_total)}＝${scoreText(r.uncapped_total)}；最终${scoreText(r.total)}。</p><button class="secondary-button" data-score-evidence="${index}">查看评审过程详情</button></details>`).join('');
   sq('#score-statistics-table').querySelectorAll('table').forEach(()=>makeTableScrollable(sq('#score-statistics-table')));
 }
 
@@ -69,6 +85,16 @@ function initializeScoreStatisticsUI() {
   sq("#refresh-score-statistics").addEventListener('click', refreshScoreStatistics);
   sq("#export-score-statistics").addEventListener('click', exportScoreStatistics);
   sq("#score-statistics-table").addEventListener('click', event => {
+    const sort = event.target.closest('[data-score-sort]');
+    if(sort){
+      const key=sort.dataset.scoreSort;
+      if(!scoreStatistics.data||!['objective_with_rewards','subjective_total','total'].includes(key))return;
+      scoreStatistics.sortDirection=scoreStatistics.sortKey===key&&scoreStatistics.sortDirection==='desc'?'asc':'desc';
+      scoreStatistics.sortKey=key;
+      renderScoreStatistics();
+      sq(`#score-statistics-table [data-score-sort="${key}"]`).focus({preventScroll:true});
+      return;
+    }
     const button = event.target.closest('[data-score-detail]');
     if (!button) return;
     const detail = sq(`#score-detail-${button.dataset.scoreDetail}`);

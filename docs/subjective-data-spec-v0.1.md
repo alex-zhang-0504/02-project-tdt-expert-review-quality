@@ -1,5 +1,7 @@
 # 主观评价数据规范V0.1
 
+2026-10-13默认数值更新：六项高档6／8／8／6／6／6、中档3／4／4／3／3、低档1／0／0／0／0／0，突出贡献无中档，主观满分40。算法版本仍为subjective-v0.9；题干、选项含义、依据要求及逐题聚合不变。指定进行中任务更新数值时，同时更新assessment.questionnaire、assessment.policy及匹配旧指纹的问卷questionnaire_hash与revision，保留ratings、依据和评价关系，记录parameter_history。其他任务保留原快照；整数档位不要求多人平均结果为整数。
+
 2026-09-27本机多人版：HTTP提交必须携带`expected_revision`，初次为0；不匹配返回409，锁定或已确认最终结果同样拒绝写入。以登录工号关联`manager_id`，管理员可调整他人问卷；原报告owner_id通过`assessment.manager_accounts`映射并冻结，多个来源身份对应同一工号只计一票。`locked_by_admin`控制经理只读，`assessment.review_history`保存操作人、前后内容与时间。SQLite持久化、工作区及备份接口契约见[多人本机版](multi-user-local-v0.1.md) 。评分算法与问卷题意不变。
 
 2026-09-25配置化：GET `/api/subjective/catalog?analysis_id=...`读取该考核问卷快照；不传编号用于读取当前模板。返回题目内容、统一说明、贡献提示、无法判断提示及`questionnaire_hash`。问卷提交携带该指纹，明确不匹配时拒绝。确认考核保存`assessment.questionnaire`完整配置（含文案与分值），`assessment.policy`保存合并计分参数。两个管理员范围接口`/api/assessment/admin/policy/objective`与`/subjective`支持GET／PUT；PUT须授权及旧指纹，客观只能修改客观字段，主观为文案与scores一次原子保存。内容版本自增，算法版本不变。详见`questionnaire-configuration.md`。

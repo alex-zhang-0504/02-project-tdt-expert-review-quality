@@ -30,16 +30,16 @@ class StagePercentageTests(unittest.TestCase):
                 with self.subTest(stages=stages, defaults=defaults):
                     row = self.score(stages, receipt)
                     self.assertEqual(weights, tuple(s['weight'] for s in row['stages'].values()))
-                    self.assertAlmostEqual(sum(v*w/100 for v,w in zip((25,15,5), weights)), row['process_total'])
+                    self.assertAlmostEqual(sum(v*w/100 for v,w in zip((50,30,10), weights)), row['process_total'])
 
     def test_independent_groups_and_zero_percent_are_valid(self):
         receipt = load_policy()
         receipt['parameters']['stage_percentages']['all'] = {'TDR1': 0, 'TDR2': 100, 'TDR3': 0}
         receipt['parameters']['stage_percentages']['first_third'] = {'TDR1': 70, 'TDR3': 30}
         receipt = parse_policy(json.dumps(receipt['parameters']).encode())
-        self.assertEqual(15, self.score(('TDR1', 'TDR2', 'TDR3'), receipt)['process_total'])
-        self.assertEqual(19, self.score(('TDR1', 'TDR3'), receipt)['process_total'])
-        self.assertEqual(21.5, self.score(('TDR1', 'TDR2'), receipt)['process_total'])
+        self.assertEqual(30, self.score(('TDR1', 'TDR2', 'TDR3'), receipt)['process_total'])
+        self.assertEqual(38, self.score(('TDR1', 'TDR3'), receipt)['process_total'])
+        self.assertEqual(43, self.score(('TDR1', 'TDR2'), receipt)['process_total'])
 
     def test_invalid_group_cannot_be_saved(self):
         original = load_policy()['parameters']
@@ -71,7 +71,7 @@ class StagePercentageTests(unittest.TestCase):
     def test_export_uses_same_combination_result(self):
         value = analysis([session('TDR1', ('yes',)), session('TDR2')])
         data = build_statistics(value, True)
-        self.assertEqual(21.5, data['rows'][0]['process_total'])
+        self.assertEqual(43, data['rows'][0]['process_total'])
         book = load_workbook(BytesIO(build_statistics_workbook(value, True)), data_only=True)
         stage_rows = list(book.worksheets[1].values)
         self.assertTrue(any(65 in row and 'TDR1' in row for row in stage_rows))

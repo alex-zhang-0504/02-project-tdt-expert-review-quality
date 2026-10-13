@@ -75,6 +75,8 @@
 .score-table tbody th { overflow-wrap: anywhere; }
 .score-summary-table tbody td:nth-child(10) { background: var(--accent-soft); }
 .score-table .ghost-button { min-height: 34px; padding: 6px 8px; font-size: var(--font-size-supporting); white-space: nowrap; }
+.score-table .score-sort-button { border: 0; background: transparent; color: inherit; font: inherit; padding: 6px 0; width: 100%; cursor: pointer; text-align: inherit; }
+.score-table .score-sort-button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .score-table thead th { background: var(--accent); color: var(--accent-ink); border-right-color: var(--head-cell-line); }
 .score-table tbody tr:nth-child(even) { background: var(--surface-soft); }
 .score-table tbody th { border-right-color: var(--line-strong); }

@@ -63,7 +63,7 @@ class QuestionnaireConfigTests(PolicyAdminTests):
         self.assertEqual(book['主观打分']['B1'].value,original['parameters']['dimensions'][0]['title'])
         new=sample();confirm_roster(new,[name],'new')
         for mid in ('a','b'): save_review(new,payload(new,mid,name))
-        self.assertEqual(build_statistics(new)['rows'][0]['subjective_total'],old_total+1)
+        self.assertEqual(build_statistics(new)['rows'][0]['subjective_total'],old_total+5)
         self.assertEqual(questionnaire.dimensions(new)[0]['title'],'虚拟新版题目')
         self.app=self.new_app()
         self.assertEqual(self.request('policy/subjective',method='GET')[1]['sha256'],receipt['sha256'])
